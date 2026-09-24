@@ -45,6 +45,8 @@ export function serializeRing(r: any) {
     current_match_id: r.currentMatchId ?? null,
     match_duration_seconds: r.matchDurationSeconds ?? 180,
     mat_name: r.matName ?? null,
+    judge_pin: r.judgePin ?? "1234",
+    judgePin: r.judgePin ?? "1234",
   };
 }
 
@@ -56,7 +58,17 @@ export function serializeCategory(c: any) {
     tournament_id: c.tournamentId,
     name: c.name,
     gender: c.gender,
-    discipline: c.discipline,
+    discipline: c.discipline || (c.eventType === 'kata' ? 'KATA' : 'KUMITE'),
+    event_type: c.eventType || 'kumite',
+    eventType: c.eventType || 'kumite',
+    kata_format: c.kataFormat || 'GROUP_POOLS',
+    kataFormat: c.kataFormat || 'GROUP_POOLS',
+    kata_scoring_mode: c.kataScoringMode || 'FLAG',
+    kataScoringMode: c.kataScoringMode || 'FLAG',
+    pool_size: c.poolSize ?? 8,
+    poolSize: c.poolSize ?? 8,
+    advance_per_pool: c.advancePerPool ?? 2,
+    advancePerPool: c.advancePerPool ?? 2,
     age_category: c.ageCategory,
     weight_category: c.weightCategory,
     sub_category: c.subCategory,
@@ -177,6 +189,54 @@ export function serializeStagerRequest(sr: any) {
     expires_at: sr.expiresAt ? new Date(sr.expiresAt).toISOString() : (sr.expires_at || null),
     created_at: sr.createdAt ? new Date(sr.createdAt).toISOString() : (sr.created_at || null),
     updated_at: sr.updatedAt ? new Date(sr.updatedAt).toISOString() : (sr.updated_at || null),
+  };
+}
+
+export function serializeMatch(m: any) {
+  if (!m) return null;
+  return {
+    ...m,
+    id: m.id,
+    category_id: m.categoryId || m.category_id,
+    match_no: m.matchNo ?? m.match_no,
+    round_no: m.roundNo ?? m.round_no,
+    round_name: m.roundName || m.round_name,
+    bracket_type: m.bracketType || m.bracket_type || 'MAIN',
+    status: m.status,
+    winner_id: m.winnerId || m.winner_id,
+    aka_score: m.akaScore ?? m.aka_score ?? 0,
+    ao_score: m.aoScore ?? m.ao_score ?? 0,
+    aka_penalties: m.akaPenalties ?? m.aka_penalties ?? 0,
+    ao_penalties: m.aoPenalties ?? m.ao_penalties ?? 0,
+    senshu: m.senshu,
+    winner_side: m.winnerSide || m.winner_side,
+    decision_method: m.decisionMethod || m.decision_method,
+    kata_scoring_mode: m.kataScoringMode || m.kata_scoring_mode || 'FLAG',
+    pool_group: m.poolGroup || m.pool_group,
+    aka_kata_name: m.akaKataName || m.aka_kata_name,
+    ao_kata_name: m.aoKataName || m.ao_kata_name,
+    aka_flags: m.akaFlags ?? m.aka_flags ?? 0,
+    ao_flags: m.aoFlags ?? m.ao_flags ?? 0,
+    aka_score_total: m.akaScoreTotal ? String(m.akaScoreTotal) : (m.aka_score_total ? String(m.aka_score_total) : null),
+    ao_score_total: m.aoScoreTotal ? String(m.aoScoreTotal) : (m.ao_score_total ? String(m.ao_score_total) : null),
+  };
+}
+
+export function serializeKataScore(ks: any) {
+  if (!ks) return null;
+  return {
+    ...ks,
+    id: ks.id,
+    match_id: ks.matchId || ks.match_id,
+    athlete_id: ks.athleteId || ks.athlete_id,
+    target_side: ks.targetSide || ks.target_side,
+    judge_seat: ks.judgeSeat ?? ks.judge_seat,
+    score_type: ks.scoreType || ks.score_type,
+    flag_vote: ks.flagVote || ks.flag_vote,
+    numeric_score: ks.numericScore ? Number(ks.numericScore) : (ks.numeric_score ? Number(ks.numeric_score) : null),
+    is_dropped: ks.isDropped ?? ks.is_dropped ?? false,
+    is_overridden: ks.isOverridden ?? ks.is_overridden ?? false,
+    created_at: ks.createdAt ? new Date(ks.createdAt).toISOString() : null,
   };
 }
 

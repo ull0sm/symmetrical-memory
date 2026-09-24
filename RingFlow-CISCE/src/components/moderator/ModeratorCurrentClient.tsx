@@ -17,6 +17,8 @@ import { normalizeClock, type RingClock } from "@/lib/matchClock";
 import { getCategoryDraw } from "@/actions/draws";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { BoutScoringPad } from "@/components/moderator/BoutScoringPad";
+import { KataScoringPad } from "@/components/moderator/KataScoringPad";
+import { KataPoolTableDraw } from "@/components/draw/KataPoolTableDraw";
 import { BoutPickerModal } from "@/components/moderator/BoutPickerModal";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
 import MatchTimer from "@/components/moderator/MatchTimer";
@@ -42,6 +44,7 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
   // clock and the point buttons stay in reach on a phone.
   const [showBoutSelector, setShowBoutSelector] = useState(false);
   const [activeMode, setActiveMode] = useState<"digital" | "counter">("digital");
+  const [kataViewTab, setKataViewTab] = useState<"pad" | "table">("pad");
   const [showBracketModal, setShowBracketModal] = useState(false);
   const [showDisplayPanel, setShowDisplayPanel] = useState(false);
   const [deskSidesSwapped, setDeskSidesSwapped] = useState<boolean>(() => {
@@ -566,37 +569,116 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
 
           {/* Active Bout Scoring Pad with unified clock */}
           {boutData.currentMatch ? (
-            <BoutScoringPad
-              match={boutData.currentMatch}
-              ringId={ringId}
-              categoryName={activeAssignment.categories?.name || "Category"}
-              clock={normalizeClock(boutData.clock ?? boutData.ring)}
-              serverNow={boutData.serverNow}
-              serverNowSentAt={boutData.serverNowSentAt}
-              serverNowReceivedAt={boutData.serverNowReceivedAt}
-              sidesSwapped={boutData.ring?.sidesSwapped ?? false}
-              nextBout={boutData.nextBout}
-              deskSidesSwapped={deskSidesSwapped}
-              onToggleDeskSides={toggleDeskSides}
-              deskFontSize={deskFontSize}
-              onBoutCompleted={() => {
-                const wasAlreadyConfirmed = boutData?.currentMatch?.status === "CONFIRMED";
-                if (!wasAlreadyConfirmed) {
-                  // Instantly increment match count on client for immediate UI feedback
-                  setAssignments((prev) =>
-                    prev.map((a) =>
-                      a.id === activeAssignment.id
-                        ? { ...a, matches_completed: Math.min((activeAssignment.categories?.expected_matches || 99), (a.matches_completed || 0) + 1) }
-                        : a
-                    )
-                  );
-                }
-                setSelectedMatchId(null);
-                loadBoutData();
-                refreshAssignments();
-                router.refresh();
-              }}
-            />
+            (() => {
+              const isKataCategory =
+                activeAssignment?.categories?.discipline === "KATA" ||
+                activeAssignment?.categories?.event_type === "kata" ||
+                activeAssignment?.categories?.eventType === "kata" ||
+                activeAssignment?.categories?.name?.toLowerCase().includes("kata") ||
+                Boolean(boutData.currentMatch.kata_scoring_mode || boutData.currentMatch.kataScoringMode);
+
+              if (isKataCategory) {
+                return (
+                  <div className="space-y-4">
+                    {/* View Switcher for Moderator */}
+                    <div className="flex items-center justify-between bg-white border border-[#E1DDCF] p-1.5 rounded-xl shadow-xs">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setKataViewTab("pad")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold font-data-mono transition-colors ${
+                            kataViewTab === "pad"
+                              ? "bg-[#0E9C7C] text-white shadow-xs"
+                              : "text-[#68645A] hover:bg-[#FAF9F5]"
+                          }`}
+                        >
+                          Tatami Scoring Console
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setKataViewTab("table")}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold font-data-mono transition-colors ${
+                            kataViewTab === "table"
+                              ? "bg-[#0E9C7C] text-white shadow-xs"
+                              : "text-[#68645A] hover:bg-[#FAF9F5]"
+                          }`}
+                        >
+                          Pool Draw Tables
+                        </button>
+                      </div>
+
+                      <span className="text-[11px] font-bold font-data-mono text-[#0E9C7C] px-2 hidden sm:inline">
+                        Kata Competition Mode
+                      </span>
+                    </div>
+
+                    {kataViewTab === "pad" ? (
+                      <KataScoringPad
+                        ringId={ringId}
+                        activeMatch={boutData.currentMatch}
+                        category={activeAssignment.categories}
+                        scores={boutData.currentMatch.kataScores || []}
+                        judgePin={boutData.ring?.judgePin || boutData.ring?.judge_pin || "1234"}
+                        onRefresh={() => {
+                          loadBoutData();
+                          refreshAssignments();
+                          router.refresh();
+                        }}
+                        onViewDrawTable={() => setKataViewTab("table")}
+                      />
+                    ) : (
+                      <KataPoolTableDraw
+                        drawData={drawData?.flightDraw}
+                        categoryName={activeAssignment?.categories?.name || "Kata Category"}
+                        matches={drawData?.matches || []}
+                        allAthletes={allAthletes || []}
+                        isModerator={true}
+                        onRefresh={() => {
+                          loadBoutData();
+                          refreshAssignments();
+                          router.refresh();
+                        }}
+                        onSelectMatch={(m) => handleSelectBout(m.id)}
+                      />
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <BoutScoringPad
+                  match={boutData.currentMatch}
+                  ringId={ringId}
+                  categoryName={activeAssignment.categories?.name || "Category"}
+                  clock={normalizeClock(boutData.clock ?? boutData.ring)}
+                  serverNow={boutData.serverNow}
+                  serverNowSentAt={boutData.serverNowSentAt}
+                  serverNowReceivedAt={boutData.serverNowReceivedAt}
+                  sidesSwapped={boutData.ring?.sidesSwapped ?? false}
+                  nextBout={boutData.nextBout}
+                  deskSidesSwapped={deskSidesSwapped}
+                  onToggleDeskSides={toggleDeskSides}
+                  deskFontSize={deskFontSize}
+                  onBoutCompleted={() => {
+                    const wasAlreadyConfirmed = boutData?.currentMatch?.status === "CONFIRMED";
+                    if (!wasAlreadyConfirmed) {
+                      // Instantly increment match count on client for immediate UI feedback
+                      setAssignments((prev) =>
+                        prev.map((a) =>
+                          a.id === activeAssignment.id
+                            ? { ...a, matches_completed: Math.min((activeAssignment.categories?.expected_matches || 99), (a.matches_completed || 0) + 1) }
+                            : a
+                        )
+                      );
+                    }
+                    setSelectedMatchId(null);
+                    loadBoutData();
+                    refreshAssignments();
+                    router.refresh();
+                  }}
+                />
+              );
+            })()
           ) : (
             <div className="p-8 bg-white rounded-2xl border border-[#E1DDCF] text-center">
               <span className="material-symbols-outlined text-4xl text-neutral-400 mb-2">sports_martial_arts</span>

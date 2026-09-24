@@ -73,6 +73,7 @@ export const rings = pgTable(
     sidesSwapped: boolean('sides_swapped').notNull().default(false),
     currentMatchId: text('current_match_id'),
     matchDurationSeconds: integer('match_duration_seconds').notNull().default(180),
+    judgePin: text('judge_pin').notNull().default('1234'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
@@ -99,6 +100,11 @@ export const categories = pgTable('categories', {
   docUrl: text('doc_url'),
   // Null means "inherit the tournament's default".
   bronzeMedals: integer('bronze_medals'),
+  eventType: text('event_type').notNull().default('kumite'), // 'kumite' | 'kata' | 'team_kumite' | 'team_kata'
+  kataFormat: text('kata_format').notNull().default('GROUP_POOLS'), // 'BRACKET' | 'GROUP_POOLS'
+  kataScoringMode: text('kata_scoring_mode').notNull().default('FLAG'), // 'FLAG' | 'POINTS'
+  poolSize: integer('pool_size').notNull().default(8),
+  advancePerPool: integer('advance_per_pool').notNull().default(2),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
@@ -354,8 +360,39 @@ export const matches = pgTable(
     senshu: text('senshu'),
     winnerSide: text('winner_side'),
     decisionMethod: text('decision_method'),
+    kataScoringMode: text('kata_scoring_mode').default('FLAG'), // 'FLAG' | 'POINTS'
+    poolGroup: text('pool_group'), // e.g. 'Pool A', 'Pool B', 'Final Flight'
+    akaKataName: text('aka_kata_name'),
+    aoKataName: text('ao_kata_name'),
+    akaFlags: integer('aka_flags').notNull().default(0),
+    aoFlags: integer('ao_flags').notNull().default(0),
+    akaScoreTotal: numeric('aka_score_total', { precision: 5, scale: 2 }),
+    aoScoreTotal: numeric('ao_score_total', { precision: 5, scale: 2 }),
   },
   (table) => [unique().on(table.categoryId, table.matchNo)]
+);
+
+export const kataScores = pgTable(
+  'kata_scores',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    matchId: text('match_id')
+      .notNull()
+      .references(() => matches.id, { onDelete: 'cascade' }),
+    athleteId: uuid('athlete_id').references(() => athletes.id, { onDelete: 'set null' }),
+    targetSide: text('target_side').notNull().default('AKA'), // 'AKA' | 'AO' | 'BOTH'
+    judgeSeat: integer('judge_seat').notNull(), // 1 to 7
+    judgeDeviceToken: text('judge_device_token'),
+    scoreType: text('score_type').notNull().default('FLAG'), // 'FLAG' | 'POINT'
+    flagVote: text('flag_vote'), // 'AKA' | 'AO'
+    numericScore: numeric('numeric_score', { precision: 4, scale: 2 }),
+    isDropped: boolean('is_dropped').notNull().default(false),
+    isOverridden: boolean('is_overridden').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [unique().on(table.matchId, table.judgeSeat, table.targetSide)]
 );
 
 export const matchSlots = pgTable(
@@ -459,5 +496,17 @@ export const eventLogRelations = relations(eventLog, ({ one }) => ({
   tournament: one(tournaments, { fields: [eventLog.tournamentId], references: [tournaments.id] }),
   ring: one(rings, { fields: [eventLog.ringId], references: [rings.id] }),
   category: one(categories, { fields: [eventLog.categoryId], references: [categories.id] }),
+}));
+
+export const matchesRelations = relations(matches, ({ one, many }) => ({
+  category: one(categories, { fields: [matches.categoryId], references: [categories.id] }),
+  slots: many(matchSlots),
+  events: many(matchEvents),
+  kataScores: many(kataScores),
+}));
+
+export const kataScoresRelations = relations(kataScores, ({ one }) => ({
+  match: one(matches, { fields: [kataScores.matchId], references: [matches.id] }),
+  athlete: one(athletes, { fields: [kataScores.athleteId], references: [athletes.id] }),
 }));
 

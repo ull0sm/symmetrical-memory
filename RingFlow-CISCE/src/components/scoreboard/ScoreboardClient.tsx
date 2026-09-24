@@ -257,26 +257,45 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
   const category = data?.category;
   const ring = data?.ring;
 
-  const isDecided = currentMatch?.status === "CONFIRMED";
-  const akaWon = isDecided && currentMatch?.winnerId && currentMatch.winnerId === currentMatch.aka?.id;
-  const aoWon = isDecided && currentMatch?.winnerId && currentMatch.winnerId === currentMatch.ao?.id;
+  const isKata =
+    category?.discipline === "KATA" ||
+    category?.event_type === "kata" ||
+    category?.eventType === "kata" ||
+    category?.name?.toLowerCase().includes("kata") ||
+    Boolean(currentMatch?.kataScoringMode || currentMatch?.kata_scoring_mode);
+
+  const isPointsMode =
+    category?.kata_scoring_mode === "POINTS" ||
+    currentMatch?.kata_scoring_mode === "POINTS";
+
+  const akaDisplayScore = isKata
+    ? (isPointsMode ? Number(currentMatch?.aka_score_total || currentMatch?.akaScoreTotal || 0) : (currentMatch?.aka_flags ?? currentMatch?.akaFlags ?? 0))
+    : (currentMatch?.akaScore ?? 0);
+
+  const aoDisplayScore = isKata
+    ? (isPointsMode ? Number(currentMatch?.ao_score_total || currentMatch?.aoScoreTotal || 0) : (currentMatch?.ao_flags ?? currentMatch?.aoFlags ?? 0))
+    : (currentMatch?.aoScore ?? 0);
+
+  const isDecided = currentMatch?.status === "CONFIRMED" || currentMatch?.status === "COMPLETED";
+  const akaWon = isDecided && (currentMatch?.winnerSide === "AKA" || (currentMatch?.winnerId && currentMatch.winnerId === currentMatch.aka?.id));
+  const aoWon = isDecided && (currentMatch?.winnerSide === "AO" || (currentMatch?.winnerId && currentMatch.winnerId === currentMatch.ao?.id));
   const swapped = Boolean(ring?.sidesSwapped);
 
   const aka = {
     side: "AKA" as const,
     fighter: currentMatch?.aka ?? { name: "TBD" },
-    score: currentMatch?.akaScore ?? 0,
-    penalties: currentMatch?.akaPenalties ?? 0,
-    hasSenshu: currentMatch?.senshu === "AKA",
+    score: akaDisplayScore,
+    penalties: isKata ? 0 : (currentMatch?.akaPenalties ?? 0),
+    hasSenshu: isKata ? false : (currentMatch?.senshu === "AKA"),
     isWinner: Boolean(akaWon),
   };
 
   const ao = {
     side: "AO" as const,
     fighter: currentMatch?.ao ?? { name: "TBD" },
-    score: currentMatch?.aoScore ?? 0,
-    penalties: currentMatch?.aoPenalties ?? 0,
-    hasSenshu: currentMatch?.senshu === "AO",
+    score: aoDisplayScore,
+    penalties: isKata ? 0 : (currentMatch?.aoPenalties ?? 0),
+    hasSenshu: isKata ? false : (currentMatch?.senshu === "AO"),
     isWinner: Boolean(aoWon),
   };
 

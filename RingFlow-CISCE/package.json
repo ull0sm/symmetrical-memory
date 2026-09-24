@@ -14,6 +14,7 @@
     "start": "next start -H 0.0.0.0 -p 3000",
     "lint": "eslint",
     "db:push": "drizzle-kit push",
+    "db:migrate": "npx tsx scripts/migrate-kata-schema.ts",
     "db:bootstrap": "npx tsx scripts/bootstrap-db.ts",
     "db:seed": "npx tsx scripts/seed-realistic-tournament.ts",
     "db:reset": "npx tsx scripts/reset-and-seed-clean.ts",

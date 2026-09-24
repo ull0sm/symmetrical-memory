@@ -173,6 +173,9 @@ export async function assembleCategoryDraw(
     };
   }
 
+  // Category athletes for Kata pool and flight rendering
+  const catAthletes = athleteList.filter((a) => a.categoryId === categoryId);
+
   return {
     locked: false,
     isDrawLocked: draw.state === "LOCKED",
@@ -182,6 +185,7 @@ export async function assembleCategoryDraw(
     /** How this bracket was built: 0, 1 or 2 bronze medals. */
     bronzeMedals: draw.bronzeMedals ?? 2,
     matches: Object.values(matchesMap),
+    athletes: catAthletes,
     podium: resolved.podium,
     highlightAthleteId: options?.athleteId ?? null,
   };

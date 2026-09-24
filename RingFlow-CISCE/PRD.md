@@ -105,6 +105,33 @@ No login is required.
 
 ---
 
+## 4. Judge / Referee (Ephemeral Tatami Official)
+
+Judges evaluate Kata and Kumite bouts directly from ringside.
+
+Responsibilities include:
+
+* Casting electronic flag votes (AKA vs AO) in Majority Vote Kata bouts.
+* Entering numeric performance marks (5.0 to 10.0) in Classical / Point Kata categories.
+* Connecting seamlessly via dynamic tatami QR code or 4-digit PIN on their own mobile devices over guest Wi-Fi or cellular networks without needing access to the venue LAN.
+* Rotating between rings and seats dynamically with zero administrative overhead.
+
+---
+
+# Supported Disciplines & Event Formats
+
+RingFlow supports official WKF Karate and grassroots / school tournament formats across four distinct disciplines:
+
+1. **Individual Kumite**: Head-to-head combat scoring (Yuko, Waza-ari, Ippon, Senshu advantage, Category 1 & 2 penalties, official decision methods).
+2. **Individual Kata**:
+   * **WKF 2026 Majority Vote / Flag System**: 3 or 5 judges submit electronic votes (AKA vs AO). Eliminates point summation; winner is decided by majority flag count.
+   * **Classical Point System (WKF 2019-2025 & School/Festival)**: 5 or 7 judges enter decimal marks (5.0 - 10.0); system automatically trims highest and lowest scores and calculates the sum.
+3. **Team Kata**: Synchronized 3-person team performances. Medal rounds feature Kata + Bunkai (practical martial application) with a strict 5:00 minute (300 seconds) countdown timer and acoustic warnings at 4:30.
+4. **Team Kumite**: Squad bouts (5 bouts for Male teams, 3 bouts for Female teams). Lineup submission per round, Hikiwake (draw) support in individual bouts, victory decided by bout wins, then point differentials, then sudden-death deciding bouts.
+
+
+---
+
 # Tournament Setup Workflow
 
 ## Step 1 – Create Tournament
@@ -797,10 +824,22 @@ High-level only — no schema or implementation detail here by design.
 - All displayed state — completed counts, percentages, ring status, ETA — is derived from the event log at read time rather than stored as separately mutable fields. This is a deliberate constraint: it keeps the displayed state and the historical record from ever drifting apart.
 - Realtime updates pushed to admin dashboards and public views via Supabase Realtime, so neither role needs to manually refresh.
 
-### 5.4 Hosting
+### 5.4 Network Topology: Hybrid Split-Plane Architecture
 
-- Vercel for the application
-- Supabase-hosted Postgres/Auth/Realtime
+Large multi-ring tournaments face a critical network friction point: administrative officials (Admin, Organiser, Stager, Ring Moderator, TV Scoreboards) require a protected, low-latency Venue Local Area Network (LAN), whereas volunteer judges frequently rotate, walk in and out between bouts, and cannot be granted LAN Wi-Fi credentials.
+
+RingFlow solves this with a **Split-Plane Ingress Model**:
+- **Venue LAN Plane**: Admin (`/admin`), Organiser (`/organiser`), Stager (`/stager`), Moderator Desk (`/moderator/*`), and Arena Scoreboards (`/scoreboard/*`) operate strictly within the private local subnet (e.g. `192.168.x.x`).
+- **Public Judge Tunnel Plane**: An isolated secure tunnel (Cloudflare Zero-Trust Tunnel / ngrok) exposes **only** public judge endpoints (`/judge/*` and `/api/judge/*`) to an external URL (e.g., `judge.ringflow.live`).
+- **Route Guarding**: Next.js middleware and tunnel ingress policies block any attempt to reach `/admin` or `/moderator` over the public tunnel with an immediate HTTP 403 Forbidden.
+- **Volunteer Referee Pairing**: Tatami Moderators display a dynamic QR code and 4-digit Tatami PIN. Rotating judges scan the code with their personal phone over 4G/5G cellular data or guest Wi-Fi, pick their judge seat (1–5), and cast votes with zero LAN access required.
+
+### 5.5 Hosting & Infrastructure
+
+- Multi-stage Docker container or standalone Node.js production server.
+- PostgreSQL database with Drizzle ORM and Postgres `LISTEN/NOTIFY` real-time bus.
+- Cloudflare Tunnel daemon (`cloudflared`) for scoped zero-trust judge ingress.
+
 
 ---
 
