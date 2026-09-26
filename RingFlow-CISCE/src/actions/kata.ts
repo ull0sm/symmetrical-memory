@@ -639,8 +639,9 @@ export async function submitModeratorManualKataMarks(params: {
       }
     }
 
-    // 3. If per-judge paired scores provided
-    if (judgeScores && judgeScores.length > 0) {
+    // 3. If per-judge paired scores provided and not already processed via explicit marks
+    const hasExplicitMarks = (akaJudgeMarks && akaJudgeMarks.length > 0) || (aoJudgeMarks && aoJudgeMarks.length > 0);
+    if (!hasExplicitMarks && judgeScores && judgeScores.length > 0) {
       for (const js of judgeScores) {
         const flagVote = js.akaScore > js.aoScore ? "AKA" : js.aoScore > js.akaScore ? "AO" : null;
         if (flagVote === "AKA") calculatedAkaFlags++;
@@ -691,10 +692,10 @@ export async function submitModeratorManualKataMarks(params: {
       updatePayload.aoFlags = calculatedAoFlags;
     }
 
-    if (finalAkaScore !== undefined) {
+    if (finalAkaScore !== undefined && finalAkaScore > 0) {
       updatePayload.akaScoreTotal = String(finalAkaScore.toFixed(2));
     }
-    if (finalAoScore !== undefined) {
+    if (finalAoScore !== undefined && finalAoScore > 0) {
       updatePayload.aoScoreTotal = String(finalAoScore.toFixed(2));
     }
 
@@ -764,6 +765,13 @@ export async function submitModeratorManualKataMarks(params: {
       matchId,
       ringId: broadcastRingId,
     });
+
+    if (broadcastRingId) {
+      try {
+        revalidatePath(`/moderator/ring/${broadcastRingId}/current`);
+        revalidatePath(`/scoreboard/${broadcastRingId}`);
+      } catch {}
+    }
 
     return { success: true, winnerSide: resolvedWinnerSide, finalized: finalize };
   } catch (err: any) {

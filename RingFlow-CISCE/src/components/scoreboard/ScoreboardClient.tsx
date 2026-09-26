@@ -91,7 +91,7 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
     }
   }, [ringId]);
 
-  // Poll on a cadence the screen earns: fast only while a clock runs.
+  // Fast polling while clock is running or in active kata bouts; safety net idle cadence otherwise
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -102,7 +102,7 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
         ? HIDDEN_POLL_MS
         : clockStatusRef.current === "running"
           ? RUNNING_POLL_MS
-          : IDLE_POLL_MS;
+          : 8000;
       timer = setTimeout(async () => {
         await fetchBout();
         schedule();
@@ -164,7 +164,7 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
     [fetchBout]
   );
 
-  useLiveEvents({ ringId }, handleLiveEvent, { debounceMs: 0 });
+  const { connected: isLiveStreamConnected } = useLiveEvents({ ringId }, handleLiveEvent, { debounceMs: 0 });
 
   // Chrome (fullscreen button, status) fades out so the screen stays clean.
   const revealChrome = useCallback(() => {
@@ -266,15 +266,22 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
     Boolean(currentMatch?.kataScoringMode || currentMatch?.kata_scoring_mode);
 
   const isPointsMode =
+    category?.kataScoringMode === "POINTS" ||
     category?.kata_scoring_mode === "POINTS" ||
-    currentMatch?.kata_scoring_mode === "POINTS";
+    currentMatch?.kataScoringMode === "POINTS" ||
+    currentMatch?.kata_scoring_mode === "POINTS" ||
+    (isKata &&
+      category?.kataScoringMode !== "FLAG" &&
+      category?.kata_scoring_mode !== "FLAG" &&
+      currentMatch?.kataScoringMode !== "FLAG" &&
+      currentMatch?.kata_scoring_mode !== "FLAG");
 
   const akaDisplayScore = isKata
-    ? (isPointsMode ? Number(currentMatch?.aka_score_total || currentMatch?.akaScoreTotal || 0) : (currentMatch?.aka_flags ?? currentMatch?.akaFlags ?? 0))
+    ? (isPointsMode ? Number(currentMatch?.akaScoreTotal || currentMatch?.aka_score_total || 0) : (currentMatch?.aka_flags ?? currentMatch?.akaFlags ?? 0))
     : (currentMatch?.akaScore ?? 0);
 
   const aoDisplayScore = isKata
-    ? (isPointsMode ? Number(currentMatch?.ao_score_total || currentMatch?.aoScoreTotal || 0) : (currentMatch?.ao_flags ?? currentMatch?.aoFlags ?? 0))
+    ? (isPointsMode ? Number(currentMatch?.aoScoreTotal || currentMatch?.ao_score_total || 0) : (currentMatch?.ao_flags ?? currentMatch?.aoFlags ?? 0))
     : (currentMatch?.aoScore ?? 0);
 
   const isDecided = currentMatch?.status === "CONFIRMED" || currentMatch?.status === "COMPLETED";
@@ -303,7 +310,7 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
   const left = swapped ? ao : aka;
   const right = swapped ? aka : ao;
 
-  const connection = now - lastSyncAt > STALE_MS ? "reconnecting" : "live";
+  const connection = isLiveStreamConnected || now - lastSyncAt <= 15000 ? "live" : "reconnecting";
 
   const nextCategoryName =
     !data?.nextBout && data?.assignment?.status !== "running" ? category?.name ?? null : null;
@@ -339,7 +346,7 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
             aka={aka}
             ao={ao}
             currentMatch={currentMatch}
-            kataScores={data?.kataScores || []}
+            kataScores={currentMatch?.kataScores || data?.kataScores || []}
             isPointsMode={isPointsMode}
           />
         ) : (

@@ -390,7 +390,7 @@ export function KataScoringPad({
         aoKataName: aoKataName.trim() || undefined,
         akaJudgeMarks: cleanAkaMarks,
         aoJudgeMarks: cleanAoMarks,
-        judgeScores: judgeScoresPayload,
+        judgeScores: isPointsMode ? undefined : judgeScoresPayload,
         winnerSide: resolvedWinnerSide,
         finalize,
       });
@@ -504,6 +504,13 @@ export function KataScoringPad({
                   type="text"
                   value={akaKataName}
                   onChange={(e) => setAkaKataName(e.target.value)}
+                  onBlur={() => handleSaveMarks(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleSaveMarks(false);
+                      akaRefs.current[0]?.focus();
+                    }
+                  }}
                   placeholder="e.g. Chatanyara"
                   className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2.5 py-1 text-xs font-bold focus:border-[#DC2626] outline-none transition-colors"
                 />
@@ -711,6 +718,13 @@ export function KataScoringPad({
                   type="text"
                   value={aoKataName}
                   onChange={(e) => setAoKataName(e.target.value)}
+                  onBlur={() => handleSaveMarks(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleSaveMarks(false);
+                      aoRefs.current[0]?.focus();
+                    }
+                  }}
                   placeholder="e.g. Anan Dai"
                   className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2.5 py-1 text-xs font-bold focus:border-[#2563EB] outline-none transition-colors"
                 />

@@ -261,6 +261,7 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
       .from(kataScores)
       .where(eq(kataScores.matchId, boutResult.currentMatch.id));
     boutResult.currentMatch.kataScores = scores;
+    (boutResult as any).kataScores = scores;
   }
 
   return boutResult;
