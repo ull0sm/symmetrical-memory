@@ -452,6 +452,15 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="font-headline-sm text-sm sm:text-lg lg:text-headline-sm text-primary truncate font-bold">{activeAssignment.categories?.name}</h2>
+              {(() => {
+                const ver = drawData?.draw?.version ?? activeAssignment.categories?.draw_version ?? activeAssignment.categories?.drawVersion;
+                if (!ver) return null;
+                return (
+                  <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold font-data-mono bg-blue-50 text-blue-800 border border-blue-200" title={`Draw Version v${ver}`}>
+                    v{ver}
+                  </span>
+                );
+              })()}
               <span className="shrink-0 font-data-mono text-xs font-bold text-secondary">{currentCompleted}/{totalMatches}</span>
               {isUpdatingMatch && <span className="inline-block w-3 h-3 border-2 border-secondary border-t-transparent rounded-full animate-spin"></span>}
             </div>
@@ -619,6 +628,7 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
                         category={activeAssignment.categories}
                         scores={boutData.currentMatch.kataScores || []}
                         judgePin={boutData.ring?.judgePin || boutData.ring?.judge_pin || "1234"}
+                        tunnelUrl={boutData.tournament?.tunnelUrl || boutData.tournament?.tunnel_url}
                         onRefresh={() => {
                           loadBoutData();
                           refreshAssignments();

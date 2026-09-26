@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Edit3,
   X,
+  Hourglass,
 } from "lucide-react";
 import type { KataPool, KataFlightDrawResult } from "@/engine/draw-engine/kataFlightDraw";
 import { OFFICIAL_WKF_KATAS } from "@/lib/kata/officialKataList";
@@ -488,7 +489,7 @@ export function KataPoolTableDraw({
           <div className="overflow-x-auto">
             {finalists.length === 0 ? (
               <div className="py-8 text-center px-4 space-y-1">
-                <span className="material-symbols-outlined text-3xl text-amber-400">hourglass_empty</span>
+                <Hourglass className="w-8 h-8 text-amber-400 mx-auto" />
                 <p className="text-xs font-data-mono font-medium text-[#68645A]">
                   No finalists determined yet.
                 </p>

@@ -19,11 +19,15 @@ export async function updateTournamentSettings(
     show_public_scoreboard?: boolean;
     /** 0 = no bronze, 1 = local official (1 bronze), 2 = official WKF (2 bronzes), 3 = local official (joint 2 bronzes). */
     default_bronze_medals?: 0 | 1 | 2 | 3;
+    tunnel_url?: string | null;
+    tunnelUrl?: string | null;
   }
 ) {
   await ensureAdminOwnsTournament(tournamentId);
 
   const eventDate = data.event_date ? data.event_date.split("T")[0] : null;
+  const rawTunnel = data.tunnel_url ?? data.tunnelUrl ?? null;
+  const cleanTunnel = rawTunnel ? rawTunnel.trim().replace(/\/+$/, "") : null;
 
   await db
     .update(tournaments)
@@ -39,6 +43,7 @@ export async function updateTournamentSettings(
         data.default_bronze_medals === 0 || data.default_bronze_medals === 1 || data.default_bronze_medals === 2
           ? data.default_bronze_medals
           : 2,
+      tunnelUrl: cleanTunnel,
       updatedAt: new Date(),
     })
     .where(eq(tournaments.id, tournamentId));

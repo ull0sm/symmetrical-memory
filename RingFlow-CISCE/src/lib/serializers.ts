@@ -21,6 +21,8 @@ export function serializeTournament(t: any) {
     show_public_draws: t.showPublicDraws ?? true,
     show_public_scoreboard: t.showPublicScoreboard ?? false,
     default_bronze_medals: t.defaultBronzeMedals ?? 2,
+    tunnel_url: t.tunnelUrl ?? null,
+    tunnelUrl: t.tunnelUrl ?? null,
     created_at: t.createdAt ? new Date(t.createdAt).toISOString() : null,
     updated_at: t.updatedAt ? new Date(t.updatedAt).toISOString() : null,
   };
@@ -79,6 +81,8 @@ export function serializeCategory(c: any) {
     custom_rules: c.customRules,
     bronze_medals: c.bronzeMedals ?? c.bronze_medals ?? null,
     draw_state: c.drawState ?? c.draw_state ?? null,
+    draw_version: c.drawVersion ?? c.draw_version ?? c.draw?.version ?? null,
+    drawVersion: c.drawVersion ?? c.draw_version ?? c.draw?.version ?? null,
     is_locked: (c.drawState ?? c.draw_state) === "LOCKED",
     confirmed_matches: c.confirmedMatches ?? c.confirmed_matches ?? 0,
     live_matches: c.liveMatches ?? c.live_matches ?? 0,

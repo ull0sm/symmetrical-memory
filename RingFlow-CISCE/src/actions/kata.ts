@@ -17,10 +17,60 @@ import { serializeMatch, serializeKataScore } from "@/lib/serializers";
 import { revalidatePath } from "next/cache";
 
 /**
+ * Direct fetch of all kata scores for a given match.
+ */
+export async function getMatchKataScores(matchId: string) {
+  try {
+    const scores = await db
+      .select()
+      .from(kataScores)
+      .where(eq(kataScores.matchId, matchId))
+      .orderBy(asc(kataScores.judgeSeat));
+    return { success: true, scores };
+  } catch (err: any) {
+    console.error("Error in getMatchKataScores:", err);
+    return { success: false, error: err.message, scores: [] };
+  }
+}
+
+/**
+ * Resolves the ring ID associated with a match to ensure SSE events
+ * are routed to scoped listeners (moderator & scoreboard screens).
+ */
+async function resolveRingIdForMatch(matchId: string, providedRingId?: string): Promise<string | undefined> {
+  if (providedRingId) return providedRingId;
+  try {
+    const [ringMatch] = await db
+      .select({ id: rings.id })
+      .from(rings)
+      .where(eq(rings.currentMatchId, matchId))
+      .limit(1);
+    if (ringMatch) return ringMatch.id;
+
+    const [matchRow] = await db
+      .select({ categoryId: matches.categoryId })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1);
+    if (matchRow?.categoryId) {
+      const [assign] = await db
+        .select({ ringId: categoryAssignments.ringId })
+        .from(categoryAssignments)
+        .where(eq(categoryAssignments.categoryId, matchRow.categoryId))
+        .limit(1);
+      if (assign?.ringId) return assign.ringId;
+    }
+  } catch (err) {
+    console.error("resolveRingIdForMatch error:", err);
+  }
+  return undefined;
+}
+
+/**
  * Returns the current active Kata state on a specific ring.
  * Used by both the Tatami Moderator Pad and the Mobile Judge Web App.
  */
-export async function getRingKataState(ringId: string) {
+export async function getRingKataState(ringId: string, specificMatchId?: string) {
   try {
     // 1. Fetch Ring info
     const [ring] = await db
@@ -65,7 +115,7 @@ export async function getRingKataState(ringId: string) {
       .limit(1);
 
     // 4. Determine current match
-    let matchId = ring.currentMatchId;
+    let matchId = specificMatchId || ring.currentMatchId;
     let currentMatch: any = null;
 
     if (matchId) {
@@ -178,6 +228,7 @@ export async function verifyJudgePin(ringId: string, pin: string) {
  */
 export async function submitJudgeVote(params: {
   matchId: string;
+  ringId?: string;
   judgeSeat: number;
   targetSide?: "AKA" | "AO" | "BOTH";
   flagVote?: "AKA" | "AO";
@@ -188,6 +239,7 @@ export async function submitJudgeVote(params: {
   try {
     const {
       matchId,
+      ringId,
       judgeSeat,
       targetSide = "AKA",
       flagVote,
@@ -255,11 +307,24 @@ export async function submitJudgeVote(params: {
         .where(eq(matches.id, matchId));
     }
 
-    // Broadcast SSE live event
+    // Resolve Ring ID for targeted SSE broadcasting
+    const broadcastRingId = await resolveRingIdForMatch(matchId, ringId);
+
+    // Broadcast SSE live events with ringId so subscribers (moderator/scoreboard) receive it immediately
+    broadcastLiveEvent({
+      table: "kata_scores",
+      op: "UPDATE",
+      id: matchId,
+      matchId,
+      ringId: broadcastRingId,
+    });
+
     broadcastLiveEvent({
       table: "matches",
       op: "UPDATE",
       id: matchId,
+      matchId,
+      ringId: broadcastRingId,
     });
 
     return { success: true };
@@ -308,10 +373,22 @@ export async function voidJudgeVote(params: {
       .set({ akaFlags, aoFlags })
       .where(eq(matches.id, matchId));
 
+    const broadcastRingId = await resolveRingIdForMatch(matchId);
+
+    broadcastLiveEvent({
+      table: "kata_scores",
+      op: "DELETE",
+      id: matchId,
+      matchId,
+      ringId: broadcastRingId,
+    });
+
     broadcastLiveEvent({
       table: "matches",
       op: "UPDATE",
       id: matchId,
+      matchId,
+      ringId: broadcastRingId,
     });
 
     return { success: true };
@@ -380,11 +457,15 @@ export async function finalizeKataBout(params: {
       .set({ matchesCompleted: completedMatchesCount?.count || 1 })
       .where(eq(categoryAssignments.categoryId, match.categoryId));
 
+    const broadcastRingId = await resolveRingIdForMatch(matchId);
+
     // Broadcast SSE update
     broadcastLiveEvent({
       table: "matches",
       op: "UPDATE",
       id: matchId,
+      matchId,
+      ringId: broadcastRingId,
     });
 
     revalidatePath(`/moderator/ring/[ringId]/current`, "page");
@@ -425,6 +506,14 @@ export async function updateRingJudgePin(ringId: string, newPin: string) {
 }
 
 /**
+ * Generates a fresh random 4-digit PIN for the Tatami and updates the ring.
+ */
+export async function regenerateRingJudgePin(ringId: string) {
+  const newPin = String(Math.floor(1000 + Math.random() * 9000));
+  return updateRingJudgePin(ringId, newPin);
+}
+
+/**
  * Direct moderator entry for Kata marks, declared katas, and bout finalization.
  * Supports small-event direct scoring or manual replacement when a judge is missing.
  */
@@ -436,6 +525,8 @@ export async function submitModeratorManualKataMarks(params: {
   aoKataName?: string;
   akaScore?: number;
   aoScore?: number;
+  akaJudgeMarks?: number[];
+  aoJudgeMarks?: number[];
   judgeScores?: Array<{ seat: number; akaScore: number; aoScore: number }>;
   winnerSide?: "AKA" | "AO";
   finalize?: boolean;
@@ -449,6 +540,8 @@ export async function submitModeratorManualKataMarks(params: {
       aoKataName,
       akaScore,
       aoScore,
+      akaJudgeMarks,
+      aoJudgeMarks,
       judgeScores,
       winnerSide,
       finalize = false,
@@ -473,15 +566,86 @@ export async function submitModeratorManualKataMarks(params: {
 
     let calculatedAkaFlags = 0;
     let calculatedAoFlags = 0;
+    let finalAkaScore = akaScore;
+    let finalAoScore = aoScore;
 
-    // If per-judge scores provided
+    // 1. Process akaJudgeMarks if provided
+    if (akaJudgeMarks && akaJudgeMarks.length > 0) {
+      const { calculateKataScoreDeducing } = await import("@/lib/kata/scoringEngine");
+      const deducing = calculateKataScoreDeducing(akaJudgeMarks);
+      finalAkaScore = deducing.total;
+
+      for (let i = 0; i < akaJudgeMarks.length; i++) {
+        const mark = akaJudgeMarks[i];
+        if (typeof mark === "number" && !isNaN(mark)) {
+          const isDropped = deducing.droppedIndices.includes(i);
+          await db
+            .insert(kataScores)
+            .values({
+              matchId,
+              judgeSeat: i + 1,
+              judgeDeviceToken: "MODERATOR_MANUAL",
+              targetSide: "AKA",
+              scoreType: "POINT",
+              numericScore: String(mark.toFixed(2)),
+              isDropped,
+              isOverridden: true,
+            })
+            .onConflictDoUpdate({
+              target: [kataScores.matchId, kataScores.judgeSeat, kataScores.targetSide],
+              set: {
+                numericScore: String(mark.toFixed(2)),
+                scoreType: "POINT",
+                isDropped,
+                isOverridden: true,
+              },
+            });
+        }
+      }
+    }
+
+    // 2. Process aoJudgeMarks if provided
+    if (aoJudgeMarks && aoJudgeMarks.length > 0) {
+      const { calculateKataScoreDeducing } = await import("@/lib/kata/scoringEngine");
+      const deducing = calculateKataScoreDeducing(aoJudgeMarks);
+      finalAoScore = deducing.total;
+
+      for (let i = 0; i < aoJudgeMarks.length; i++) {
+        const mark = aoJudgeMarks[i];
+        if (typeof mark === "number" && !isNaN(mark)) {
+          const isDropped = deducing.droppedIndices.includes(i);
+          await db
+            .insert(kataScores)
+            .values({
+              matchId,
+              judgeSeat: i + 1,
+              judgeDeviceToken: "MODERATOR_MANUAL",
+              targetSide: "AO",
+              scoreType: "POINT",
+              numericScore: String(mark.toFixed(2)),
+              isDropped,
+              isOverridden: true,
+            })
+            .onConflictDoUpdate({
+              target: [kataScores.matchId, kataScores.judgeSeat, kataScores.targetSide],
+              set: {
+                numericScore: String(mark.toFixed(2)),
+                scoreType: "POINT",
+                isDropped,
+                isOverridden: true,
+              },
+            });
+        }
+      }
+    }
+
+    // 3. If per-judge paired scores provided
     if (judgeScores && judgeScores.length > 0) {
       for (const js of judgeScores) {
         const flagVote = js.akaScore > js.aoScore ? "AKA" : js.aoScore > js.akaScore ? "AO" : null;
         if (flagVote === "AKA") calculatedAkaFlags++;
         if (flagVote === "AO") calculatedAoFlags++;
 
-        // Record AKA score
         await db
           .insert(kataScores)
           .values({
@@ -502,7 +666,6 @@ export async function submitModeratorManualKataMarks(params: {
             },
           });
 
-        // Record AO score
         await db
           .insert(kataScores)
           .values({
@@ -528,11 +691,11 @@ export async function submitModeratorManualKataMarks(params: {
       updatePayload.aoFlags = calculatedAoFlags;
     }
 
-    if (akaScore !== undefined) {
-      updatePayload.akaScoreTotal = String(akaScore.toFixed(2));
+    if (finalAkaScore !== undefined) {
+      updatePayload.akaScoreTotal = String(finalAkaScore.toFixed(2));
     }
-    if (aoScore !== undefined) {
-      updatePayload.aoScoreTotal = String(aoScore.toFixed(2));
+    if (finalAoScore !== undefined) {
+      updatePayload.aoScoreTotal = String(finalAoScore.toFixed(2));
     }
 
     // Determine derived winner if not explicitly passed
@@ -584,10 +747,22 @@ export async function submitModeratorManualKataMarks(params: {
         .where(eq(categoryAssignments.categoryId, match.categoryId));
     }
 
+    const broadcastRingId = await resolveRingIdForMatch(matchId);
+
+    broadcastLiveEvent({
+      table: "kata_scores",
+      op: "UPDATE",
+      id: matchId,
+      matchId,
+      ringId: broadcastRingId,
+    });
+
     broadcastLiveEvent({
       table: "matches",
       op: "UPDATE",
       id: matchId,
+      matchId,
+      ringId: broadcastRingId,
     });
 
     return { success: true, winnerSide: resolvedWinnerSide, finalized: finalize };

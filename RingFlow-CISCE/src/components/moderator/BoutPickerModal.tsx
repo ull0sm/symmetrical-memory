@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DrawBracket } from "@/components/draw/DrawBracket";
 import type { BracketMatchView } from "@/lib/draws/assembleDraw";
+import { ArrowRight } from "lucide-react";
 
 export interface PickableBout {
   id: string;
@@ -75,7 +76,8 @@ export function BoutPickerModal({
   bronzeMedals = 2,
   onSelect,
 }: Props) {
-  const [view, setView] = useState<"list" | "tree">("tree");
+  const isKata = categoryName?.toLowerCase().includes("kata");
+  const [view, setView] = useState<"list" | "tree" | "pools">(isKata ? "pools" : "tree");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ready");
   const [roundFilter, setRoundFilter] = useState<string>("all");
@@ -226,6 +228,19 @@ export function BoutPickerModal({
 
           <div className="flex items-center gap-2">
             <div className="flex items-center rounded-xl border border-[#E1DDCF] bg-[#F5F3EC] p-1">
+              {isKata && (
+                <button
+                  type="button"
+                  onClick={() => setView("pools")}
+                  aria-pressed={view === "pools"}
+                  className={`flex min-h-[40px] items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C] ${
+                    view === "pools" ? "bg-[#0E9C7C] text-white shadow-xs" : "text-[#68645A] hover:text-[#1B1815]"
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">table_chart</span>
+                  Pool Bouts
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setView("list")}
@@ -237,17 +252,19 @@ export function BoutPickerModal({
                 <span className="material-symbols-outlined text-[16px]">format_list_bulleted</span>
                 List
               </button>
-              <button
-                type="button"
-                onClick={() => setView("tree")}
-                aria-pressed={view === "tree"}
-                className={`flex min-h-[40px] items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C] ${
-                  view === "tree" ? "bg-[#0E9C7C] text-white shadow-xs" : "text-[#68645A] hover:text-[#1B1815]"
-                }`}
-              >
-                <span className="material-symbols-outlined text-[16px]">account_tree</span>
-                Bracket
-              </button>
+              {!isKata && (
+                <button
+                  type="button"
+                  onClick={() => setView("tree")}
+                  aria-pressed={view === "tree"}
+                  className={`flex min-h-[40px] items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C] ${
+                    view === "tree" ? "bg-[#0E9C7C] text-white shadow-xs" : "text-[#68645A] hover:text-[#1B1815]"
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">account_tree</span>
+                  Bracket
+                </button>
+              )}
             </div>
 
             <button
@@ -337,7 +354,143 @@ export function BoutPickerModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden p-2.5 sm:p-4 md:p-5">
-          {view === "tree" ? (
+          {view === "pools" ? (
+            <div className="h-full overflow-y-auto pr-1 space-y-6">
+              {(() => {
+                const poolABouts = bouts.filter(
+                  (b) =>
+                    b.roundName.includes("Pool A") ||
+                    (drawMatches.find((dm) => dm.matchId === b.id) as any)?.poolGroup === "Pool A"
+                );
+                const poolBBouts = bouts.filter(
+                  (b) =>
+                    b.roundName.includes("Pool B") ||
+                    (drawMatches.find((dm) => dm.matchId === b.id) as any)?.poolGroup === "Pool B"
+                );
+                const finalBouts = bouts.filter(
+                  (b) =>
+                    b.roundName.includes("Final") ||
+                    b.roundName.includes("Championship") ||
+                    b.roundName.includes("Bronze") ||
+                    (drawMatches.find((dm) => dm.matchId === b.id) as any)?.poolGroup === "Final Flight"
+                );
+
+                const sections = [
+                  { title: "Pool A (Group 1) Bouts", bouts: poolABouts, color: "text-[#0E9C7C]" },
+                  { title: "Pool B (Group 2) Bouts", bouts: poolBBouts, color: "text-[#2563EB]" },
+                  { title: "Championship & Medal Flight Bouts", bouts: finalBouts, color: "text-[#D97706]" },
+                ].filter((s) => s.bouts.length > 0);
+
+                if (sections.length === 0) {
+                  return (
+                    <div className="p-8 text-center text-[#68645A] text-sm">
+                      No pool bouts found for this category.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    {sections.map((sec) => (
+                      <div
+                        key={sec.title}
+                        className="bg-white border border-[#E1DDCF] rounded-2xl p-4 shadow-xs space-y-3"
+                      >
+                        <div className="flex items-center justify-between border-b border-[#E1DDCF] pb-2.5">
+                          <h3 className={`text-xs font-bold font-data-mono uppercase tracking-wider ${sec.color}`}>
+                            {sec.title}
+                          </h3>
+                          <span className="text-[11px] font-bold font-data-mono px-2 py-0.5 rounded bg-[#FAF9F5] border border-[#E1DDCF] text-[#504C42]">
+                            {sec.bouts.length} bouts
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          {sec.bouts.map((b) => {
+                            const isCurrent = b.id === activeMatchId;
+                            const isLive = b.status === "LIVE";
+                            return (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => handleSelect(b.id)}
+                                className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
+                                  isCurrent
+                                    ? "border-[#0E9C7C] bg-emerald-50/60 shadow-xs ring-1 ring-[#0E9C7C]"
+                                    : isLive
+                                    ? "border-amber-400 bg-amber-50/50 shadow-xs"
+                                    : b.isFinished
+                                    ? "border-[#E1DDCF]/70 bg-[#FAF9F5]/40 hover:bg-white"
+                                    : "border-[#E1DDCF] bg-white hover:border-[#0E9C7C] hover:shadow-xs"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="font-data-mono font-bold text-xs text-[#8C877C]">
+                                    Bout #{b.matchNo}
+                                  </span>
+                                  {isCurrent ? (
+                                    <span className="text-[10px] font-bold font-data-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                      CURRENT ON MAT
+                                    </span>
+                                  ) : isLive ? (
+                                    <span className="text-[10px] font-bold font-data-mono text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full animate-pulse">
+                                      LIVE
+                                    </span>
+                                  ) : b.isFinished ? (
+                                    <span className="text-[10px] font-bold font-data-mono text-[#8C877C] bg-[#FAF9F5] border border-[#E1DDCF] px-1.5 py-0.5 rounded">
+                                      FINISHED
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold font-data-mono text-[#0E9C7C] bg-emerald-50 px-2 py-0.5 rounded-full">
+                                      READY
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* AKA Fighter */}
+                                <div className="flex items-center justify-between gap-2 py-1">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-data-mono bg-red-100 text-[#DC2626]">
+                                      AKA
+                                    </span>
+                                    <span className="text-xs font-bold text-[#1B1815] truncate">
+                                      {b.aka?.name || "TBD"}
+                                    </span>
+                                  </div>
+                                  {b.isFinished && typeof b.akaScore === "number" && (
+                                    <span className="font-data-mono text-xs font-bold text-[#DC2626]">
+                                      {b.akaScore.toFixed(2)}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* AO Fighter */}
+                                <div className="flex items-center justify-between gap-2 py-1 border-t border-[#E1DDCF]/40">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-data-mono bg-blue-100 text-[#2563EB]">
+                                      AO
+                                    </span>
+                                    <span className="text-xs font-bold text-[#1B1815] truncate">
+                                      {b.ao?.name || "TBD"}
+                                    </span>
+                                  </div>
+                                  {b.isFinished && typeof b.aoScore === "number" && (
+                                    <span className="font-data-mono text-xs font-bold text-[#2563EB]">
+                                      {b.aoScore.toFixed(2)}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          ) : view === "tree" ? (
             <div className="h-full overflow-hidden rounded-xl border border-[#E1DDCF] bg-white shadow-xs">
               {drawMatches.length > 0 ? (
                 <DrawBracket
@@ -511,8 +664,8 @@ export function BoutPickerModal({
                             Current
                           </span>
                         ) : m.isReady ? (
-                          <span className="flex shrink-0 items-center gap-0.5 font-black uppercase text-emerald-700 text-[10px] group-hover:translate-x-0.5 transition-transform">
-                            Load <span className="material-symbols-outlined text-[13px]">arrow_forward</span>
+                          <span className="flex shrink-0 items-center gap-1 font-black uppercase text-emerald-700 text-[10px] group-hover:translate-x-0.5 transition-transform">
+                            Load <ArrowRight className="w-3 h-3" />
                           </span>
                         ) : null}
                       </div>

@@ -777,6 +777,8 @@ export default function CategoriesClient({
                         const hasDraw = Boolean(cat.has_draw || cat.draw_state);
                         const isLocked = Boolean(cat.is_locked || cat.draw_state === "LOCKED");
 
+                        const versionBadge = (cat.draw_version || cat.drawVersion) ? ` v${cat.draw_version || cat.drawVersion}` : "";
+
                         if (!hasDraw) {
                           return (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold font-data-mono text-slate-500 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2 py-0.5 rounded-full">
@@ -789,7 +791,7 @@ export default function CategoriesClient({
                           return (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold font-data-mono text-emerald-950 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 px-2 py-0.5 rounded-full">
                               <span className="material-symbols-outlined text-[13px] text-amber-600">workspace_premium</span>
-                              Finished
+                              Finished{versionBadge}
                             </span>
                           );
                         }
@@ -797,7 +799,7 @@ export default function CategoriesClient({
                           return (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold font-data-mono text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                              Live {confirmed}/{total}
+                              Live {confirmed}/{total}{versionBadge}
                             </span>
                           );
                         }
@@ -805,14 +807,14 @@ export default function CategoriesClient({
                           return (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold font-data-mono text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded-full">
                               <span className="material-symbols-outlined text-[12px]">lock</span>
-                              Official
+                              Official{versionBadge}
                             </span>
                           );
                         }
                         return (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold font-data-mono text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                            Draft
+                            Draft{versionBadge}
                           </span>
                         );
                       })()}

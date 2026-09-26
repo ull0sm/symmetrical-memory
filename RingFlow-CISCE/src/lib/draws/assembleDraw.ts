@@ -125,8 +125,13 @@ export async function assembleCategoryDraw(
         sourceMatchId: s.sourceMatchId,
       }));
 
-    const akaRegId = resolvedMatch?.slots[0]?.registrationId;
-    const aoRegId = resolvedMatch?.slots[1]?.registrationId;
+    const matchSlotsList = dbSlots.filter((s) => s.matchId === m.id);
+    const akaRegId =
+      resolvedMatch?.slots[0]?.registrationId ||
+      matchSlotsList.find((s) => s.position === 1)?.athleteId;
+    const aoRegId =
+      resolvedMatch?.slots[1]?.registrationId ||
+      matchSlotsList.find((s) => s.position === 2)?.athleteId;
 
     const akaAthlete = akaRegId ? athleteMap.get(akaRegId) : null;
     const aoAthlete = aoRegId ? athleteMap.get(aoRegId) : null;
@@ -188,5 +193,6 @@ export async function assembleCategoryDraw(
     athletes: catAthletes,
     podium: resolved.podium,
     highlightAthleteId: options?.athleteId ?? null,
+    flightDraw: (graph as any)?.flightDraw ?? null,
   };
 }

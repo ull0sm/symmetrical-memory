@@ -147,6 +147,11 @@ export function DrawBracketModal({
                 <h2 className="font-bold text-base text-[#1B1815]">
                   {categoryName || drawData?.categoryName || "Draw bracket"}
                 </h2>
+                {drawData?.draw?.version && (
+                  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-bold font-data-mono bg-blue-50 text-blue-800 border border-blue-200">
+                    v{drawData.draw.version}
+                  </span>
+                )}
                 {drawData?.isDrawLocked && (
                   <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-bold font-data-mono bg-amber-50 text-amber-800 border border-amber-200">
                     <span className="material-symbols-outlined text-[12px]">lock</span>

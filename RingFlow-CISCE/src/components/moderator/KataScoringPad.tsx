@@ -1,26 +1,24 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
-  submitJudgeVote,
-  voidJudgeVote,
-  finalizeKataBout,
-  updateRingJudgePin,
   submitModeratorManualKataMarks,
+  getMatchKataScores,
 } from "@/actions/kata";
+import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { calculateKataScoreDeducing } from "@/lib/kata/scoringEngine";
 import {
-  QrCode,
-  Users,
-  CheckCircle2,
-  RotateCcw,
-  Lock,
   Trophy,
-  Eye,
-  EyeOff,
-  Edit2,
   Table,
+  Check,
+  Plus,
+  Minus,
+  RotateCcw,
+  Sparkles,
+  ArrowRight,
+  Flag,
+  Flame,
 } from "lucide-react";
-import { OFFICIAL_WKF_KATAS } from "@/lib/kata/officialKataList";
 
 interface KataScoringPadProps {
   ringId: string;
@@ -28,6 +26,7 @@ interface KataScoringPadProps {
   category: any;
   scores: any[];
   judgePin?: string;
+  tunnelUrl?: string | null;
   onRefresh: () => void;
   onViewDrawTable?: () => void;
 }
@@ -37,614 +36,918 @@ export function KataScoringPad({
   activeMatch,
   category,
   scores,
-  judgePin = "1234",
   onRefresh,
   onViewDrawTable,
 }: KataScoringPadProps) {
-  const [showQrModal, setShowQrModal] = useState(false);
-  const [currentPin, setCurrentPin] = useState(judgePin);
-  const [newPinInput, setNewPinInput] = useState(judgePin);
-  const [isEditingPin, setIsEditingPin] = useState(false);
-  const [maskVotes, setMaskVotes] = useState(false);
   const [submittingAction, setSubmittingAction] = useState(false);
 
-  // Manual Marks entry state
-  const [showManualModal, setShowManualModal] = useState(false);
-  const [manualAkaScore, setManualAkaScore] = useState<string>("7.5");
-  const [manualAoScore, setManualAoScore] = useState<string>("7.0");
-  const [manualAkaKataNum, setManualAkaKataNum] = useState<number | "">("");
-  const [manualAkaKataName, setManualAkaKataName] = useState<string>("");
-  const [manualAoKataNum, setManualAoKataNum] = useState<number | "">("");
-  const [manualAoKataName, setManualAoKataName] = useState<string>("");
+  // Judge marks for AKA and AO (strictly null initially - ZERO auto-points)
+  const [akaJudgeMarks, setAkaJudgeMarks] = useState<(number | null)[]>([
+    null,
+    null,
+    null,
+    null,
+    null,
+  ]);
+  const [aoJudgeMarks, setAoJudgeMarks] = useState<(number | null)[]>([
+    null,
+    null,
+    null,
+    null,
+    null,
+  ]);
+
+  // Raw text inputs for fast decimal auto-typing (e.g. typing "76" turns into "7.6")
+  const [akaTexts, setAkaTexts] = useState<string[]>(["", "", "", "", ""]);
+  const [aoTexts, setAoTexts] = useState<string[]>(["", "", "", "", ""]);
+
+  // Declared Kata names
+  const [akaKataName, setAkaKataName] = useState<string>("");
+  const [aoKataName, setAoKataName] = useState<string>("");
+
+  // Flag decisions for 5 judges (if in Flag scoring mode)
+  const [judgeFlags, setJudgeFlags] = useState<("AKA" | "AO" | null)[]>([
+    null,
+    null,
+    null,
+    null,
+    null,
+  ]);
+
+  // Input refs for automatic focus advancing: AKA (0-4) -> AO (0-4)
+  const akaRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const aoRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Synchronize state with match prop
+  useEffect(() => {
+    if (activeMatch) {
+      setAkaKataName(activeMatch.akaKataName || activeMatch.aka_kata_name || "");
+      setAoKataName(activeMatch.aoKataName || activeMatch.ao_kata_name || "");
+    }
+  }, [activeMatch?.id]);
+
+  // Populate incoming scores from database
+  const syncScoresToState = useCallback((incomingScores: any[]) => {
+    const newAkaMarks: (number | null)[] = [null, null, null, null, null];
+    const newAoMarks: (number | null)[] = [null, null, null, null, null];
+    const newAkaText = ["", "", "", "", ""];
+    const newAoText = ["", "", "", "", ""];
+    const newFlags: ("AKA" | "AO" | null)[] = [null, null, null, null, null];
+
+    if (incomingScores && incomingScores.length > 0) {
+      incomingScores.forEach((s) => {
+        const seat = (s.judge_seat || s.judgeSeat) - 1;
+        const side = s.target_side || s.targetSide || "AKA";
+        const scoreVal = parseFloat(s.numeric_score || s.numericScore);
+        const flag = s.flag_vote || s.flagVote;
+
+        if (seat >= 0 && seat < 5) {
+          if (!isNaN(scoreVal) && scoreVal > 0) {
+            if (side === "AKA") {
+              newAkaMarks[seat] = scoreVal;
+              newAkaText[seat] = scoreVal.toFixed(1);
+            } else if (side === "AO") {
+              newAoMarks[seat] = scoreVal;
+              newAoText[seat] = scoreVal.toFixed(1);
+            }
+          }
+          if (flag === "AKA" || flag === "AO") {
+            newFlags[seat] = flag;
+          }
+        }
+      });
+    }
+
+    setAkaJudgeMarks(newAkaMarks);
+    setAoJudgeMarks(newAoMarks);
+    setAkaTexts(newAkaText);
+    setAoTexts(newAoText);
+    setJudgeFlags(newFlags);
+  }, []);
 
   useEffect(() => {
-    setCurrentPin(judgePin);
-    setNewPinInput(judgePin);
-  }, [judgePin]);
+    syncScoresToState(scores || []);
+  }, [scores, syncScoresToState]);
+
+  // Direct fetcher for real-time scores
+  const loadMatchScores = useCallback(async () => {
+    if (!activeMatch?.id) return;
+    try {
+      const res = await getMatchKataScores(activeMatch.id);
+      if (res?.success && res.scores) {
+        syncScoresToState(res.scores);
+      }
+    } catch (err) {
+      console.error("Failed to load match scores:", err);
+    }
+  }, [activeMatch?.id, syncScoresToState]);
+
+  // Live SSE listener
+  useLiveEvents({ ringId }, (event) => {
+    if (event?.table === "kata_scores" || event?.table === "matches") {
+      loadMatchScores();
+      onRefresh();
+    }
+  });
+
+  const isPointsMode =
+    category?.kata_scoring_mode === "POINTS" ||
+    activeMatch?.kata_scoring_mode === "POINTS" ||
+    category?.kataScoringMode === "POINTS";
+
+  // Score deductions (Olympic drop min & max)
+  const akaDeducing = useMemo(
+    () => calculateKataScoreDeducing(akaJudgeMarks),
+    [akaJudgeMarks]
+  );
+  const aoDeducing = useMemo(
+    () => calculateKataScoreDeducing(aoJudgeMarks),
+    [aoJudgeMarks]
+  );
+
+  // Flag counts
+  const akaFlagsCount = useMemo(
+    () => judgeFlags.filter((f) => f === "AKA").length,
+    [judgeFlags]
+  );
+  const aoFlagsCount = useMemo(
+    () => judgeFlags.filter((f) => f === "AO").length,
+    [judgeFlags]
+  );
+
+  // Projected winner determination
+  const verdict = useMemo(() => {
+    if (isPointsMode) {
+      if (akaDeducing.hasSufficientMarks && aoDeducing.hasSufficientMarks) {
+        if (akaDeducing.total > aoDeducing.total) {
+          const diff = (akaDeducing.total - aoDeducing.total).toFixed(2);
+          return { winner: "AKA" as const, label: `AKA wins by +${diff}`, diff };
+        } else if (aoDeducing.total > akaDeducing.total) {
+          const diff = (aoDeducing.total - akaDeducing.total).toFixed(2);
+          return { winner: "AO" as const, label: `AO wins by +${diff}`, diff };
+        } else {
+          return { winner: "TIE" as const, label: "Tie score (Hantei / Tiebreak needed)", diff: "0.00" };
+        }
+      }
+      return null;
+    } else {
+      const totalFlags = akaFlagsCount + aoFlagsCount;
+      if (totalFlags >= 3) {
+        if (akaFlagsCount > aoFlagsCount) {
+          return { winner: "AKA" as const, label: `AKA wins (${akaFlagsCount}-${aoFlagsCount} Flags)` };
+        } else if (aoFlagsCount > akaFlagsCount) {
+          return { winner: "AO" as const, label: `AO wins (${aoFlagsCount}-${akaFlagsCount} Flags)` };
+        }
+      }
+      return null;
+    }
+  }, [isPointsMode, akaDeducing, aoDeducing, akaFlagsCount, aoFlagsCount]);
+
+  // Fast typing auto-advance:
+  // e.g. User types "7" -> becomes "7."
+  // User types "76" -> becomes "7.6" and auto-advances to next judge input!
+  const handleFastInputChange = (
+    side: "AKA" | "AO",
+    seatIndex: number,
+    rawVal: string
+  ) => {
+    const isAka = side === "AKA";
+    const currentTexts = isAka ? [...akaTexts] : [...aoTexts];
+    const currentMarks = isAka ? [...akaJudgeMarks] : [...aoJudgeMarks];
+
+    const digitsOnly = rawVal.replace(/[^\d.]/g, "");
+
+    // Clear
+    if (digitsOnly === "") {
+      currentTexts[seatIndex] = "";
+      currentMarks[seatIndex] = null;
+      if (isAka) {
+        setAkaTexts(currentTexts);
+        setAkaJudgeMarks(currentMarks);
+      } else {
+        setAoTexts(currentTexts);
+        setAoJudgeMarks(currentMarks);
+      }
+      return;
+    }
+
+    let parsedScore: number | null = null;
+    let formattedText = digitsOnly;
+    let shouldAdvance = false;
+
+    if (/^[5-9]$/.test(digitsOnly)) {
+      formattedText = `${digitsOnly}.`;
+    } else if (/^[5-9]\d$/.test(digitsOnly)) {
+      const val = parseFloat(`${digitsOnly[0]}.${digitsOnly[1]}`);
+      formattedText = val.toFixed(1);
+      parsedScore = val;
+      shouldAdvance = true;
+    } else if (/^\d+(\.\d{0,2})?$/.test(digitsOnly)) {
+      const val = parseFloat(digitsOnly);
+      if (!isNaN(val)) {
+        parsedScore = Math.max(5.0, Math.min(10.0, val));
+        if (digitsOnly.includes(".") && digitsOnly.split(".")[1].length >= 1) {
+          shouldAdvance = true;
+        }
+      }
+    }
+
+    currentTexts[seatIndex] = formattedText;
+    currentMarks[seatIndex] = parsedScore;
+
+    if (isAka) {
+      setAkaTexts(currentTexts);
+      setAkaJudgeMarks(currentMarks);
+    } else {
+      setAoTexts(currentTexts);
+      setAoJudgeMarks(currentMarks);
+    }
+
+    // Auto advance focus
+    if (shouldAdvance) {
+      if (seatIndex < 4) {
+        if (isAka) {
+          akaRefs.current[seatIndex + 1]?.focus();
+        } else {
+          aoRefs.current[seatIndex + 1]?.focus();
+        }
+      } else if (isAka && seatIndex === 4) {
+        // Jump from AKA J5 to AO J1
+        aoRefs.current[0]?.focus();
+      }
+    }
+  };
+
+  const handleKeyDown = (
+    side: "AKA" | "AO",
+    seatIndex: number,
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    const isAka = side === "AKA";
+    const currentTexts = isAka ? akaTexts : aoTexts;
+
+    if (e.key === "Backspace" && currentTexts[seatIndex] === "" && seatIndex > 0) {
+      if (isAka) {
+        akaRefs.current[seatIndex - 1]?.focus();
+      } else {
+        aoRefs.current[seatIndex - 1]?.focus();
+      }
+    } else if (e.key === "Enter" || e.key === "ArrowRight") {
+      if (seatIndex < 4) {
+        if (isAka) akaRefs.current[seatIndex + 1]?.focus();
+        else aoRefs.current[seatIndex + 1]?.focus();
+      } else if (isAka && seatIndex === 4) {
+        aoRefs.current[0]?.focus();
+      }
+    } else if (e.key === "ArrowLeft" && seatIndex > 0) {
+      if (isAka) akaRefs.current[seatIndex - 1]?.focus();
+      else aoRefs.current[seatIndex - 1]?.focus();
+    }
+  };
+
+  const handleStepMark = (side: "AKA" | "AO", seatIndex: number, delta: number) => {
+    const isAka = side === "AKA";
+    const currentMarks = isAka ? [...akaJudgeMarks] : [...aoJudgeMarks];
+    const currentTexts = isAka ? [...akaTexts] : [...aoTexts];
+
+    const currentVal = currentMarks[seatIndex] ?? 7.5;
+    const newVal = Math.max(5.0, Math.min(10.0, Number((currentVal + delta).toFixed(1))));
+
+    currentMarks[seatIndex] = newVal;
+    currentTexts[seatIndex] = newVal.toFixed(1);
+
+    if (isAka) {
+      setAkaJudgeMarks(currentMarks);
+      setAkaTexts(currentTexts);
+    } else {
+      setAoJudgeMarks(currentMarks);
+      setAoTexts(currentTexts);
+    }
+  };
+
+  const handleQuickPreset = (side: "AKA" | "AO", presetVal: number) => {
+    const isAka = side === "AKA";
+    const currentMarks = isAka ? [...akaJudgeMarks] : [...aoJudgeMarks];
+    const currentTexts = isAka ? [...akaTexts] : [...aoTexts];
+
+    // Find first empty seat, or fill J1
+    const targetIdx = currentMarks.findIndex((m) => m === null);
+    const idxToFill = targetIdx !== -1 ? targetIdx : 0;
+
+    currentMarks[idxToFill] = presetVal;
+    currentTexts[idxToFill] = presetVal.toFixed(1);
+
+    if (isAka) {
+      setAkaJudgeMarks(currentMarks);
+      setAkaTexts(currentTexts);
+      if (idxToFill < 4) akaRefs.current[idxToFill + 1]?.focus();
+      else aoRefs.current[0]?.focus();
+    } else {
+      setAoJudgeMarks(currentMarks);
+      setAoTexts(currentTexts);
+      if (idxToFill < 4) aoRefs.current[idxToFill + 1]?.focus();
+    }
+  };
+
+  const handleClearSide = (side: "AKA" | "AO") => {
+    if (side === "AKA") {
+      setAkaJudgeMarks([null, null, null, null, null]);
+      setAkaTexts(["", "", "", "", ""]);
+      akaRefs.current[0]?.focus();
+    } else {
+      setAoJudgeMarks([null, null, null, null, null]);
+      setAoTexts(["", "", "", "", ""]);
+      aoRefs.current[0]?.focus();
+    }
+  };
+
+  const handleToggleJudgeFlag = (seatIndex: number, flag: "AKA" | "AO") => {
+    const updated = [...judgeFlags];
+    updated[seatIndex] = updated[seatIndex] === flag ? null : flag;
+    setJudgeFlags(updated);
+  };
+
+  const handleSaveMarks = async (finalize: boolean = false) => {
+    setSubmittingAction(true);
+    try {
+      let resolvedWinnerSide: "AKA" | "AO" | undefined = undefined;
+      if (verdict && verdict.winner !== "TIE") {
+        resolvedWinnerSide = verdict.winner;
+      }
+
+      const cleanAkaMarks = akaJudgeMarks.map((m) => (m !== null ? m : 0));
+      const cleanAoMarks = aoJudgeMarks.map((m) => (m !== null ? m : 0));
+
+      const judgeScoresPayload = [0, 1, 2, 3, 4].map((i) => ({
+        seat: i + 1,
+        akaScore: cleanAkaMarks[i] || 0,
+        aoScore: cleanAoMarks[i] || 0,
+      }));
+
+      const res = await submitModeratorManualKataMarks({
+        matchId: activeMatch.id,
+        akaKataName: akaKataName.trim() || undefined,
+        aoKataName: aoKataName.trim() || undefined,
+        akaJudgeMarks: cleanAkaMarks,
+        aoJudgeMarks: cleanAoMarks,
+        judgeScores: judgeScoresPayload,
+        winnerSide: resolvedWinnerSide,
+        finalize,
+      });
+
+      if (res.success) {
+        onRefresh();
+      } else {
+        alert(res.error || "Failed to record score");
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to save marks");
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
 
   if (!activeMatch) {
     return (
-      <div className="bg-white border border-[#E1DDCF] rounded-2xl p-8 text-center text-[#68645A] space-y-3 shadow-xs">
-        <Users className="w-10 h-10 text-[#8C877C] mx-auto animate-pulse" />
+      <div className="bg-white border border-[#E1DDCF] rounded-2xl p-10 text-center text-[#68645A] space-y-4 shadow-xs">
+        <Trophy className="w-12 h-12 text-[#8C877C] mx-auto animate-pulse" />
         <h3 className="text-base font-bold text-[#1B1815]">No Active Kata Bout</h3>
-        <p className="text-xs text-[#68645A] max-w-md mx-auto">
-          Select a scheduled Kata bout from the queue or pool tables to begin judging.
+        <p className="text-xs text-[#68645A] max-w-sm mx-auto">
+          Choose a scheduled bout from the pool tables to begin desk scoring.
         </p>
         {onViewDrawTable && (
           <button
             type="button"
             onClick={onViewDrawTable}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FAF9F5] border border-[#E1DDCF] hover:bg-[#F0ECE1] text-xs font-bold font-data-mono text-[#1B1815]"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#FAF9F5] border border-[#E1DDCF] hover:bg-[#F0ECE1] text-xs font-bold font-data-mono text-[#1B1815] transition-colors cursor-pointer"
           >
-            <Table className="w-3.5 h-3.5 text-[#0E9C7C]" />
-            <span>Open Pool Draw Tables</span>
+            <Table className="w-4 h-4 text-[#0E9C7C]" />
+            <span>Open Pool Tables</span>
           </button>
         )}
       </div>
     );
   }
 
-  const isPointsMode =
-    category?.kata_scoring_mode === "POINTS" ||
-    activeMatch?.kata_scoring_mode === "POINTS";
-
-  // Build 5-judge matrix
-  const judgeSeats = [1, 2, 3, 4, 5];
-  const seatMap = new Map<number, any>();
-  scores.forEach((s) => seatMap.set(s.judge_seat || s.judgeSeat, s));
-
-  // Count flags
-  let akaCount = 0;
-  let aoCount = 0;
-  scores.forEach((s) => {
-    const vote = s.flag_vote || s.flagVote;
-    if (vote === "AKA") akaCount++;
-    if (vote === "AO") aoCount++;
-  });
-
-  const totalSubmitted = scores.length;
-  const majorityThreshold = 3;
-  const hasMajorityWinner = akaCount >= majorityThreshold || aoCount >= majorityThreshold;
-  const majorityWinnerSide: "AKA" | "AO" | null =
-    akaCount >= majorityThreshold ? "AKA" : aoCount >= majorityThreshold ? "AO" : null;
-
-  const handleVoidVote = async (seat: number) => {
-    setSubmittingAction(true);
-    try {
-      await voidJudgeVote({ matchId: activeMatch.id, judgeSeat: seat });
-      onRefresh();
-    } finally {
-      setSubmittingAction(false);
-    }
-  };
-
-  const handleManualOverride = async (seat: number, flag: "AKA" | "AO") => {
-    setSubmittingAction(true);
-    try {
-      await submitJudgeVote({
-        matchId: activeMatch.id,
-        judgeSeat: seat,
-        flagVote: flag,
-        targetSide: flag,
-        isOverridden: true,
-      });
-      onRefresh();
-    } finally {
-      setSubmittingAction(false);
-    }
-  };
-
-  const handleSaveManualMarks = async (finalize: boolean = false) => {
-    setSubmittingAction(true);
-    try {
-      await submitModeratorManualKataMarks({
-        matchId: activeMatch.id,
-        akaKataNumber: typeof manualAkaKataNum === "number" ? manualAkaKataNum : undefined,
-        akaKataName: manualAkaKataName || undefined,
-        aoKataNumber: typeof manualAoKataNum === "number" ? manualAoKataNum : undefined,
-        aoKataName: manualAoKataName || undefined,
-        akaScore: parseFloat(manualAkaScore) || 7.5,
-        aoScore: parseFloat(manualAoScore) || 7.0,
-        finalize,
-      });
-      setShowManualModal(false);
-      onRefresh();
-    } finally {
-      setSubmittingAction(false);
-    }
-  };
-
-  const handleLockDecision = async () => {
-    if (!majorityWinnerSide && !isPointsMode) {
-      if (!confirm("No clear majority flag winner (3+ votes). Do you still want to finalize?")) {
-        return;
-      }
-    }
-
-    setSubmittingAction(true);
-    try {
-      await finalizeKataBout({
-        matchId: activeMatch.id,
-        winnerSide: majorityWinnerSide || (akaCount >= aoCount ? "AKA" : "AO"),
-        decisionMethod: isPointsMode ? "POINTS" : "FLAGS",
-      });
-      onRefresh();
-    } finally {
-      setSubmittingAction(false);
-    }
-  };
-
-  const handleSavePin = async () => {
-    if (newPinInput.trim().length < 4) return;
-    const res = await updateRingJudgePin(ringId, newPinInput.trim());
-    if (res.success) {
-      setCurrentPin(newPinInput.trim());
-      setIsEditingPin(false);
-    }
-  };
-
   return (
-    <div className="bg-white border border-[#E1DDCF] rounded-2xl p-5 shadow-xs space-y-5 font-sans">
-      {/* Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#E1DDCF]">
+    <div className="space-y-4 font-sans select-none">
+      {/* ─── Top Control Strip: Minimal, High-Signal ─── */}
+      <div className="bg-white border border-[#E1DDCF] rounded-2xl px-5 py-3.5 shadow-2xs flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-emerald-50 border border-emerald-200 text-[#0E9C7C] rounded-xl">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#0E9C7C] shrink-0">
             <Trophy className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-[#1B1815]">Kata Tatami Console</h2>
-              <span className="text-[11px] font-bold font-data-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200">
-                {isPointsMode ? "Points Mode (10.0)" : "Flag Mode (Majority 3/5)"}
+              <span className="font-bold text-sm text-[#1B1815]">
+                Bout #{activeMatch.matchNo || activeMatch.match_no}
               </span>
-              {activeMatch.pool_group && (
-                <span className="text-[11px] font-bold font-data-mono px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200">
-                  {activeMatch.pool_group}
+              <span className="text-[11px] font-bold font-data-mono px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                {isPointsMode ? "5-Judge Olympic (Drop Min & Max)" : "Hantei Flags (Majority)"}
+              </span>
+              {activeMatch.poolGroup && (
+                <span className="text-[11px] font-bold font-data-mono px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                  {activeMatch.poolGroup}
                 </span>
               )}
             </div>
-            <p className="text-xs text-[#68645A] font-data-mono">
-              {activeMatch.round_name || "Preliminary Round"} • Match #{activeMatch.match_no || activeMatch.matchNo}
+            <p className="text-xs text-[#68645A] font-data-mono mt-0.5">
+              {activeMatch.aka?.name || "AKA"} (Red) vs {activeMatch.ao?.name || "AO"} (Blue)
             </p>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
-          {onViewDrawTable && (
-            <button
-              type="button"
-              onClick={onViewDrawTable}
-              className="flex items-center gap-1.5 text-xs font-bold font-data-mono px-3 py-1.5 rounded-lg bg-[#FAF9F5] hover:bg-[#F0ECE1] text-[#1B1815] border border-[#E1DDCF] transition-all"
-            >
-              <Table className="w-3.5 h-3.5 text-[#0E9C7C]" />
-              <span>Pool Tables</span>
-            </button>
-          )}
-
+        {onViewDrawTable && (
           <button
             type="button"
-            onClick={() => setShowManualModal(true)}
-            className="flex items-center gap-1.5 text-xs font-bold font-data-mono px-3 py-1.5 rounded-lg bg-[#FAF9F5] hover:bg-[#F0ECE1] text-[#1B1815] border border-[#E1DDCF] transition-all"
+            onClick={onViewDrawTable}
+            className="flex items-center gap-1.5 text-xs font-bold font-data-mono px-3.5 py-2 rounded-xl bg-[#FAF9F5] hover:bg-[#F0ECE1] text-[#1B1815] border border-[#E1DDCF] transition-colors cursor-pointer"
           >
-            <Edit2 className="w-3.5 h-3.5 text-[#8C877C]" />
-            <span>Direct Marks</span>
+            <Table className="w-4 h-4 text-[#0E9C7C]" />
+            <span>Pool Tables</span>
           </button>
-
-          <button
-            type="button"
-            onClick={() => setMaskVotes(!maskVotes)}
-            className="flex items-center gap-1.5 text-xs font-bold font-data-mono px-3 py-1.5 rounded-lg bg-[#FAF9F5] hover:bg-[#F0ECE1] text-[#68645A] border border-[#E1DDCF] transition-all"
-          >
-            {maskVotes ? <EyeOff className="w-3.5 h-3.5 text-amber-600" /> : <Eye className="w-3.5 h-3.5" />}
-            <span>{maskVotes ? "Masked" : "HUD"}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowQrModal(true)}
-            className="flex items-center gap-1.5 text-xs font-bold font-data-mono px-3 py-1.5 rounded-lg bg-[#0E9C7C] hover:bg-[#0c8569] text-white shadow-xs transition-all"
-          >
-            <QrCode className="w-3.5 h-3.5" />
-            <span>Judge PIN ({currentPin})</span>
-          </button>
-        </div>
+        )}
       </div>
 
-      {/* Competitors Display (RingFlow Light Card Style) */}
+      {/* ─── Side-by-Side Arena: Red (AKA) on Left, Blue (AO) on Right ─── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* AKA Performer */}
-        <div className="bg-[#FAF9F5] border-2 border-[#DC2626]/30 rounded-xl p-4 flex items-center justify-between shadow-xs">
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold font-data-mono text-[#DC2626] bg-red-50 border border-red-200 tracking-wider uppercase px-2 py-0.5 rounded">
-              AKA (Red Side)
-            </span>
-            <h4 className="text-base font-bold text-[#1B1815]">
-              {activeMatch.akaAthlete?.name || activeMatch.aka_athlete_name || "AKA Competitor"}
-            </h4>
-            <p className="text-xs text-[#68645A]">
-              {activeMatch.akaAthlete?.school || activeMatch.akaAthlete?.dojo || "Dojo/School"}
-            </p>
-            {activeMatch.akaKataName && (
-              <p className="text-[11px] font-medium text-[#504C42] italic">
-                Kata: {activeMatch.akaKataName}
-              </p>
-            )}
-          </div>
-          <div className="text-right">
-            <span className="text-4xl font-data-mono font-black text-[#DC2626]">
-              {isPointsMode ? activeMatch.aka_score_total || activeMatch.akaScoreTotal || "0.0" : akaCount}
-            </span>
-            <div className="text-[10px] font-bold font-data-mono text-[#DC2626] uppercase mt-0.5">
-              {isPointsMode ? "Score" : "Flags"}
-            </div>
-          </div>
-        </div>
-
-        {/* AO Performer */}
-        <div className="bg-[#FAF9F5] border-2 border-[#2563EB]/30 rounded-xl p-4 flex items-center justify-between shadow-xs">
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold font-data-mono text-[#2563EB] bg-blue-50 border border-blue-200 tracking-wider uppercase px-2 py-0.5 rounded">
-              AO (Blue Side)
-            </span>
-            <h4 className="text-base font-bold text-[#1B1815]">
-              {activeMatch.aoAthlete?.name || activeMatch.ao_athlete_name || "AO Competitor"}
-            </h4>
-            <p className="text-xs text-[#68645A]">
-              {activeMatch.aoAthlete?.school || activeMatch.aoAthlete?.dojo || "Dojo/School"}
-            </p>
-            {activeMatch.aoKataName && (
-              <p className="text-[11px] font-medium text-[#504C42] italic">
-                Kata: {activeMatch.aoKataName}
-              </p>
-            )}
-          </div>
-          <div className="text-right">
-            <span className="text-4xl font-data-mono font-black text-[#2563EB]">
-              {isPointsMode ? activeMatch.ao_score_total || activeMatch.aoScoreTotal || "0.0" : aoCount}
-            </span>
-            <div className="text-[10px] font-bold font-data-mono text-[#2563EB] uppercase mt-0.5">
-              {isPointsMode ? "Score" : "Flags"}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 5-Judge Status Matrix (Light UI) */}
-      <div className="space-y-2.5">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold font-data-mono uppercase tracking-wider text-[#68645A]">
-            Referee Panel ({totalSubmitted}/5 Submitted)
-          </span>
-          <span className="text-xs font-data-mono font-bold text-[#0E9C7C]">
-            {hasMajorityWinner ? "Majority Reached (3/5)" : "Awaiting Referee Submissions"}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-          {judgeSeats.map((seat) => {
-            const score = seatMap.get(seat);
-            const isVoted = Boolean(score);
-            const voteVal = score?.flag_vote || score?.flagVote;
-
-            return (
-              <div
-                key={seat}
-                className={`rounded-xl p-3 border transition-all ${
-                  isVoted
-                    ? voteVal === "AKA"
-                      ? "bg-red-50/60 border-red-300 text-[#DC2626]"
-                      : voteVal === "AO"
-                      ? "bg-blue-50/60 border-blue-300 text-[#2563EB]"
-                      : "bg-amber-50/60 border-amber-300 text-amber-800"
-                    : "bg-[#FAF9F5] border-[#E1DDCF] text-[#8C877C]"
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="font-bold font-data-mono text-[#1B1815]">Judge {seat}</span>
-                  {isVoted ? (
-                    <span className="flex items-center gap-0.5 text-[10px] text-[#0E9C7C] font-bold font-data-mono">
-                      <CheckCircle2 className="w-3 h-3" />
-                      {score.is_overridden || score.isOverridden ? "Manual" : "Live"}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-data-mono text-[#8C877C]">Waiting</span>
-                  )}
-                </div>
-
-                {/* Vote Display Box */}
-                <div className="my-1.5 text-center py-2 rounded-lg bg-white border border-[#E1DDCF]">
-                  {isVoted ? (
-                    maskVotes ? (
-                      <span className="text-xs font-data-mono text-[#8C877C]">Vote Cast</span>
-                    ) : voteVal === "AKA" ? (
-                      <span className="text-sm font-black font-data-mono text-[#DC2626]">AKA</span>
-                    ) : voteVal === "AO" ? (
-                      <span className="text-sm font-black font-data-mono text-[#2563EB]">AO</span>
-                    ) : (
-                      <span className="text-sm font-black font-data-mono text-amber-700">
-                        {score.numeric_score || score.numericScore || "—"}
-                      </span>
-                    )
-                  ) : (
-                    <span className="text-xs text-[#8C877C] font-data-mono">—</span>
-                  )}
-                </div>
-
-                {/* Actions: Void or Moderator Manual Override */}
-                <div className="flex items-center justify-between gap-1 pt-1 text-[11px]">
-                  {isVoted ? (
-                    <button
-                      type="button"
-                      onClick={() => handleVoidVote(seat)}
-                      disabled={submittingAction}
-                      className="text-[#8C877C] hover:text-[#DC2626] flex items-center gap-1 mx-auto text-[10px] font-data-mono"
-                    >
-                      <RotateCcw className="w-3 h-3" /> Void
-                    </button>
-                  ) : (
-                    <div className="flex items-center justify-center gap-1.5 w-full">
-                      <button
-                        type="button"
-                        onClick={() => handleManualOverride(seat, "AKA")}
-                        disabled={submittingAction}
-                        className="px-2 py-0.5 bg-red-100 hover:bg-[#DC2626] text-[#DC2626] hover:text-white rounded text-[10px] font-bold font-data-mono transition-colors"
-                      >
-                        AKA
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleManualOverride(seat, "AO")}
-                        disabled={submittingAction}
-                        className="px-2 py-0.5 bg-blue-100 hover:bg-[#2563EB] text-[#2563EB] hover:text-white rounded text-[10px] font-bold font-data-mono transition-colors"
-                      >
-                        AO
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Lock & Decision Confirmation Footer */}
-      <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-[#E1DDCF]">
-        <div className="text-xs text-[#68645A] font-data-mono">
-          {hasMajorityWinner ? (
-            <span className="text-[#0E9C7C] font-bold flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" />
-              Proposed Winner: {majorityWinnerSide} wins ({akaCount} - {aoCount})
-            </span>
-          ) : (
-            <span>Awaiting referee panel majority. Moderator can manually score missing seats.</span>
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={handleLockDecision}
-          disabled={submittingAction}
-          className={`py-2.5 px-5 rounded-xl font-bold text-xs font-data-mono text-white transition-all shadow-xs flex items-center gap-2 cursor-pointer ${
-            hasMajorityWinner
-              ? "bg-[#0E9C7C] hover:bg-[#0c8569]"
-              : "bg-[#504C42] hover:bg-[#3D3A33]"
+        {/* ══════════ LEFT COLUMN: AKA (RED) ══════════ */}
+        <div
+          className={`bg-white rounded-2xl border-2 p-4 sm:p-5 flex flex-col justify-between transition-all ${
+            verdict?.winner === "AKA"
+              ? "border-[#DC2626] ring-3 ring-[#DC2626]/20 shadow-md"
+              : "border-[#E1DDCF]"
           }`}
         >
-          <Lock className="w-3.5 h-3.5" />
-          <span>Confirm & Finalize Bout</span>
-        </button>
-      </div>
-
-      {/* Direct Manual Marks Modal */}
-      {showManualModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="bg-[#FAF9F5] w-full max-w-md rounded-2xl shadow-2xl border border-[#E1DDCF] overflow-hidden flex flex-col animate-in fade-in">
-            <div className="bg-white px-5 py-4 border-b border-[#E1DDCF] flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold font-data-mono uppercase tracking-wider text-[#0E9C7C]">
-                  Moderator Manual Scoring
+          <div className="space-y-3.5">
+            {/* Fighter Header */}
+            <div className="flex items-start justify-between gap-2 pb-3 border-b border-[#F0ECE1]">
+              <div className="min-w-0">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black font-data-mono bg-red-100 text-[#DC2626] border border-red-200 mb-1">
+                  AKA (RED)
                 </span>
-                <h3 className="font-bold text-sm text-[#1B1815]">
-                  Enter Performance Marks • Match #{activeMatch.match_no || activeMatch.matchNo}
+                <h3 className="font-black text-xl text-[#1B1815] truncate">
+                  {activeMatch.aka?.name || "AKA"}
                 </h3>
+                <p className="text-xs text-[#68645A] truncate font-data-mono">
+                  {activeMatch.aka?.school || activeMatch.aka?.dojo || "Dojo / Academy"}
+                  {activeMatch.aka?.chestNumber ? ` • #${activeMatch.aka?.chestNumber}` : ""}
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowManualModal(false)}
-                className="text-[#68645A] hover:text-[#1B1815]"
-              >
-                ✕
-              </button>
+
+              {/* Declared Kata Input */}
+              <div className="w-40 shrink-0">
+                <label className="text-[10px] font-bold font-data-mono uppercase tracking-wider text-[#8C877C] block mb-1">
+                  Kata Name
+                </label>
+                <input
+                  type="text"
+                  value={akaKataName}
+                  onChange={(e) => setAkaKataName(e.target.value)}
+                  placeholder="e.g. Chatanyara"
+                  className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2.5 py-1 text-xs font-bold focus:border-[#DC2626] outline-none transition-colors"
+                />
+              </div>
             </div>
 
-            <div className="p-5 space-y-4">
-              {/* AKA Entry */}
-              <div className="bg-white border border-[#DC2626]/30 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] font-bold font-data-mono text-[#DC2626] bg-red-50 border border-red-200 px-2 py-0.5 rounded">
-                  AKA (Red)
+            {/* Official Score Box */}
+            <div className="bg-[#FAF9F5] border-2 border-red-200 rounded-xl p-3 flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold font-data-mono text-[#68645A] uppercase tracking-wider block">
+                  Official Total
                 </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] font-bold text-[#68645A] block mb-1">Kata # (1-102)</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={102}
-                      value={manualAkaKataNum}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        setManualAkaKataNum(isNaN(val) ? "" : val);
-                        const k = OFFICIAL_WKF_KATAS.find((x) => x.number === val);
-                        if (k) setManualAkaKataName(k.name);
-                      }}
-                      className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2 py-1 text-xs font-data-mono font-bold"
-                      placeholder="e.g. 2"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-[#68645A] block mb-1">Score (5.0 - 10.0)</label>
-                    <input
-                      type="number"
-                      step={0.1}
-                      min={5.0}
-                      max={10.0}
-                      value={manualAkaScore}
-                      onChange={(e) => setManualAkaScore(e.target.value)}
-                      className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2 py-1 text-xs font-data-mono font-bold text-[#DC2626]"
-                    />
-                  </div>
-                </div>
-                {manualAkaKataName && (
-                  <p className="text-[11px] text-[#504C42] italic">{manualAkaKataName}</p>
-                )}
-              </div>
-
-              {/* AO Entry */}
-              <div className="bg-white border border-[#2563EB]/30 rounded-xl p-3 space-y-2">
-                <span className="text-[10px] font-bold font-data-mono text-[#2563EB] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-                  AO (Blue)
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] font-bold text-[#68645A] block mb-1">Kata # (1-102)</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={102}
-                      value={manualAoKataNum}
-                      onChange={(e) => {
-                        const val = parseInt(e.target.value, 10);
-                        setManualAoKataNum(isNaN(val) ? "" : val);
-                        const k = OFFICIAL_WKF_KATAS.find((x) => x.number === val);
-                        if (k) setManualAoKataName(k.name);
-                      }}
-                      className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2 py-1 text-xs font-data-mono font-bold"
-                      placeholder="e.g. 8"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-[#68645A] block mb-1">Score (5.0 - 10.0)</label>
-                    <input
-                      type="number"
-                      step={0.1}
-                      min={5.0}
-                      max={10.0}
-                      value={manualAoScore}
-                      onChange={(e) => setManualAoScore(e.target.value)}
-                      className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2 py-1 text-xs font-data-mono font-bold text-[#2563EB]"
-                    />
-                  </div>
-                </div>
-                {manualAoKataName && (
-                  <p className="text-[11px] text-[#504C42] italic">{manualAoKataName}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-white px-5 py-3 border-t border-[#E1DDCF] flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowManualModal(false)}
-                className="px-3 py-1.5 text-xs font-bold text-[#68645A] hover:bg-[#FAF9F5] rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={submittingAction}
-                onClick={() => handleSaveManualMarks(false)}
-                className="px-3 py-1.5 text-xs font-bold font-data-mono bg-white border border-[#E1DDCF] text-[#1B1815] rounded-lg hover:bg-[#FAF9F5]"
-              >
-                Save Draft
-              </button>
-              <button
-                type="button"
-                disabled={submittingAction}
-                onClick={() => handleSaveManualMarks(true)}
-                className="px-4 py-1.5 text-xs font-bold font-data-mono bg-[#0E9C7C] hover:bg-[#0c8569] text-white rounded-lg shadow-xs"
-              >
-                Confirm & Finalize
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tatami QR Code & PIN Modal (Light Theme) */}
-      {showQrModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#FAF9F5] border border-[#E1DDCF] rounded-2xl max-w-sm w-full p-6 text-center space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-[#1B1815]">Referee Mobile Pairing</h3>
-              <button
-                onClick={() => setShowQrModal(false)}
-                className="text-[#68645A] hover:text-[#1B1815] text-sm"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl border border-[#E1DDCF] inline-block mx-auto shadow-xs">
-              <div className="w-44 h-44 bg-[#FAF9F5] rounded-lg flex flex-col items-center justify-center p-2 text-[#1B1815] border border-dashed border-[#E1DDCF]">
-                <QrCode className="w-24 h-24 text-[#1B1815] mb-2" />
-                <span className="text-[10px] font-mono text-[#68645A]">
-                  Scan to Judge Tatami
+                <span className="text-[10px] text-[#8C877C]">
+                  {isPointsMode
+                    ? akaDeducing.hasSufficientMarks
+                      ? "Middle 3 Sum (Min & Max dropped)"
+                      : "Awaiting 3+ judge marks"
+                    : "Hantei Votes"}
                 </span>
               </div>
+              <div className="font-data-mono text-3xl font-black text-[#DC2626]">
+                {isPointsMode
+                  ? akaDeducing.hasSufficientMarks
+                    ? akaDeducing.total.toFixed(2)
+                    : "—"
+                  : `${akaFlagsCount} Flags`}
+              </div>
             </div>
 
-            {/* PIN Display & Edit */}
-            <div className="bg-white border border-[#E1DDCF] rounded-xl p-3 space-y-1.5">
-              <div className="text-[11px] text-[#68645A] font-bold font-data-mono uppercase">
-                Tatami Quick-Join PIN
-              </div>
-              {isEditingPin ? (
-                <div className="flex items-center justify-center gap-2">
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={newPinInput}
-                    onChange={(e) => setNewPinInput(e.target.value)}
-                    className="w-24 text-center font-data-mono font-bold text-xl py-1 rounded bg-[#FAF9F5] border border-[#E1DDCF] text-[#1B1815]"
-                  />
-                  <button
-                    onClick={handleSavePin}
-                    className="px-3 py-1 bg-[#0E9C7C] text-white rounded font-bold text-xs"
-                  >
-                    Save
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center justify-center gap-3">
-                  <span className="text-3xl font-data-mono font-black tracking-widest text-[#0E9C7C]">
-                    {currentPin}
+            {/* 5 Judge Scores / Flags */}
+            {isPointsMode ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold font-data-mono text-[#68645A] uppercase tracking-wider">
+                    Judge Marks (J1 - J5)
                   </span>
                   <button
-                    onClick={() => setIsEditingPin(true)}
-                    className="text-[#8C877C] hover:text-[#1B1815]"
-                    title="Change PIN"
+                    type="button"
+                    onClick={() => handleClearSide("AKA")}
+                    className="text-[10px] font-bold font-data-mono text-[#8C877C] hover:text-red-600 transition-colors cursor-pointer"
                   >
-                    <Edit2 className="w-4 h-4" />
+                    Clear AKA
                   </button>
                 </div>
-              )}
-            </div>
 
-            <p className="text-xs text-[#68645A]">
-              Referees scan with their mobile camera on 4G/5G or guest Wi-Fi. No LAN access required.
-            </p>
+                {/* 5 Judge Input Cards */}
+                <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                  {[0, 1, 2, 3, 4].map((i) => {
+                    const mark = akaJudgeMarks[i];
+                    const textVal = akaTexts[i];
+                    const hasMark = typeof mark === "number" && !isNaN(mark);
+                    const isDropped =
+                      hasMark &&
+                      akaDeducing.hasSufficientMarks &&
+                      akaDeducing.droppedIndices.includes(i);
+                    const isKept =
+                      hasMark &&
+                      akaDeducing.hasSufficientMarks &&
+                      !isDropped;
 
-            <button
-              onClick={() => setShowQrModal(false)}
-              className="w-full py-2 bg-white hover:bg-[#FAF9F5] text-[#1B1815] border border-[#E1DDCF] font-bold font-data-mono rounded-xl text-xs"
-            >
-              Done
-            </button>
+                    return (
+                      <div
+                        key={i}
+                        className={`rounded-xl p-1.5 border flex flex-col items-center justify-between transition-all ${
+                          isDropped
+                            ? "bg-red-50/40 border-red-300"
+                            : isKept
+                            ? "bg-emerald-50/30 border-emerald-400 shadow-2xs"
+                            : hasMark
+                            ? "bg-white border-[#DC2626]"
+                            : "bg-[#FAF9F5] border-[#E1DDCF]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full text-[10px] font-bold font-data-mono mb-1">
+                          <span className="text-[#68645A]">J{i + 1}</span>
+                          {isDropped ? (
+                            <span className="text-[8px] font-black text-red-600 bg-red-100 px-1 rounded">
+                              DROP
+                            </span>
+                          ) : isKept ? (
+                            <span className="text-[8px] font-black text-emerald-800 bg-emerald-100 px-1 rounded">
+                              ✓
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {/* Input with Fast Typing */}
+                        <input
+                          ref={(el) => {
+                            akaRefs.current[i] = el;
+                          }}
+                          type="text"
+                          inputMode="decimal"
+                          value={textVal}
+                          onChange={(e) => handleFastInputChange("AKA", i, e.target.value)}
+                          onKeyDown={(e) => handleKeyDown("AKA", i, e)}
+                          placeholder="—"
+                          className={`w-full text-center font-data-mono text-xl sm:text-2xl font-black bg-transparent outline-none py-1 transition-colors ${
+                            isDropped
+                              ? "line-through text-red-500"
+                              : hasMark
+                              ? "text-[#1B1815]"
+                              : "text-[#8C877C]"
+                          }`}
+                        />
+
+                        {/* Stepper Buttons */}
+                        <div className="flex items-center gap-1 w-full pt-1 border-t border-[#E1DDCF]/60">
+                          <button
+                            type="button"
+                            onClick={() => handleStepMark("AKA", i, -0.1)}
+                            className="flex-1 py-0.5 rounded bg-white hover:bg-[#ECE8DD] border border-[#E1DDCF] flex items-center justify-center text-[#1B1815] transition-colors cursor-pointer text-[10px]"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStepMark("AKA", i, 0.1)}
+                            className="flex-1 py-0.5 rounded bg-white hover:bg-[#ECE8DD] border border-[#E1DDCF] flex items-center justify-center text-[#1B1815] transition-colors cursor-pointer text-[10px]"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex items-center gap-1 pt-1">
+                  <span className="text-[10px] font-bold font-data-mono text-[#8C877C]">Quick:</span>
+                  {[7.0, 7.5, 7.8, 8.0, 8.2, 8.5].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => handleQuickPreset("AKA", val)}
+                      className="px-2 py-0.5 rounded bg-[#FAF9F5] hover:bg-red-50 hover:text-red-700 hover:border-red-300 border border-[#E1DDCF] text-[11px] font-data-mono font-bold text-[#68645A] transition-colors cursor-pointer"
+                    >
+                      {val.toFixed(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              /* Flag Mode Selector */
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold font-data-mono text-[#68645A] uppercase tracking-wider block">
+                  Judge Flag Ballots (Click to vote)
+                </span>
+                <div className="grid grid-cols-5 gap-2">
+                  {[0, 1, 2, 3, 4].map((i) => {
+                    const isVoted = judgeFlags[i] === "AKA";
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => handleToggleJudgeFlag(i, "AKA")}
+                        className={`py-3 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer ${
+                          isVoted
+                            ? "bg-red-600 text-white border-red-700 shadow-sm"
+                            : "bg-[#FAF9F5] hover:bg-red-50 text-[#68645A] border-[#E1DDCF]"
+                        }`}
+                      >
+                        <span className="text-[10px] font-data-mono font-bold">J{i + 1}</span>
+                        <Flag className={`w-4 h-4 mt-1 ${isVoted ? "fill-white" : ""}`} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        {/* ══════════ RIGHT COLUMN: AO (BLUE) ══════════ */}
+        <div
+          className={`bg-white rounded-2xl border-2 p-4 sm:p-5 flex flex-col justify-between transition-all ${
+            verdict?.winner === "AO"
+              ? "border-[#2563EB] ring-3 ring-[#2563EB]/20 shadow-md"
+              : "border-[#E1DDCF]"
+          }`}
+        >
+          <div className="space-y-3.5">
+            {/* Fighter Header */}
+            <div className="flex items-start justify-between gap-2 pb-3 border-b border-[#F0ECE1]">
+              <div className="min-w-0">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black font-data-mono bg-blue-100 text-[#2563EB] border border-blue-200 mb-1">
+                  AO (BLUE)
+                </span>
+                <h3 className="font-black text-xl text-[#1B1815] truncate">
+                  {activeMatch.ao?.name || "AO"}
+                </h3>
+                <p className="text-xs text-[#68645A] truncate font-data-mono">
+                  {activeMatch.ao?.school || activeMatch.ao?.dojo || "Dojo / Academy"}
+                  {activeMatch.ao?.chestNumber ? ` • #${activeMatch.ao?.chestNumber}` : ""}
+                </p>
+              </div>
+
+              {/* Declared Kata Input */}
+              <div className="w-40 shrink-0">
+                <label className="text-[10px] font-bold font-data-mono uppercase tracking-wider text-[#8C877C] block mb-1">
+                  Kata Name
+                </label>
+                <input
+                  type="text"
+                  value={aoKataName}
+                  onChange={(e) => setAoKataName(e.target.value)}
+                  placeholder="e.g. Anan Dai"
+                  className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2.5 py-1 text-xs font-bold focus:border-[#2563EB] outline-none transition-colors"
+                />
+              </div>
+            </div>
+
+            {/* Official Score Box */}
+            <div className="bg-[#FAF9F5] border-2 border-blue-200 rounded-xl p-3 flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold font-data-mono text-[#68645A] uppercase tracking-wider block">
+                  Official Total
+                </span>
+                <span className="text-[10px] text-[#8C877C]">
+                  {isPointsMode
+                    ? aoDeducing.hasSufficientMarks
+                      ? "Middle 3 Sum (Min & Max dropped)"
+                      : "Awaiting 3+ judge marks"
+                    : "Hantei Votes"}
+                </span>
+              </div>
+              <div className="font-data-mono text-3xl font-black text-[#2563EB]">
+                {isPointsMode
+                  ? aoDeducing.hasSufficientMarks
+                    ? aoDeducing.total.toFixed(2)
+                    : "—"
+                  : `${aoFlagsCount} Flags`}
+              </div>
+            </div>
+
+            {/* 5 Judge Scores / Flags */}
+            {isPointsMode ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold font-data-mono text-[#68645A] uppercase tracking-wider">
+                    Judge Marks (J1 - J5)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleClearSide("AO")}
+                    className="text-[10px] font-bold font-data-mono text-[#8C877C] hover:text-blue-600 transition-colors cursor-pointer"
+                  >
+                    Clear AO
+                  </button>
+                </div>
+
+                {/* 5 Judge Input Cards */}
+                <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+                  {[0, 1, 2, 3, 4].map((i) => {
+                    const mark = aoJudgeMarks[i];
+                    const textVal = aoTexts[i];
+                    const hasMark = typeof mark === "number" && !isNaN(mark);
+                    const isDropped =
+                      hasMark &&
+                      aoDeducing.hasSufficientMarks &&
+                      aoDeducing.droppedIndices.includes(i);
+                    const isKept =
+                      hasMark &&
+                      aoDeducing.hasSufficientMarks &&
+                      !isDropped;
+
+                    return (
+                      <div
+                        key={i}
+                        className={`rounded-xl p-1.5 border flex flex-col items-center justify-between transition-all ${
+                          isDropped
+                            ? "bg-red-50/40 border-red-300"
+                            : isKept
+                            ? "bg-emerald-50/30 border-emerald-400 shadow-2xs"
+                            : hasMark
+                            ? "bg-white border-[#2563EB]"
+                            : "bg-[#FAF9F5] border-[#E1DDCF]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full text-[10px] font-bold font-data-mono mb-1">
+                          <span className="text-[#68645A]">J{i + 1}</span>
+                          {isDropped ? (
+                            <span className="text-[8px] font-black text-red-600 bg-red-100 px-1 rounded">
+                              DROP
+                            </span>
+                          ) : isKept ? (
+                            <span className="text-[8px] font-black text-emerald-800 bg-emerald-100 px-1 rounded">
+                              ✓
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {/* Input with Fast Typing */}
+                        <input
+                          ref={(el) => {
+                            aoRefs.current[i] = el;
+                          }}
+                          type="text"
+                          inputMode="decimal"
+                          value={textVal}
+                          onChange={(e) => handleFastInputChange("AO", i, e.target.value)}
+                          onKeyDown={(e) => handleKeyDown("AO", i, e)}
+                          placeholder="—"
+                          className={`w-full text-center font-data-mono text-xl sm:text-2xl font-black bg-transparent outline-none py-1 transition-colors ${
+                            isDropped
+                              ? "line-through text-red-500"
+                              : hasMark
+                              ? "text-[#1B1815]"
+                              : "text-[#8C877C]"
+                          }`}
+                        />
+
+                        {/* Stepper Buttons */}
+                        <div className="flex items-center gap-1 w-full pt-1 border-t border-[#E1DDCF]/60">
+                          <button
+                            type="button"
+                            onClick={() => handleStepMark("AO", i, -0.1)}
+                            className="flex-1 py-0.5 rounded bg-white hover:bg-[#ECE8DD] border border-[#E1DDCF] flex items-center justify-center text-[#1B1815] transition-colors cursor-pointer text-[10px]"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStepMark("AO", i, 0.1)}
+                            className="flex-1 py-0.5 rounded bg-white hover:bg-[#ECE8DD] border border-[#E1DDCF] flex items-center justify-center text-[#1B1815] transition-colors cursor-pointer text-[10px]"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex items-center gap-1 pt-1">
+                  <span className="text-[10px] font-bold font-data-mono text-[#8C877C]">Quick:</span>
+                  {[7.0, 7.5, 7.8, 8.0, 8.2, 8.5].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => handleQuickPreset("AO", val)}
+                      className="px-2 py-0.5 rounded bg-[#FAF9F5] hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 border border-[#E1DDCF] text-[11px] font-data-mono font-bold text-[#68645A] transition-colors cursor-pointer"
+                    >
+                      {val.toFixed(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              /* Flag Mode Selector */
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold font-data-mono text-[#68645A] uppercase tracking-wider block">
+                  Judge Flag Ballots (Click to vote)
+                </span>
+                <div className="grid grid-cols-5 gap-2">
+                  {[0, 1, 2, 3, 4].map((i) => {
+                    const isVoted = judgeFlags[i] === "AO";
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => handleToggleJudgeFlag(i, "AO")}
+                        className={`py-3 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer ${
+                          isVoted
+                            ? "bg-blue-600 text-white border-blue-700 shadow-sm"
+                            : "bg-[#FAF9F5] hover:bg-blue-50 text-[#68645A] border-[#E1DDCF]"
+                        }`}
+                      >
+                        <span className="text-[10px] font-data-mono font-bold">J{i + 1}</span>
+                        <Flag className={`w-4 h-4 mt-1 ${isVoted ? "fill-white" : ""}`} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Bottom Action Dock & Winner Verdict Banner ─── */}
+      <div className="bg-white border border-[#E1DDCF] rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+        {/* Left: Verdict or status */}
+        <div className="flex items-center gap-3">
+          {verdict ? (
+            <div
+              className={`px-4 py-2.5 rounded-xl border flex items-center gap-2.5 font-bold text-sm ${
+                verdict.winner === "AKA"
+                  ? "bg-red-50 border-red-200 text-red-900"
+                  : verdict.winner === "AO"
+                  ? "bg-blue-50 border-blue-200 text-blue-900"
+                  : "bg-amber-50 border-amber-200 text-amber-900"
+              }`}
+            >
+              <Trophy
+                className={`w-5 h-5 ${
+                  verdict.winner === "AKA"
+                    ? "text-[#DC2626]"
+                    : verdict.winner === "AO"
+                    ? "text-[#2563EB]"
+                    : "text-amber-600"
+                }`}
+              />
+              <span>{verdict.label}</span>
+            </div>
+          ) : (
+            <div className="text-xs text-[#8C877C] font-data-mono flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#8C877C] animate-pulse"></span>
+              <span>Awaiting full scoring from both competitors...</span>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Primary action buttons */}
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => handleSaveMarks(false)}
+            disabled={submittingAction}
+            className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-[#FAF9F5] hover:bg-[#F0ECE1] text-[#1B1815] border border-[#E1DDCF] text-xs font-bold font-data-mono transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            Save Draft
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSaveMarks(true)}
+            disabled={submittingAction || !verdict || verdict.winner === "TIE"}
+            className="flex-1 sm:flex-initial px-5 py-2.5 rounded-xl bg-[#0E9C7C] hover:bg-[#0B8569] text-white shadow-xs text-xs font-black font-data-mono transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+          >
+            {submittingAction ? (
+              <span>Finalizing...</span>
+            ) : (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Finalize Bout & Award Win</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </>
+            )}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

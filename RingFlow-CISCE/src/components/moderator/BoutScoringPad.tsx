@@ -622,38 +622,50 @@ export function BoutScoringPad({
               key={delta}
               type="button"
               onClick={() => handleScore(side, delta)}
-              className={`min-h-[64px] rounded-xl px-1 py-2 font-black text-white shadow-2xs transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C] focus-visible:ring-offset-2 ${scoreButton}`}
+              className={`min-h-[64px] rounded-xl px-1 py-2 font-black text-white shadow-xs transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C] cursor-pointer ${scoreButton}`}
             >
-              <span className="block text-lg leading-none">{label}</span>
-              <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-wide opacity-90">
+              <span className="block text-2xl font-black leading-none">{label}</span>
+              <span className="mt-1 block text-[10px] font-bold uppercase tracking-wider opacity-85">
                 {sub}
               </span>
             </button>
           ))}
         </div>
 
+        {/* Subtle Correction Row */}
         <div className="grid grid-cols-3 gap-2">
           {[
-            { delta: -1, label: "-1" },
-            { delta: -2, label: "-2" },
-            { delta: -3, label: "-3" },
+            { delta: -1, label: "−1" },
+            { delta: -2, label: "−2" },
+            { delta: -3, label: "−3" },
           ].map(({ delta, label }) => (
             <button
               key={delta}
               type="button"
               onClick={() => handleScore(side, delta)}
               disabled={points + delta < 0}
-              className="min-h-[40px] rounded-lg border border-[#E1DDCF] bg-white text-xs font-bold text-[#68645A] transition-colors hover:bg-[#F5F3EC] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C] focus-visible:ring-offset-2"
+              className="min-h-[34px] rounded-lg border border-[#E1DDCF] bg-[#FAF9F5] text-xs font-bold text-[#8C877C] hover:text-[#1B1815] hover:bg-[#F0ECE1] transition-colors disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer"
             >
               {label}
             </button>
           ))}
         </div>
 
-        <div className="mt-4 border-t border-[#E1DDCF] pt-3">
-          <span className="mb-2 block text-[10px] font-black uppercase tracking-wider text-[#8C877C]">
-            WKF warnings
-          </span>
+        <div className="mt-3.5 border-t border-[#E1DDCF] pt-2.5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-black font-data-mono uppercase tracking-wider text-[#8C877C]">
+              Penalties (1 → H)
+            </span>
+            {penalties > 0 && (
+              <button
+                type="button"
+                onClick={() => handleSetPenalty(side, 0)}
+                className="text-[10px] font-bold font-data-mono text-[#8C877C] hover:text-red-600 transition-colors cursor-pointer"
+              >
+                Clear
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-5 gap-1.5">
             {PENALTY_LEVELS.map(({ level, label }) => {
               const isActive = penalties >= level;
@@ -663,12 +675,12 @@ export function BoutScoringPad({
                   type="button"
                   onClick={() => handleSetPenalty(side, level)}
                   aria-pressed={isActive}
-                  className={`min-h-[44px] rounded-lg border text-xs font-black transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C] focus-visible:ring-offset-2 ${
+                  className={`min-h-[40px] rounded-lg border text-xs font-black transition-all cursor-pointer ${
                     isActive
                       ? level === 5
-                        ? "border-red-700 bg-red-600 text-white"
-                        : "border-amber-600 bg-amber-500 text-white"
-                      : "border-[#E1DDCF] bg-[#F5F3EC] text-[#68645A] hover:bg-[#ECE9DF]"
+                        ? "border-red-700 bg-red-600 text-white shadow-xs"
+                        : "border-amber-600 bg-amber-500 text-white shadow-xs"
+                      : "border-[#E1DDCF] bg-[#FAF9F5] text-[#68645A] hover:bg-[#F0ECE1]"
                   }`}
                 >
                   {label}

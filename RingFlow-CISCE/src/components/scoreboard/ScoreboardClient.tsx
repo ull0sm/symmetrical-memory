@@ -9,6 +9,7 @@ import { BoutHeader } from "@/components/scoreboard/BoutHeader";
 import { ClockStage } from "@/components/scoreboard/ClockStage";
 import { FighterPanel } from "@/components/scoreboard/FighterPanel";
 import { NextBoutStrip } from "@/components/scoreboard/NextBoutStrip";
+import { KataScoreboardStage } from "@/components/scoreboard/KataScoreboardStage";
 
 interface Props {
   ringId: string;
@@ -328,17 +329,31 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
       />
 
       <main
-        className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] transition-transform origin-center"
+        className={`min-h-0 flex-1 transition-transform origin-center ${
+          isKata ? "flex flex-col" : "grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+        }`}
         style={{ zoom: scale }}
       >
-        <FighterPanel {...left} mirrored={false} />
-        <ClockStage
-          remainingMs={remainingMs}
-          status={clock.status}
-          boutDecided={Boolean(isDecided)}
-          offsetMs={offsetMs}
-        />
-        <FighterPanel {...right} mirrored />
+        {isKata ? (
+          <KataScoreboardStage
+            aka={aka}
+            ao={ao}
+            currentMatch={currentMatch}
+            kataScores={data?.kataScores || []}
+            isPointsMode={isPointsMode}
+          />
+        ) : (
+          <>
+            <FighterPanel {...left} mirrored={false} />
+            <ClockStage
+              remainingMs={remainingMs}
+              status={clock.status}
+              boutDecided={Boolean(isDecided)}
+              offsetMs={offsetMs}
+            />
+            <FighterPanel {...right} mirrored />
+          </>
+        )}
       </main>
 
       <NextBoutStrip nextBout={data?.nextBout ?? null} nextCategoryName={nextCategoryName} />

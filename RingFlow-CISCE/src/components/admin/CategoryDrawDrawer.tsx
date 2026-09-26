@@ -1,7 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { setCategoryDrawOption, toggleCategoryDrawLock, generateCategoryDraw } from "@/actions/draws";
+import {
+  setCategoryDrawOption,
+  toggleCategoryDrawLock,
+  generateCategoryDraw,
+  flushCategoryDraw,
+} from "@/actions/draws";
 import { downloadCategoryDrawPdf } from "@/actions/drawPdfs";
 import { updateCategoryKataSettings } from "@/actions/categories";
 
@@ -15,6 +20,8 @@ export type CategoryDrawInfo = {
   doc_url?: string | null;
   bronze_medals?: number | null;
   draw_state?: string | null;
+  draw_version?: number | null;
+  drawVersion?: number | null;
   is_locked?: boolean;
   confirmed_matches?: number;
   live_matches?: number;
@@ -53,6 +60,7 @@ export function CategoryDrawDrawer({
   const [isSavingBronze, setIsSavingBronze] = useState(false);
   const [isTogglingLock, setIsTogglingLock] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isFlushing, setIsFlushing] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [showEmergencyReset, setShowEmergencyReset] = useState(false);
   const [resetConfirmInput, setResetConfirmInput] = useState("");
@@ -160,6 +168,31 @@ export function CategoryDrawDrawer({
     }
   };
 
+  const handleFlushDraw = async () => {
+    const confirmFlush = confirm(
+      `Are you sure you want to FLUSH all draw data for "${category.name}"?\n\n` +
+      `This will completely wipe and reset matches, slots, versions, and scores for THIS category only.\n` +
+      `No other categories or tournament data will be affected.\n\n` +
+      `After flushing, you can generate a clean new draw.`
+    );
+    if (!confirmFlush) return;
+
+    setIsFlushing(true);
+    try {
+      const res = await flushCategoryDraw(category.id);
+      if (res.success) {
+        alert(`Draw for "${category.name}" has been flushed cleanly.`);
+        onRefresh();
+      } else {
+        alert(res.error || "Failed to flush draw.");
+      }
+    } catch (err: any) {
+      alert(err?.message || "Failed to flush draw.");
+    } finally {
+      setIsFlushing(false);
+    }
+  };
+
   const handleDownloadPdf = async () => {
     setIsDownloadingPdf(true);
     try {
@@ -233,7 +266,14 @@ export function CategoryDrawDrawer({
             <span className="text-[11px] font-bold font-data-mono tracking-wider text-[#0E9C7C] uppercase">
               Tournament Draw Management
             </span>
-            <h2 className="text-lg font-bold text-[#1B1815] mt-0.5">{category.name}</h2>
+            <div className="flex items-center gap-2 mt-0.5">
+              <h2 className="text-lg font-bold text-[#1B1815]">{category.name}</h2>
+              {hasDraw && (
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold font-data-mono bg-blue-50 text-blue-800 border border-blue-200">
+                  Draw v{category.draw_version || category.drawVersion || 1}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 text-xs text-[#68645A] mt-1 font-data-mono">
               <span>{category.age_bracket || "All Ages"}</span>
               <span>•</span>
@@ -518,23 +558,22 @@ export function CategoryDrawDrawer({
                   },
                   {
                     value: "2",
-                    title: "Official WKF (2 Bronzes · Full)",
-                    desc: "Full repechage ladders for everyone beaten by finalists. Standard WKF format.",
+                    title: isKataCategory ? "2 Bronze Medals (Cross-over Bouts)" : "Official WKF (2 Bronzes · Full)",
+                    desc: isKataCategory
+                      ? "Pool A #2 faces Pool B #3, and Pool B #2 faces Pool A #3 for two 3rd place medals."
+                      : "Full repechage ladders for everyone beaten by finalists. Standard WKF format.",
                   },
                   {
                     value: "1",
-                    title: "Local Official (1 Bronze Playoff)",
-                    desc: "Early losers eliminated; losing semi-finalists face off in a single bronze match.",
-                  },
-                  {
-                    value: "3",
-                    title: "Local Official (Joint 3rd · 2 Bronzes)",
-                    desc: "Both semi-final losers awarded bronze directly without any extra bouts.",
+                    title: isKataCategory ? "1 Bronze Medal (Pool Runner-up Playoff)" : "Local Official (1 Bronze Playoff)",
+                    desc: isKataCategory
+                      ? "Direct 3rd place match between Pool A #2 and Pool B #2."
+                      : "Early losers eliminated; losing semi-finalists face off in a single bronze match.",
                   },
                   {
                     value: "0",
-                    title: "No Bronze",
-                    desc: "Pure single elimination stopping at the final. No bronze bouts.",
+                    title: "No Bronze Matches",
+                    desc: "Final championship match only for 1st (Gold) and 2nd (Silver).",
                   },
                 ].map((opt) => {
                   const isSelected = bronzeValue === opt.value;
@@ -662,14 +701,29 @@ export function CategoryDrawDrawer({
             {(lifecycle === "NO_DRAW" || lifecycle === "DRAFT") && (
               <button
                 type="button"
-                disabled={isRegenerating}
-                onClick={() => handleRegenerate(false)}
+                disabled={isRegenerating || isFlushing}
+                onClick={() => handleRegenerate(true)}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#0E9C7C] hover:bg-[#0B7C63] text-white font-bold text-xs font-data-mono tracking-wider transition-all cursor-pointer shadow-sm"
               >
                 <span className={`material-symbols-outlined text-[18px] ${isRegenerating ? "animate-spin" : ""}`}>
                   autorenew
                 </span>
                 <span>{hasDraw ? "REGENERATE DRAFT BRACKET" : "GENERATE DIGITAL BRACKET"}</span>
+              </button>
+            )}
+
+            {/* Flush Category Draw Button */}
+            {hasDraw && (
+              <button
+                type="button"
+                disabled={isFlushing || isRegenerating}
+                onClick={handleFlushDraw}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-300 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs font-data-mono tracking-wider transition-all cursor-pointer shadow-xs"
+              >
+                <span className={`material-symbols-outlined text-[18px] ${isFlushing ? "animate-spin" : ""}`}>
+                  delete_sweep
+                </span>
+                <span>{isFlushing ? "FLUSHING CATEGORY..." : "FLUSH CATEGORY DRAW"}</span>
               </button>
             )}
           </div>

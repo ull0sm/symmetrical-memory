@@ -43,6 +43,7 @@ export const tournaments = pgTable('tournaments', {
   showPublicScoreboard: boolean('show_public_scoreboard').notNull().default(false),
   // 0 = no bronze bout, 1 = single bronze, 2 = repechage with two bronzes (WKF).
   defaultBronzeMedals: integer('default_bronze_medals').notNull().default(2),
+  tunnelUrl: text('tunnel_url'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
@@ -210,6 +211,23 @@ export const stagerRequests = pgTable('stager_requests', {
     .notNull()
     .defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+});
+
+export const judgeRequests = pgTable('judge_requests', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  ringId: uuid('ring_id')
+    .notNull()
+    .references(() => rings.id, { onDelete: 'cascade' }),
+  deviceToken: text('device_token').notNull(),
+  judgeName: text('judge_name').notNull().default('Referee'),
+  seatNumber: integer('seat_number').notNull().default(1),
+  status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
 });
 
 export const eventLog = pgTable('event_log', {
