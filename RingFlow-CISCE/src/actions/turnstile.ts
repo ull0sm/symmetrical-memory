@@ -1,8 +1,10 @@
 "use server";
 
+import { isOfflineMode } from "@/lib/offline";
+
 export async function verifyTurnstileToken(token?: string) {
   const secretKey = process.env.TURNSTILE_SECRET_KEY;
-  if (!secretKey || secretKey === "disabled" || process.env.OFFLINE_MODE === "true") {
+  if (!secretKey || secretKey === "disabled" || isOfflineMode() || token === "offline-bypass") {
     // Graceful bypass for air-gapped / offline LAN venue deployments
     return { success: true };
   }

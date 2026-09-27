@@ -10,6 +10,7 @@ import { ensureAdminOwnsTournament } from "./admin";
 import { normalizeAccessCode, generateUnambiguousCode, isValidUuid } from "@/lib/utils";
 import { secureCookieFlag } from "@/lib/serverCookies";
 import { serializeOrganiserRequest } from "@/lib/serializers";
+import { isOfflineMode } from "@/lib/offline";
 
 async function setOrganiserCookie(token: string) {
   const cookieStore = await cookies();
@@ -32,7 +33,7 @@ export async function requestOrganiserAccess(
 ) {
   const secretKey = process.env.TURNSTILE_SECRET_KEY;
   const isTurnstileRequired = Boolean(
-    secretKey && secretKey !== "disabled" && process.env.OFFLINE_MODE !== "true"
+    secretKey && secretKey !== "disabled" && !isOfflineMode()
   );
   if (isTurnstileRequired) {
     if (!turnstileToken) {

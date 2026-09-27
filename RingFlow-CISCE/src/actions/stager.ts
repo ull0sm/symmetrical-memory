@@ -9,6 +9,7 @@ import { cookies, headers } from "next/headers";
 import { ensureAdminOwnsTournament } from "./admin";
 import { normalizeAccessCode, generateUnambiguousCode, isValidUuid } from "@/lib/utils";
 import { serializeStagerRequest } from "@/lib/serializers";
+import { isOfflineMode } from "@/lib/offline";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ export async function requestStagerAccess(
 ) {
   const secretKey = process.env.TURNSTILE_SECRET_KEY;
   const isTurnstileRequired = Boolean(
-    secretKey && secretKey !== "disabled" && process.env.OFFLINE_MODE !== "true"
+    secretKey && secretKey !== "disabled" && !isOfflineMode()
   );
   if (isTurnstileRequired) {
     if (!turnstileToken) {

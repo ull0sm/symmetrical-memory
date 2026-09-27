@@ -2,6 +2,13 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  env: {
+    NEXT_PUBLIC_OFFLINE_MODE:
+      process.env.NEXT_PUBLIC_OFFLINE_MODE ||
+      process.env.OFFLINE_MODE ||
+      process.env.offline_mode ||
+      "",
+  },
   // In development Next blocks requests to /_next/* that carry an Origin from a
   // host it does not recognise. Opening the app on a LAN or Tailscale address
   // then fails to load its dev assets, so the page never hydrates and buttons

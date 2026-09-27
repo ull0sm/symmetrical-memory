@@ -16,6 +16,7 @@ import { secureCookieFlag } from "@/lib/serverCookies";
 import { normalizeAccessCode, isValidUuid } from "@/lib/utils";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { serializeCategoryAssignment } from "@/lib/serializers";
+import { isOfflineMode } from "@/lib/offline";
 
 export async function approveModeratorRequest(requestId: string, ringId: string, tournamentId: string) {
   await ensureAdminOwnsTournament(tournamentId);
@@ -142,7 +143,7 @@ export async function requestModeratorAccess(
   }
   const secretKey = process.env.TURNSTILE_SECRET_KEY;
   const isTurnstileRequired = Boolean(
-    secretKey && secretKey !== "disabled" && process.env.OFFLINE_MODE !== "true"
+    secretKey && secretKey !== "disabled" && !isOfflineMode()
   );
   if (isTurnstileRequired) {
     if (!turnstileToken) {
