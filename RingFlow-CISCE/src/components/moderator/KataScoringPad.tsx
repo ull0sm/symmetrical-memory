@@ -18,6 +18,7 @@ import {
   ArrowRight,
   Flag,
   Flame,
+  User,
 } from "lucide-react";
 
 interface KataScoringPadProps {
@@ -140,7 +141,7 @@ export function KataScoringPad({
     } catch (err) {
       console.error("Failed to load match scores:", err);
     }
-  }, [activeMatch?.id, syncScoresToState]);
+  }, [activeMatch, syncScoresToState]);
 
   // Live SSE listener
   useLiveEvents({ ringId }, (event) => {
@@ -175,8 +176,40 @@ export function KataScoringPad({
     [judgeFlags]
   );
 
+  const isSoloMatch = useMemo(() => {
+    return Boolean(
+      activeMatch?.isSolo ||
+      !activeMatch?.ao?.id ||
+      activeMatch?.ao?.name === "Solo Performance" ||
+      activeMatch?.ao?.name === "TBD" ||
+      activeMatch?.roundName?.includes("Solo") ||
+      activeMatch?.roundName?.includes("Bye")
+    );
+  }, [activeMatch]);
+
   // Projected winner determination
   const verdict = useMemo(() => {
+    if (isSoloMatch) {
+      if (isPointsMode) {
+        if (akaDeducing.hasSufficientMarks) {
+          return {
+            winner: "AKA" as const,
+            label: `Solo Performance Scored: ${akaDeducing.total.toFixed(2)} pts`,
+            diff: "0.00",
+          };
+        }
+        return null;
+      } else {
+        if (akaFlagsCount >= 1) {
+          return {
+            winner: "AKA" as const,
+            label: `Solo Performance Completed (${akaFlagsCount} Flags)`,
+          };
+        }
+        return null;
+      }
+    }
+
     if (isPointsMode) {
       if (akaDeducing.hasSufficientMarks && aoDeducing.hasSufficientMarks) {
         if (akaDeducing.total > aoDeducing.total) {
@@ -201,7 +234,7 @@ export function KataScoringPad({
       }
       return null;
     }
-  }, [isPointsMode, akaDeducing, aoDeducing, akaFlagsCount, aoFlagsCount]);
+  }, [isSoloMatch, isPointsMode, akaDeducing, aoDeducing, akaFlagsCount, aoFlagsCount]);
 
   // Fast typing auto-advance:
   // e.g. User types "7" -> becomes "7."
@@ -371,12 +404,14 @@ export function KataScoringPad({
     setSubmittingAction(true);
     try {
       let resolvedWinnerSide: "AKA" | "AO" | undefined = undefined;
-      if (verdict && verdict.winner !== "TIE") {
+      if (isSoloMatch) {
+        resolvedWinnerSide = "AKA";
+      } else if (verdict && verdict.winner !== "TIE") {
         resolvedWinnerSide = verdict.winner;
       }
 
       const cleanAkaMarks = akaJudgeMarks.map((m) => (m !== null ? m : 0));
-      const cleanAoMarks = aoJudgeMarks.map((m) => (m !== null ? m : 0));
+      const cleanAoMarks = isSoloMatch ? [] : aoJudgeMarks.map((m) => (m !== null ? m : 0));
 
       const judgeScoresPayload = [0, 1, 2, 3, 4].map((i) => ({
         seat: i + 1,
@@ -387,10 +422,10 @@ export function KataScoringPad({
       const res = await submitModeratorManualKataMarks({
         matchId: activeMatch.id,
         akaKataName: akaKataName.trim() || undefined,
-        aoKataName: aoKataName.trim() || undefined,
+        aoKataName: isSoloMatch ? undefined : aoKataName.trim() || undefined,
         akaJudgeMarks: cleanAkaMarks,
-        aoJudgeMarks: cleanAoMarks,
-        judgeScores: isPointsMode ? undefined : judgeScoresPayload,
+        aoJudgeMarks: isSoloMatch ? undefined : cleanAoMarks,
+        judgeScores: isPointsMode ? undefined : isSoloMatch ? undefined : judgeScoresPayload,
         winnerSide: resolvedWinnerSide,
         finalize,
       });
@@ -452,7 +487,15 @@ export function KataScoringPad({
               )}
             </div>
             <p className="text-xs text-[#68645A] font-data-mono mt-0.5">
-              {activeMatch.aka?.name || "AKA"} (Red) vs {activeMatch.ao?.name || "AO"} (Blue)
+              {isSoloMatch ? (
+                <span className="font-semibold text-emerald-800">
+                  {activeMatch.aka?.name || "AKA"} · Solo Pool Performance (No AO Opponent)
+                </span>
+              ) : (
+                <span>
+                  {activeMatch.aka?.name || "AKA"} (Red) vs {activeMatch.ao?.name || "AO"} (Blue)
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -685,14 +728,34 @@ export function KataScoringPad({
           </div>
         </div>
 
-        {/* ══════════ RIGHT COLUMN: AO (BLUE) ══════════ */}
-        <div
-          className={`bg-white rounded-2xl border-2 p-4 sm:p-5 flex flex-col justify-between transition-all ${
-            verdict?.winner === "AO"
-              ? "border-[#2563EB] ring-3 ring-[#2563EB]/20 shadow-md"
-              : "border-[#E1DDCF]"
-          }`}
-        >
+        {/* ══════════ RIGHT COLUMN: AO (BLUE) or SOLO NOTICE ══════════ */}
+        {isSoloMatch ? (
+          <div className="bg-[#FAF9F5] rounded-2xl border-2 border-dashed border-[#E1DDCF] p-6 sm:p-8 flex flex-col items-center justify-center text-center space-y-4">
+            <div className="w-14 h-14 rounded-full bg-white shadow-xs flex items-center justify-center border border-[#E1DDCF]">
+              <User className="w-7 h-7 text-[#8C877C]" />
+            </div>
+            <div className="space-y-1">
+              <span className="px-3 py-1 rounded-full text-[11px] font-black font-data-mono bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase tracking-wider">
+                Solo Pool Bout
+              </span>
+              <h4 className="text-lg font-black text-[#1B1815] pt-1">No AO Opponent</h4>
+              <p className="text-xs text-[#68645A] max-w-sm mx-auto">
+                This participant is performing solo in their preliminary pool flight. Only the AKA judge marks are required to score and complete this bout.
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-white border border-[#E1DDCF] text-[11px] font-data-mono text-[#504C42] max-w-xs text-left space-y-1">
+              <p className="font-bold text-[#1B1815]">✓ How it scores:</p>
+              <p>The total score earned will rank {activeMatch.aka?.name || "this athlete"} directly on the pool leaderboard.</p>
+            </div>
+          </div>
+        ) : (
+          <div
+            className={`bg-white rounded-2xl border-2 p-4 sm:p-5 flex flex-col justify-between transition-all ${
+              verdict?.winner === "AO"
+                ? "border-[#2563EB] ring-3 ring-[#2563EB]/20 shadow-md"
+                : "border-[#E1DDCF]"
+            }`}
+          >
           <div className="space-y-3.5">
             {/* Fighter Header */}
             <div className="flex items-start justify-between gap-2 pb-3 border-b border-[#F0ECE1]">
@@ -898,6 +961,7 @@ export function KataScoringPad({
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* ─── Bottom Action Dock & Winner Verdict Banner ─── */}
@@ -928,7 +992,11 @@ export function KataScoringPad({
           ) : (
             <div className="text-xs text-[#8C877C] font-data-mono flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-[#8C877C] animate-pulse"></span>
-              <span>Awaiting full scoring from both competitors...</span>
+              <span>
+                {isSoloMatch
+                  ? "Awaiting judge marks for solo performer..."
+                  : "Awaiting full scoring from both competitors..."}
+              </span>
             </div>
           )}
         </div>

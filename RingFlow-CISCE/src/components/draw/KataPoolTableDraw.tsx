@@ -94,12 +94,39 @@ export function KataPoolTableDraw({
   const poolAAthletes = effectiveAthletes.slice(0, half);
   const poolBAthletes = effectiveAthletes.slice(half);
 
+  const isMedalMatch = (m: any) => {
+    if (
+      m.poolGroup === "Pool A" ||
+      m.poolGroup === "Pool B" ||
+      m.bracketType === "POOL" ||
+      Boolean(m.roundName?.startsWith("Pool A")) ||
+      Boolean(m.roundName?.startsWith("Pool B"))
+    ) {
+      return false;
+    }
+    return (
+      m.poolGroup === "Final Flight" ||
+      m.bracketType === "BRONZE" ||
+      Boolean(m.roundName?.toLowerCase().includes("bronze")) ||
+      Boolean(m.roundName?.toLowerCase().includes("gold")) ||
+      Boolean(m.roundName?.toLowerCase().includes("championship")) ||
+      (m.bracketType === "MAIN" && Boolean(m.roundName?.toLowerCase().includes("final")))
+    );
+  };
+
   // Match partitioning
-  const poolAMatches = matches.filter(
-    (m, i) => m.poolGroup === "Pool A" || m.roundName?.includes("Pool A") || (!m.poolGroup && i < Math.ceil(matches.length / 2))
+  const preliminaryMatches = matches.filter((m) => !isMedalMatch(m));
+  const poolAMatches = preliminaryMatches.filter(
+    (m, i) =>
+      m.poolGroup === "Pool A" ||
+      Boolean(m.roundName?.startsWith("Pool A")) ||
+      (!m.poolGroup && !m.roundName?.startsWith("Pool B") && i < Math.ceil(preliminaryMatches.length / 2))
   );
-  const poolBMatches = matches.filter(
-    (m, i) => m.poolGroup === "Pool B" || m.roundName?.includes("Pool B") || (!m.poolGroup && i >= Math.ceil(matches.length / 2))
+  const poolBMatches = preliminaryMatches.filter(
+    (m, i) =>
+      m.poolGroup === "Pool B" ||
+      Boolean(m.roundName?.startsWith("Pool B")) ||
+      (!m.poolGroup && !m.roundName?.startsWith("Pool A") && i >= Math.ceil(preliminaryMatches.length / 2))
   );
 
   const calculateAthleteStats = (ath: any, poolMatchesList: any[], orderNo: number) => {
@@ -155,12 +182,12 @@ export function KataPoolTableDraw({
     .map((a, i) => calculateAthleteStats(a, poolAMatches, i + 1))
     .sort((a, b) => {
       if (!hasPoolACompleted) return a.orderNo - b.orderNo;
-      return b.victoryPoints - a.victoryPoints || (b.totalScore ?? 0) - (a.totalScore ?? 0);
+      return (b.totalScore ?? 0) - (a.totalScore ?? 0) || b.victoryPoints - a.victoryPoints;
     })
     .map((a, i) => ({
       ...a,
       rank: hasPoolACompleted && (a.wins > 0 || a.hasScoredBouts) ? i + 1 : null,
-      isQualified: hasPoolACompleted && i < 2 && a.wins > 0,
+      isQualified: hasPoolACompleted && i < 2 && (a.hasScoredBouts || a.wins > 0),
     }));
 
   const hasPoolBCompleted = poolBMatches.some(
@@ -170,12 +197,12 @@ export function KataPoolTableDraw({
     .map((a, i) => calculateAthleteStats(a, poolBMatches, i + 1))
     .sort((a, b) => {
       if (!hasPoolBCompleted) return a.orderNo - b.orderNo;
-      return b.victoryPoints - a.victoryPoints || (b.totalScore ?? 0) - (a.totalScore ?? 0);
+      return (b.totalScore ?? 0) - (a.totalScore ?? 0) || b.victoryPoints - a.victoryPoints;
     })
     .map((a, i) => ({
       ...a,
       rank: hasPoolBCompleted && (a.wins > 0 || a.hasScoredBouts) ? i + 1 : null,
-      isQualified: hasPoolBCompleted && i < 2 && a.wins > 0,
+      isQualified: hasPoolBCompleted && i < 2 && (a.hasScoredBouts || a.wins > 0),
     }));
 
   const pools: KataPool[] = drawData?.pools && drawData.pools.length > 0 && drawData.pools[0].athletes.length > 0
@@ -199,16 +226,23 @@ export function KataPoolTableDraw({
           : []),
       ];
 
+  // Medal flight bouts (Gold/Silver Championship final & Bronze bouts)
+  const medalMatches = matches
+    .filter((m) => isMedalMatch(m))
+    .sort((a, b) => (a.matchNo ?? 0) - (b.matchNo ?? 0));
+
   // Finalists - only athletes who have actually qualified through completed pool bouts
   const finalists: any[] = [];
   pools.forEach((p) => {
-    p.athletes.filter((a) => a.isQualified).forEach((a) => finalists.push(a));
+    p.athletes
+      .filter((a) => a.isQualified)
+      .forEach((a) => finalists.push({ ...a, poolName: p.poolName }));
   });
 
   const handleOpenEnterMarks = (match: any) => {
     setScoringMatch(match);
-    setAkaScoreInput(match.akaScoreTotal || match.aka_score_total || "7.5");
-    setAoScoreInput(match.aoScoreTotal || match.ao_score_total || "7.0");
+    setAkaScoreInput(match.akaScoreTotal || match.aka_score_total || "");
+    setAoScoreInput(match.aoScoreTotal || match.ao_score_total || "");
     setAkaKataName(match.akaKataName || match.aka_kata_name || "");
     setAoKataName(match.aoKataName || match.ao_kata_name || "");
     setSelectedWinner(
@@ -462,109 +496,319 @@ export function KataPoolTableDraw({
         </div>
       </div>
 
-      {/* ─── Final Championship Flight Table (Medal Standings) ─── */}
-      <div className="space-y-3">
+      {/* ─── Final Championship & Medal Flight ─── */}
+      <div className="space-y-4">
         <h3 className="text-xs font-bold uppercase tracking-wider text-[#B45309] font-data-mono flex items-center gap-2">
           <Trophy className="w-4 h-4 text-[#D97706]" />
-          <span>Final Championship Flight (Medal Standings)</span>
+          <span>Final Championship & Medal Flight Bouts</span>
           <span className="h-px bg-amber-200 flex-1" />
         </h3>
 
+        {/* 1. Actual Medal Flight Matches */}
         <div className="bg-white border-2 border-amber-300/80 rounded-2xl shadow-xs overflow-hidden">
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 px-6 py-4 border-b border-amber-200 flex items-center justify-between">
             <div>
               <h4 className="text-sm font-bold text-[#1B1815] flex items-center gap-2">
-                <span>Championship Flight Table</span>
+                <span>Medal Championship Bouts</span>
                 <span className="text-[11px] bg-amber-100 text-amber-900 border border-amber-300 font-data-mono px-2 py-0.5 rounded-full font-bold">
-                  Finalists from Preliminary Pools
+                  {medalMatches.length > 0 ? `${medalMatches.length} Matches` : "Awaiting Qualifiers"}
                 </span>
               </h4>
               <p className="text-xs text-[#68645A] mt-0.5">
-                Competitors perform their final kata to determine 1st (Gold), 2nd (Silver), and 3rd (Bronze)
+                Each medal bout is judged independently. Preliminary pool points determine qualification and bracket seeding only.
               </p>
             </div>
             <Award className="w-6 h-6 text-[#D97706]" />
           </div>
 
-          <div className="overflow-x-auto">
-            {finalists.length === 0 ? (
+          <div className="p-4 sm:p-5">
+            {medalMatches.length === 0 ? (
               <div className="py-8 text-center px-4 space-y-1">
                 <Hourglass className="w-8 h-8 text-amber-400 mx-auto" />
                 <p className="text-xs font-data-mono font-medium text-[#68645A]">
-                  No finalists determined yet.
+                  No medal flight matches generated yet.
                 </p>
                 <p className="text-[11px] text-[#8C877C]">
-                  Finalists will appear here automatically as preliminary pool bouts are completed and scored.
+                  Medal bouts will appear here automatically when preliminary pool bouts conclude.
                 </p>
               </div>
             ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {medalMatches.map((m) => {
+                  const isBronze =
+                    m.bracketType === "BRONZE" ||
+                    Boolean(m.roundName?.toLowerCase().includes("bronze"));
+                  const isGold =
+                    !isBronze &&
+                    (Boolean(m.roundName?.toLowerCase().includes("gold")) ||
+                      Boolean(m.roundName?.toLowerCase().includes("championship")) ||
+                      Boolean(m.roundName?.toLowerCase().includes("final")) ||
+                      m.bracketType === "MAIN");
+
+                  const isFinished =
+                    m.status === "COMPLETED" ||
+                    m.status === "CONFIRMED" ||
+                    Boolean(m.winnerSide);
+                  const isLive = m.status === "LIVE";
+
+                  const akaScoreVal = parseFloat(
+                    m.akaScoreTotal || m.aka_score_total || ""
+                  );
+                  const aoScoreVal = parseFloat(
+                    m.aoScoreTotal || m.ao_score_total || ""
+                  );
+
+                  const akaDisplayScore =
+                    !isNaN(akaScoreVal) && akaScoreVal > 0
+                      ? akaScoreVal.toFixed(2)
+                      : isFinished
+                      ? "0.00"
+                      : "—";
+
+                  const aoDisplayScore =
+                    !isNaN(aoScoreVal) && aoScoreVal > 0
+                      ? aoScoreVal.toFixed(2)
+                      : isFinished
+                      ? "0.00"
+                      : "—";
+
+                  const winnerSide = m.winnerSide || m.winner_side;
+                  const isAkaWinner = isFinished && winnerSide === "AKA";
+                  const isAoWinner = isFinished && winnerSide === "AO";
+
+                  const akaName = m.aka?.name || m.aka?.displayName || "TBD";
+                  const aoName = m.ao?.name || m.ao?.displayName || "TBD";
+                  const isAkaAssigned = akaName !== "TBD";
+                  const isAoAssigned = aoName !== "TBD";
+
+                  return (
+                    <div
+                      key={m.id}
+                      className={`border rounded-2xl p-4 transition-all ${
+                        isGold
+                          ? "border-amber-300 bg-amber-50/20 shadow-xs"
+                          : "border-slate-200 bg-white shadow-xs"
+                      }`}
+                    >
+                      {/* Match Header */}
+                      <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#E1DDCF]/60">
+                        <div className="flex items-center gap-2">
+                          <span className="font-data-mono font-bold text-xs text-[#8C877C]">
+                            Bout #{m.matchNo || m.match_no}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold font-data-mono px-2 py-0.5 rounded-full border ${
+                              isGold
+                                ? "bg-amber-100 text-amber-900 border-amber-300"
+                                : "bg-orange-50 text-orange-900 border-orange-200"
+                            }`}
+                          >
+                            {isGold
+                              ? "🥇 Gold / Silver Championship Final"
+                              : "🥉 Bronze Medal Match"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isFinished ? (
+                            <span className="text-[10px] font-bold font-data-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                              COMPLETED
+                            </span>
+                          ) : isLive ? (
+                            <span className="text-[10px] font-bold font-data-mono text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full animate-pulse">
+                              LIVE ON MAT
+                            </span>
+                          ) : isAkaAssigned && isAoAssigned ? (
+                            <span className="text-[10px] font-bold font-data-mono text-[#0E9C7C] bg-emerald-50 px-2 py-0.5 rounded-full">
+                              READY
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold font-data-mono text-[#8C877C] bg-stone-100 px-2 py-0.5 rounded-full">
+                              SCHEDULED
+                            </span>
+                          )}
+
+                          {isModerator && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEnterMarks(m)}
+                              className="text-[11px] font-bold font-data-mono px-2.5 py-1 rounded-lg bg-white border border-[#E1DDCF] hover:border-[#0E9C7C] hover:text-[#0E9C7C] shadow-2xs transition-colors cursor-pointer"
+                            >
+                              Enter Marks
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Fighters & Bout Scores */}
+                      <div className="pt-3 space-y-2">
+                        {/* AKA Fighter */}
+                        <div
+                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 ${
+                            isAkaWinner
+                              ? "border-[#DC2626] bg-red-50/40 ring-1 ring-red-300"
+                              : "border-[#E1DDCF]/60 bg-white"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-data-mono bg-red-100 text-[#DC2626]">
+                              AKA
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-bold text-xs text-[#1B1815] truncate flex items-center gap-1.5">
+                                <span>{akaName}</span>
+                                {isAkaWinner && (
+                                  <span className="text-xs">
+                                    {isGold ? "🥇" : "🥉"}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-[#68645A] truncate">
+                                {m.aka?.school || m.aka?.dojo || "Dojo"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <div className="font-data-mono font-bold text-sm text-[#DC2626]">
+                              {akaDisplayScore}
+                            </div>
+                            <div className="text-[9px] text-[#8C877C] font-data-mono">
+                              {isFinished ? "Bout Score" : "Awaiting Bout"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* AO Fighter */}
+                        <div
+                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 ${
+                            isAoWinner
+                              ? "border-[#2563EB] bg-blue-50/40 ring-1 ring-blue-300"
+                              : "border-[#E1DDCF]/60 bg-white"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-data-mono bg-blue-100 text-[#2563EB]">
+                              AO
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-bold text-xs text-[#1B1815] truncate flex items-center gap-1.5">
+                                <span>{aoName}</span>
+                                {isAoWinner && (
+                                  <span className="text-xs">
+                                    {isGold ? "🥇" : "🥉"}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-[#68645A] truncate">
+                                {m.ao?.school || m.ao?.dojo || "Dojo"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <div className="font-data-mono font-bold text-sm text-[#2563EB]">
+                              {aoDisplayScore}
+                            </div>
+                            <div className="text-[9px] text-[#8C877C] font-data-mono">
+                              {isFinished ? "Bout Score" : "Awaiting Bout"}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Result announcement if finished */}
+                      {isFinished && winnerSide && (
+                        <div className="mt-2.5 pt-2 border-t border-[#E1DDCF]/60 flex items-center justify-between text-[11px] font-data-mono">
+                          <span className="text-[#68645A]">Result:</span>
+                          <span className="font-bold text-[#1B1815] flex items-center gap-1">
+                            {isGold ? (
+                              isAkaWinner ? (
+                                <>🥇 {akaName} wins Gold • 🥈 {aoName} takes Silver</>
+                              ) : (
+                                <>🥇 {aoName} wins Gold • 🥈 {akaName} takes Silver</>
+                              )
+                            ) : (
+                              <>🥉 {isAkaWinner ? akaName : aoName} wins Bronze Medal</>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 2. Preliminary Pool Qualifiers & Seedings Table */}
+        <div className="bg-white border border-[#E1DDCF] rounded-2xl shadow-xs overflow-hidden">
+          <div className="px-5 py-3.5 bg-[#FAF9F5] border-b border-[#E1DDCF] flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-bold text-[#1B1815] font-data-mono uppercase tracking-wider flex items-center gap-2">
+                <span>Pool Qualifiers & Seeding Table</span>
+                <span className="text-[10px] bg-stone-100 text-[#504C42] border border-[#E1DDCF] px-2 py-0.5 rounded font-medium normal-case">
+                  Preliminary Marks Only
+                </span>
+              </h4>
+              <p className="text-[11px] text-[#68645A] mt-0.5">
+                Marks below are preliminary pool qualification points used to seed competitors into the medal flight.
+              </p>
+            </div>
+            <Users className="w-4 h-4 text-[#8C877C]" />
+          </div>
+
+          <div className="overflow-x-auto">
+            {finalists.length === 0 ? (
+              <div className="py-6 text-center text-xs text-[#8C877C] font-data-mono">
+                No finalists determined yet from preliminary pool bouts.
+              </div>
+            ) : (
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-amber-50/50 text-[#68645A] font-data-mono text-[10px] uppercase tracking-wider border-b border-amber-200">
+                <thead className="bg-[#FAF9F5]/60 text-[#68645A] font-data-mono text-[10px] uppercase tracking-wider border-b border-[#E1DDCF]">
                   <tr>
-                    <th className="py-3 px-5 w-16 text-center">Bout</th>
-                    <th className="py-3 px-5">Finalist / Dojo</th>
-                    <th className="py-3 px-4 text-center">Kata Performed</th>
-                    <th className="py-3 px-4 text-center">Final Score</th>
-                    <th className="py-3 px-5 text-right">Podium Finish</th>
+                    <th className="py-2.5 px-4 text-center w-14">Seed</th>
+                    <th className="py-2.5 px-4">Qualified Competitor</th>
+                    <th className="py-2.5 px-4">Pool Origin</th>
+                    <th className="py-2.5 px-4 text-center">Pool Prelim Score</th>
+                    <th className="py-2.5 px-4 text-right">Flight Assignment</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#E1DDCF]/60">
+                <tbody className="divide-y divide-[#E1DDCF]/50">
                   {finalists.map((f, index) => {
-                    const medalPlacement =
-                      index === 0
-                        ? {
-                            label: "1st Place - Gold",
-                            badgeClass: "bg-amber-100 text-amber-950 border-amber-300 font-black",
-                            icon: "🥇",
-                          }
-                        : index === 1
-                        ? {
-                            label: "2nd Place - Silver",
-                            badgeClass: "bg-slate-100 text-slate-800 border-slate-300 font-black",
-                            icon: "🥈",
-                          }
-                        : index === 2
-                        ? {
-                            label: "3rd Place - Bronze",
-                            badgeClass: "bg-amber-50 text-amber-900 border-amber-200 font-black",
-                            icon: "🥉",
-                          }
-                        : {
-                            label: "Finalist",
-                            badgeClass: "bg-stone-100 text-stone-700 border-stone-200 font-semibold",
-                            icon: "🏅",
-                          };
-
+                    const isRank1 = f.rank === 1 || index < 2;
                     return (
-                      <tr
-                        key={f.athleteId || index}
-                        className={`hover:bg-[#FAF9F5] transition-colors ${
-                          index === 0 ? "bg-amber-50/20" : ""
-                        }`}
-                      >
-                        <td className="py-3.5 px-5 text-center font-data-mono font-bold text-[#8C877C]">
-                          F-{index + 1}
+                      <tr key={f.athleteId || index} className="hover:bg-[#FAF9F5]">
+                        <td className="py-2.5 px-4 text-center font-data-mono font-bold text-[#8C877C]">
+                          #{index + 1}
                         </td>
-                        <td className="py-3.5 px-5">
-                          <div className="font-bold text-[#1B1815] text-sm">
+                        <td className="py-2.5 px-4">
+                          <div className="font-bold text-[#1B1815] text-xs">
                             {f.name}
                           </div>
-                          <div className="text-[11px] text-[#68645A]">
+                          <div className="text-[10px] text-[#68645A]">
                             {f.school || f.dojo || "Dojo"}
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 text-center text-[#504C42] italic font-medium">
-                          {f.kataName || "—"}
+                        <td className="py-2.5 px-4 font-data-mono text-xs text-[#504C42]">
+                          {f.poolName || "Pool Qualifier"}
                         </td>
-                        <td className="py-3.5 px-4 text-center font-data-mono font-bold text-sm text-[#B45309]">
-                          {f.totalScore !== null && f.totalScore !== undefined ? f.totalScore.toFixed(2) : "—"}
+                        <td className="py-2.5 px-4 text-center font-data-mono font-bold text-xs text-[#B45309]">
+                          {f.totalScore !== null && f.totalScore !== undefined
+                            ? `${f.totalScore.toFixed(2)} pts`
+                            : "—"}
                         </td>
-                        <td className="py-3.5 px-5 text-right">
+                        <td className="py-2.5 px-4 text-right">
                           <span
-                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border font-data-mono ${medalPlacement.badgeClass}`}
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-data-mono font-bold border ${
+                              isRank1
+                                ? "bg-amber-50 text-amber-900 border-amber-200"
+                                : "bg-orange-50 text-orange-900 border-orange-200"
+                            }`}
                           >
-                            <span>{medalPlacement.icon}</span>
-                            <span>{medalPlacement.label}</span>
+                            <span>{isRank1 ? "🥇" : "🥉"}</span>
+                            <span>{isRank1 ? "Gold Final" : "Bronze Match"}</span>
                           </span>
                         </td>
                       </tr>

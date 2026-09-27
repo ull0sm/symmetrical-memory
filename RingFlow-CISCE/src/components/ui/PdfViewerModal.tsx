@@ -341,19 +341,38 @@ export function PdfViewerModal({ url, title, onClose }: PdfViewerModalProps) {
           )}
 
           {error && !isLoading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-zinc-950/95 z-10 p-6 text-center">
-              <span className="material-symbols-outlined text-3xl text-red-400">
-                error
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-950/95 z-10 p-4 text-center overflow-y-auto">
+              <span className="material-symbols-outlined text-3xl text-amber-400">
+                preview
               </span>
-              <p className="text-sm font-semibold text-white">Unable to display document</p>
-              <p className="text-xs text-zinc-400 max-w-sm">{error}</p>
-              <button
-                type="button"
-                onClick={loadDocument}
-                className="mt-1 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-              >
-                Retry
-              </button>
+              <p className="text-sm font-semibold text-white">Viewing Document (Offline Mode)</p>
+              <p className="text-xs text-zinc-400 max-w-sm">
+                Embedded browser PDF viewer loaded for local network environment.
+              </p>
+              <div className="flex gap-2">
+                {url && (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-1.5 bg-[#0E9C7C] hover:bg-[#0B7C63] text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Open in New Tab
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={loadDocument}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                >
+                  Retry
+                </button>
+              </div>
+              {url && (
+                <div className="w-full max-w-3xl h-[65vh] mt-2 rounded-xl overflow-hidden border border-zinc-800 bg-white">
+                  <iframe src={url} className="w-full h-full border-0" title={title || "PDF Document"} />
+                </div>
+              )}
             </div>
           )}
 

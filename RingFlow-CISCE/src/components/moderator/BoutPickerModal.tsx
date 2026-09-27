@@ -357,23 +357,31 @@ export function BoutPickerModal({
           {view === "pools" ? (
             <div className="h-full overflow-y-auto pr-1 space-y-6">
               {(() => {
-                const poolABouts = bouts.filter(
-                  (b) =>
-                    b.roundName.includes("Pool A") ||
-                    (drawMatches.find((dm) => dm.matchId === b.id) as any)?.poolGroup === "Pool A"
-                );
-                const poolBBouts = bouts.filter(
-                  (b) =>
-                    b.roundName.includes("Pool B") ||
-                    (drawMatches.find((dm) => dm.matchId === b.id) as any)?.poolGroup === "Pool B"
-                );
-                const finalBouts = bouts.filter(
-                  (b) =>
+                const isFinalFlight = (b: PickableBout) => {
+                  const dm = drawMatches.find((dm) => dm.matchId === b.id) as any;
+                  return (
+                    dm?.poolGroup === "Final Flight" ||
+                    dm?.bracketType === "MAIN" ||
+                    dm?.bracketType === "BRONZE" ||
                     b.roundName.includes("Final") ||
                     b.roundName.includes("Championship") ||
-                    b.roundName.includes("Bronze") ||
-                    (drawMatches.find((dm) => dm.matchId === b.id) as any)?.poolGroup === "Final Flight"
-                );
+                    b.roundName.includes("Bronze")
+                  );
+                };
+
+                const poolABouts = bouts.filter((b) => {
+                  if (isFinalFlight(b)) return false;
+                  const dm = drawMatches.find((dm) => dm.matchId === b.id) as any;
+                  return dm?.poolGroup === "Pool A" || b.roundName.startsWith("Pool A");
+                });
+
+                const poolBBouts = bouts.filter((b) => {
+                  if (isFinalFlight(b)) return false;
+                  const dm = drawMatches.find((dm) => dm.matchId === b.id) as any;
+                  return dm?.poolGroup === "Pool B" || b.roundName.startsWith("Pool B");
+                });
+
+                const finalBouts = bouts.filter((b) => isFinalFlight(b));
 
                 const sections = [
                   { title: "Pool A (Group 1) Bouts", bouts: poolABouts, color: "text-[#0E9C7C]" },
@@ -409,6 +417,7 @@ export function BoutPickerModal({
                           {sec.bouts.map((b) => {
                             const isCurrent = b.id === activeMatchId;
                             const isLive = b.status === "LIVE";
+                            const dm = drawMatches.find((m) => m.matchId === b.id) as any;
                             return (
                               <button
                                 key={b.id}
@@ -457,29 +466,75 @@ export function BoutPickerModal({
                                       {b.aka?.name || "TBD"}
                                     </span>
                                   </div>
-                                  {b.isFinished && typeof b.akaScore === "number" && (
-                                    <span className="font-data-mono text-xs font-bold text-[#DC2626]">
-                                      {b.akaScore.toFixed(2)}
-                                    </span>
-                                  )}
+                                  {(() => {
+                                    if (!b.isFinished) return null;
+                                    const rawTotal = (b as any).akaScoreTotal || (b as any).aka_score_total || dm?.akaScoreTotal;
+                                    const parsed = parseFloat(rawTotal || "");
+                                    const display = !isNaN(parsed) && parsed > 0
+                                      ? parsed.toFixed(2)
+                                      : typeof b.akaScore === "number" && b.akaScore > 0
+                                      ? String(b.akaScore)
+                                      : "0.00";
+                                    return (
+                                      <span className="font-data-mono text-xs font-bold text-[#DC2626]">
+                                        {display}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
 
                                 {/* AO Fighter */}
-                                <div className="flex items-center justify-between gap-2 py-1 border-t border-[#E1DDCF]/40">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-data-mono bg-blue-100 text-[#2563EB]">
-                                      AO
-                                    </span>
-                                    <span className="text-xs font-bold text-[#1B1815] truncate">
-                                      {b.ao?.name || "TBD"}
-                                    </span>
-                                  </div>
-                                  {b.isFinished && typeof b.aoScore === "number" && (
-                                    <span className="font-data-mono text-xs font-bold text-[#2563EB]">
-                                      {b.aoScore.toFixed(2)}
-                                    </span>
-                                  )}
-                                </div>
+                                {(() => {
+                                  const isSolo =
+                                    !b.ao?.name ||
+                                    b.ao?.name === "Solo Performance" ||
+                                    (b as any).isSolo ||
+                                    b.roundName.includes("Solo") ||
+                                    b.roundName.includes("Bye");
+
+                                  if (isSolo) {
+                                    return (
+                                      <div className="flex items-center justify-between gap-2 py-1 border-t border-[#E1DDCF]/40 text-[#8C877C] text-[11px]">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-data-mono bg-[#FAF9F5] border border-[#E1DDCF] text-[#8C877C]">
+                                            SOLO
+                                          </span>
+                                          <span className="truncate italic">
+                                            Solo Performance (No AO)
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div className="flex items-center justify-between gap-2 py-1 border-t border-[#E1DDCF]/40">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-data-mono bg-blue-100 text-[#2563EB]">
+                                          AO
+                                        </span>
+                                        <span className="text-xs font-bold text-[#1B1815] truncate">
+                                          {b.ao?.name || "TBD"}
+                                        </span>
+                                      </div>
+                                      {(() => {
+                                        if (!b.isFinished) return null;
+                                        const rawTotal = (b as any).aoScoreTotal || (b as any).ao_score_total || dm?.aoScoreTotal;
+                                        const parsed = parseFloat(rawTotal || "");
+                                        const display = !isNaN(parsed) && parsed > 0
+                                          ? parsed.toFixed(2)
+                                          : typeof b.aoScore === "number" && b.aoScore > 0
+                                          ? String(b.aoScore)
+                                          : "0.00";
+                                        return (
+                                          <span className="font-data-mono text-xs font-bold text-[#2563EB]">
+                                            {display}
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                  );
+                                })()}
                               </button>
                             );
                           })}
@@ -622,31 +677,67 @@ export function BoutPickerModal({
                               <span className={`shrink-0 font-data-mono text-base tabular-nums ${
                                 m.isFinished ? "font-bold text-slate-500" : "font-black text-[#C0392B]"
                               }`}>
-                                {m.akaScore ?? 0}
+                                {(() => {
+                                  const raw = (m as any).akaScoreTotal || (m as any).aka_score_total || drawMatches.find((dm) => dm.matchId === m.id)?.akaScoreTotal;
+                                  const num = parseFloat(raw || "");
+                                  if (!isNaN(num) && num > 0) return num.toFixed(2);
+                                  return m.akaScore ?? 0;
+                                })()}
                               </span>
                             )}
                           </div>
 
                           {/* AO */}
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                                m.isFinished ? "bg-blue-400/60" : "bg-[#1D4ED8]"
-                              }`} />
-                              <span className={`truncate text-sm ${
-                                m.isFinished ? "font-semibold text-[#68645A]" : "font-bold text-[#1B1815]"
-                              }`}>
-                                {m.ao?.name || "TBD"}
-                              </span>
-                            </span>
-                            {showScore && (
-                              <span className={`shrink-0 font-data-mono text-base tabular-nums ${
-                                m.isFinished ? "font-bold text-slate-500" : "font-black text-[#1D4ED8]"
-                              }`}>
-                                {m.aoScore ?? 0}
-                              </span>
-                            )}
-                          </div>
+                          {(() => {
+                            const isSolo =
+                              !m.ao?.name ||
+                              m.ao?.name === "Solo Performance" ||
+                              (m as any).isSolo ||
+                              m.roundName.includes("Solo") ||
+                              m.roundName.includes("Bye");
+
+                            if (isSolo) {
+                              return (
+                                <div className="flex items-center gap-1.5 pt-0.5 text-xs text-[#8C877C] italic">
+                                  <span className="h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+                                  <span className="truncate font-medium">Solo Performance (No AO)</span>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                  <span
+                                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                                      m.isFinished ? "bg-blue-400/60" : "bg-[#1D4ED8]"
+                                    }`}
+                                  />
+                                  <span
+                                    className={`truncate text-sm ${
+                                      m.isFinished ? "font-semibold text-[#68645A]" : "font-bold text-[#1B1815]"
+                                    }`}
+                                  >
+                                    {m.ao?.name || "TBD"}
+                                  </span>
+                                </span>
+                                {showScore && (
+                                  <span
+                                    className={`shrink-0 font-data-mono text-base tabular-nums ${
+                                      m.isFinished ? "font-bold text-slate-500" : "font-black text-[#1D4ED8]"
+                                    }`}
+                                  >
+                                    {(() => {
+                                      const raw = (m as any).aoScoreTotal || (m as any).ao_score_total || drawMatches.find((dm) => dm.matchId === m.id)?.aoScoreTotal;
+                                      const num = parseFloat(raw || "");
+                                      if (!isNaN(num) && num > 0) return num.toFixed(2);
+                                      return m.aoScore ?? 0;
+                                    })()}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
 

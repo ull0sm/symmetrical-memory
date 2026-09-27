@@ -24,14 +24,20 @@ export interface BracketMatchView {
   roundNo: number;
   roundName: string;
   bracketType: string;
+  poolGroup?: string | null;
+  kataScoringMode?: string | null;
   status: string;
   slots?: BracketSlotView[];
-  aka: { displayName: string; school?: string; id?: string; chestNumber?: string | null };
-  ao: { displayName: string; school?: string; id?: string; chestNumber?: string | null };
+  aka: { displayName: string; name?: string; school?: string; id?: string; chestNumber?: string | null };
+  ao: { displayName: string; name?: string; school?: string; id?: string; chestNumber?: string | null };
   winnerId?: string | null;
   /** The recorded result of the bout, so the draw can show the score line. */
   akaScore?: number;
   aoScore?: number;
+  akaScoreTotal?: string | null;
+  aoScoreTotal?: string | null;
+  akaKataName?: string | null;
+  aoKataName?: string | null;
   akaPenalties?: number;
   aoPenalties?: number;
   senshu?: string | null;
@@ -115,67 +121,134 @@ export async function assembleCategoryDraw(
   // Build client-ready BracketMatch array
   const matchesMap: Record<string, BracketMatchView> = {};
 
-  for (const m of graph.matches) {
-    const resolvedMatch = resolvedMatchMap.get(m.id);
-    const slotsForMatch = dbSlots
-      .filter((s) => s.matchId === m.id)
-      .map((s) => ({
-        position: s.position,
-        registrationId: s.athleteId,
-        sourceMatchId: s.sourceMatchId,
-      }));
+  const isKataPools =
+    draw.format === "KATA_GROUP_POOLS" ||
+    Boolean((graph as any)?.flightDraw) ||
+    dbMatches.some((m) => m.poolGroup);
 
-    const matchSlotsList = dbSlots.filter((s) => s.matchId === m.id);
-    const akaRegId =
-      resolvedMatch?.slots[0]?.registrationId ||
-      matchSlotsList.find((s) => s.position === 1)?.athleteId;
-    const aoRegId =
-      resolvedMatch?.slots[1]?.registrationId ||
-      matchSlotsList.find((s) => s.position === 2)?.athleteId;
+  if (isKataPools && dbMatches.length > 0) {
+    const sortedDbMatches = [...dbMatches].sort((a, b) => a.matchNo - b.matchNo);
+    for (const m of sortedDbMatches) {
+      const matchSlotsList = dbSlots.filter((s) => s.matchId === m.id);
+      const akaSlot = matchSlotsList.find((s) => s.position === 1);
+      const aoSlot = matchSlotsList.find((s) => s.position === 2);
+      const akaAthlete = akaSlot?.athleteId ? athleteMap.get(akaSlot.athleteId) : null;
+      const aoAthlete = aoSlot?.athleteId ? athleteMap.get(aoSlot.athleteId) : null;
 
-    const akaAthlete = akaRegId ? athleteMap.get(akaRegId) : null;
-    const aoAthlete = aoRegId ? athleteMap.get(aoRegId) : null;
+      matchesMap[m.id] = {
+        matchId: m.id,
+        matchNo: m.matchNo,
+        roundNo: m.roundNo,
+        roundName: m.roundName,
+        bracketType: m.bracketType || (m.poolGroup === "Final Flight" ? "MAIN" : "POOL"),
+        poolGroup: m.poolGroup ?? undefined,
+        kataScoringMode: m.kataScoringMode ?? undefined,
+        status: m.status ?? "SCHEDULED",
+        slots: matchSlotsList.map((s) => ({
+          position: s.position,
+          registrationId: s.athleteId,
+          sourceMatchId: s.sourceMatchId,
+        })),
+        aka: {
+          id: akaAthlete?.id,
+          name: akaAthlete?.name ?? "TBD",
+          displayName: akaAthlete?.name ?? "TBD",
+          school: akaAthlete?.school || akaAthlete?.dojo || undefined,
+          chestNumber: akaAthlete?.chestNumber ?? null,
+        },
+        ao: {
+          id: aoAthlete?.id,
+          name: aoAthlete?.name ?? "TBD",
+          displayName: aoAthlete?.name ?? "TBD",
+          school: aoAthlete?.school || aoAthlete?.dojo || undefined,
+          chestNumber: aoAthlete?.chestNumber ?? null,
+        },
+        akaScore: m.akaScore ?? 0,
+        aoScore: m.aoScore ?? 0,
+        akaScoreTotal: m.akaScoreTotal ? String(m.akaScoreTotal) : null,
+        aoScoreTotal: m.aoScoreTotal ? String(m.aoScoreTotal) : null,
+        akaKataName: m.akaKataName ?? undefined,
+        aoKataName: m.aoKataName ?? undefined,
+        akaPenalties: m.akaPenalties ?? 0,
+        aoPenalties: m.aoPenalties ?? 0,
+        senshu: m.senshu ?? null,
+        winnerSide: (m.winnerSide as 'AKA' | 'AO') ?? null,
+        decisionMethod: m.decisionMethod ?? null,
+        winnerId: m.winnerId ?? null,
+        state: m.winnerId
+          ? {
+              points: { aka: m.akaScore ?? 0, ao: m.aoScore ?? 0 },
+              winner: {
+                side: (m.winnerSide as 'AKA' | 'AO') || 'AKA',
+                method: m.decisionMethod || 'CONFIRMED',
+              },
+            }
+          : null,
+      };
+    }
+  } else {
+    for (const m of graph.matches) {
+      const resolvedMatch = resolvedMatchMap.get(m.id);
+      const slotsForMatch = dbSlots
+        .filter((s) => s.matchId === m.id)
+        .map((s) => ({
+          position: s.position,
+          registrationId: s.athleteId,
+          sourceMatchId: s.sourceMatchId,
+        }));
 
-    const recorded = matchRowById.get(m.id);
+      const matchSlotsList = dbSlots.filter((s) => s.matchId === m.id);
+      const akaRegId =
+        resolvedMatch?.slots[0]?.registrationId ||
+        matchSlotsList.find((s) => s.position === 1)?.athleteId;
+      const aoRegId =
+        resolvedMatch?.slots[1]?.registrationId ||
+        matchSlotsList.find((s) => s.position === 2)?.athleteId;
 
-    matchesMap[m.id] = {
-      matchId: m.id,
-      matchNo: m.matchNo,
-      roundNo: m.roundNo,
-      roundName: m.roundName,
-      bracketType: m.bracketType,
-      status: resolvedMatch?.status ?? "SCHEDULED",
-      slots: slotsForMatch,
-      aka: {
-        id: akaAthlete?.id,
-        displayName: akaAthlete?.name ?? "TBD",
-        school: akaAthlete?.school || akaAthlete?.dojo || undefined,
-        chestNumber: akaAthlete?.chestNumber ?? null,
-      },
-      ao: {
-        id: aoAthlete?.id,
-        displayName: aoAthlete?.name ?? "TBD",
-        school: aoAthlete?.school || aoAthlete?.dojo || undefined,
-        chestNumber: aoAthlete?.chestNumber ?? null,
-      },
-      akaScore: recorded?.akaScore ?? 0,
-      aoScore: recorded?.aoScore ?? 0,
-      akaPenalties: recorded?.akaPenalties ?? 0,
-      aoPenalties: recorded?.aoPenalties ?? 0,
-      senshu: recorded?.senshu ?? null,
-      winnerSide: recorded?.winnerSide ?? null,
-      decisionMethod: recorded?.decisionMethod ?? null,
-      winnerId: resolvedMatch?.winnerRegistrationId ?? null,
-      state: resolvedMatch?.winnerRegistrationId
-        ? {
-            points: { aka: recorded?.akaScore ?? 0, ao: recorded?.aoScore ?? 0 },
-            winner: {
-              side: resolvedMatch.winnerRegistrationId === akaRegId ? 'AKA' : 'AO',
-              method: recorded?.decisionMethod || 'CONFIRMED',
-            },
-          }
-        : null,
-    };
+      const akaAthlete = akaRegId ? athleteMap.get(akaRegId) : null;
+      const aoAthlete = aoRegId ? athleteMap.get(aoRegId) : null;
+
+      const recorded = matchRowById.get(m.id);
+
+      matchesMap[m.id] = {
+        matchId: m.id,
+        matchNo: m.matchNo,
+        roundNo: m.roundNo,
+        roundName: m.roundName,
+        bracketType: m.bracketType,
+        status: resolvedMatch?.status ?? "SCHEDULED",
+        slots: slotsForMatch,
+        aka: {
+          id: akaAthlete?.id,
+          displayName: akaAthlete?.name ?? "TBD",
+          school: akaAthlete?.school || akaAthlete?.dojo || undefined,
+          chestNumber: akaAthlete?.chestNumber ?? null,
+        },
+        ao: {
+          id: aoAthlete?.id,
+          displayName: aoAthlete?.name ?? "TBD",
+          school: aoAthlete?.school || aoAthlete?.dojo || undefined,
+          chestNumber: aoAthlete?.chestNumber ?? null,
+        },
+        akaScore: recorded?.akaScore ?? 0,
+        aoScore: recorded?.aoScore ?? 0,
+        akaPenalties: recorded?.akaPenalties ?? 0,
+        aoPenalties: recorded?.aoPenalties ?? 0,
+        senshu: recorded?.senshu ?? null,
+        winnerSide: recorded?.winnerSide ?? null,
+        decisionMethod: recorded?.decisionMethod ?? null,
+        winnerId: resolvedMatch?.winnerRegistrationId ?? null,
+        state: resolvedMatch?.winnerRegistrationId
+          ? {
+              points: { aka: recorded?.akaScore ?? 0, ao: recorded?.aoScore ?? 0 },
+              winner: {
+                side: resolvedMatch.winnerRegistrationId === akaRegId ? 'AKA' : 'AO',
+                method: recorded?.decisionMethod || 'CONFIRMED',
+              },
+            }
+          : null,
+      };
+    }
   }
 
   // Category athletes for Kata pool and flight rendering

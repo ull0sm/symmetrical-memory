@@ -21,6 +21,7 @@ import { normalizeClock } from "@/lib/matchClock";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
+import { advanceKataPoolFinalists } from "@/actions/kata";
 
 function assembleRingActiveBout({
   ring,
@@ -65,20 +66,29 @@ function assembleRingActiveBout({
     const akaAth = akaSlot?.athleteId ? athleteMap.get(akaSlot.athleteId) : null;
     const aoAth = aoSlot?.athleteId ? athleteMap.get(aoSlot.athleteId) : null;
 
+    const isFinished = m.status === "CONFIRMED" || m.status === "COMPLETED" || m.status === "BYE";
+    const isSolo = Boolean(
+      (m.bracketType === "POOL" || (category as any)?.type?.toLowerCase()?.includes("kata") || (category as any)?.name?.toLowerCase()?.includes("kata")) &&
+      akaAth &&
+      !aoAth &&
+      (!aoSlot?.athleteId || m.roundName?.includes("Solo") || m.roundName?.includes("Bye"))
+    );
+
     const isReady =
-      Boolean(akaAth && aoAth) &&
-      m.status !== "CONFIRMED" &&
-      m.status !== "BYE";
-    const isFinished = m.status === "CONFIRMED" || m.status === "BYE";
+      (Boolean(akaAth && aoAth) || (isSolo && Boolean(akaAth))) &&
+      !isFinished;
 
     return {
       ...m,
+      isSolo,
       aka: akaAth
         ? { id: akaAth.id, name: akaAth.name, school: akaAth.school || akaAth.dojo || "", chestNumber: akaAth.chestNumber }
         : { id: null, name: "TBD", school: "", chestNumber: null },
       ao: aoAth
-        ? { id: aoAth.id, name: aoAth.name, school: aoAth.school || aoAth.dojo || "", chestNumber: aoAth.chestNumber }
-        : { id: null, name: "TBD", school: "", chestNumber: null },
+        ? { id: aoAth.id, name: aoAth.name, school: aoAth.school || aoAth.dojo || "", chestNumber: aoAth.chestNumber, isSolo: false }
+        : isSolo
+        ? { id: null, name: "Solo Performance", school: "", chestNumber: null, isSolo: true }
+        : { id: null, name: "TBD", school: "", chestNumber: null, isSolo: false },
       isReady,
       isFinished,
     };
@@ -87,7 +97,7 @@ function assembleRingActiveBout({
   // Identify fighters who recently competed to ensure rest time
   const recentFighterIds = new Set<string>();
   const lastFinishedMatch = enrichedMatches
-    .filter((m) => m.status === "CONFIRMED")
+    .filter((m) => m.isFinished)
     .sort((a, b) => (b.matchNo ?? 0) - (a.matchNo ?? 0))[0];
   if (lastFinishedMatch) {
     if (lastFinishedMatch.aka?.id) recentFighterIds.add(lastFinishedMatch.aka.id);
@@ -709,6 +719,13 @@ export async function confirmBoutResult(
       });
     }
   });
+
+  // Automatically advance finalists if this category is running Kata pools
+  try {
+    await advanceKataPoolFinalists(categoryId);
+  } catch (advErr) {
+    console.error("advanceKataPoolFinalists error in confirmBoutResult:", advErr);
+  }
 
   return { success: true };
 }

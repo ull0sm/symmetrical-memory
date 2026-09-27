@@ -16,7 +16,8 @@
     "db:push": "drizzle-kit push",
     "db:bootstrap": "npx tsx scripts/bootstrap-db.ts",
     "db:seed": "npx tsx scripts/seed-realistic-tournament.ts",
-    "db:reset": "npx tsx scripts/reset-and-seed-clean.ts"
+    "db:reset": "npx tsx scripts/reset-and-seed-clean.ts",
+    "db:create-admin": "npx tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

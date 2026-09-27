@@ -170,29 +170,36 @@ function ModeratorLoginContent() {
             <span className="text-[11px] opacity-80">Obtain code from tournament admin</span>
           </div>
 
-          <div className="flex justify-center min-h-[65px] pt-1">
-            <Turnstile
-              ref={turnstileRef}
-              siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
-              onSuccess={(token) => {
-                setTurnstileToken(token);
-                setError("");
-              }}
-              onExpire={() => {
-                setTurnstileToken("");
-              }}
-              onError={() => {
-                setTurnstileToken("");
-              }}
-              options={{
-                theme: "light",
-              }}
-            />
-          </div>
+          {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ? (
+            <div className="flex justify-center min-h-[65px] pt-1">
+              <Turnstile
+                ref={turnstileRef}
+                siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+                onSuccess={(token) => {
+                  setTurnstileToken(token);
+                  setError("");
+                }}
+                onExpire={() => {
+                  setTurnstileToken("");
+                }}
+                onError={() => {
+                  setTurnstileToken("");
+                }}
+                options={{
+                  theme: "light",
+                }}
+              />
+            </div>
+          ) : null}
 
           <button
             type="submit"
-            disabled={!turnstileToken || isLoading || accessCode.length < 6 || !moderatorName.trim()}
+            disabled={
+              (Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) && !turnstileToken) ||
+              isLoading ||
+              accessCode.length < 6 ||
+              !moderatorName.trim()
+            }
             className="w-full bg-primary hover:bg-black text-white font-headline-sm py-4 rounded-lg transition-all flex items-center justify-center gap-2 group disabled:opacity-50 mt-2 shadow-xs cursor-pointer"
           >
             {isLoading ? (

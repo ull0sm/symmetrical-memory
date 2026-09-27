@@ -140,15 +140,21 @@ export async function requestModeratorAccess(
   if (!moderatorName || !moderatorName.trim()) {
     return { success: false, error: "Please enter your name." };
   }
-  if (!turnstileToken) {
-    return { success: false, error: "Security check is required." };
-  }
+  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+  const isTurnstileRequired = Boolean(
+    secretKey && secretKey !== "disabled" && process.env.OFFLINE_MODE !== "true"
+  );
+  if (isTurnstileRequired) {
+    if (!turnstileToken) {
+      return { success: false, error: "Security check is required." };
+    }
 
-  const { verifyTurnstileToken } = await import("./turnstile");
-  const verification = await verifyTurnstileToken(turnstileToken);
+    const { verifyTurnstileToken } = await import("./turnstile");
+    const verification = await verifyTurnstileToken(turnstileToken);
 
-  if (!verification.success) {
-    return { success: false, error: verification.error || "Security check failed." };
+    if (!verification.success) {
+      return { success: false, error: verification.error || "Security check failed." };
+    }
   }
 
   // Try to get IP
