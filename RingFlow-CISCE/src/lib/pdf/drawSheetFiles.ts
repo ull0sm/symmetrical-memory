@@ -37,6 +37,9 @@ export async function buildCategoryDrawPdf(categoryId: string) {
     venue: tournament?.venue,
     tournamentSize: drawData.draw.tournamentSize,
     byeCount: drawData.draw.byeCount,
+    bronzeMedals: drawData.bronzeMedals,
+    podium: drawData.podium,
+    athletes: drawData.athletes,
     matches: drawData.matches,
   });
 
@@ -76,6 +79,9 @@ export async function buildAllCategoryDrawPdfs(tournamentId: string) {
         venue: tournament.venue,
         tournamentSize: drawData.draw.tournamentSize,
         byeCount: drawData.draw.byeCount,
+        bronzeMedals: drawData.bronzeMedals,
+        podium: drawData.podium,
+        athletes: drawData.athletes,
         matches: drawData.matches,
       });
 

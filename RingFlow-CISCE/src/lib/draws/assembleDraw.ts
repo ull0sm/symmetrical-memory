@@ -28,8 +28,26 @@ export interface BracketMatchView {
   kataScoringMode?: string | null;
   status: string;
   slots?: BracketSlotView[];
-  aka: { displayName: string; name?: string; school?: string; id?: string; chestNumber?: string | null };
-  ao: { displayName: string; name?: string; school?: string; id?: string; chestNumber?: string | null };
+  aka: {
+    displayName: string;
+    name?: string;
+    school?: string;
+    id?: string;
+    chestNumber?: string | null;
+    isBye?: boolean;
+    isPending?: boolean;
+    sourceMatchNo?: number | null;
+  };
+  ao: {
+    displayName: string;
+    name?: string;
+    school?: string;
+    id?: string;
+    chestNumber?: string | null;
+    isBye?: boolean;
+    isPending?: boolean;
+    sourceMatchNo?: number | null;
+  };
   winnerId?: string | null;
   /** The recorded result of the bout, so the draw can show the score line. */
   akaScore?: number;
@@ -198,15 +216,30 @@ export async function assembleCategoryDraw(
         }));
 
       const matchSlotsList = dbSlots.filter((s) => s.matchId === m.id);
-      const akaRegId =
-        resolvedMatch?.slots[0]?.registrationId ||
-        matchSlotsList.find((s) => s.position === 1)?.athleteId;
-      const aoRegId =
-        resolvedMatch?.slots[1]?.registrationId ||
-        matchSlotsList.find((s) => s.position === 2)?.athleteId;
+      const akaSlot = resolvedMatch?.slots[0];
+      const aoSlot = resolvedMatch?.slots[1];
+      const akaDbSlot = matchSlotsList.find((s) => s.position === 1);
+      const aoDbSlot = matchSlotsList.find((s) => s.position === 2);
+
+      const akaRegId = akaSlot?.registrationId || akaDbSlot?.athleteId;
+      const aoRegId = aoSlot?.registrationId || aoDbSlot?.athleteId;
 
       const akaAthlete = akaRegId ? athleteMap.get(akaRegId) : null;
       const aoAthlete = aoRegId ? athleteMap.get(aoRegId) : null;
+
+      const isAkaBye =
+        akaSlot?.source === "BYE" ||
+        (!akaAthlete && m.roundNo === 0 && !akaDbSlot?.sourceMatchId && (resolvedMatch?.status === "WALKOVER" || !akaDbSlot?.athleteId));
+
+      const isAoBye =
+        aoSlot?.source === "BYE" ||
+        (!aoAthlete && m.roundNo === 0 && !aoDbSlot?.sourceMatchId && (resolvedMatch?.status === "WALKOVER" || !aoDbSlot?.athleteId));
+
+      const akaSourceId = akaSlot?.sourceMatchId || akaDbSlot?.sourceMatchId;
+      const aoSourceId = aoSlot?.sourceMatchId || aoDbSlot?.sourceMatchId;
+
+      const akaSourceMatchNo = akaSourceId ? graph.matches.find((gm) => gm.id === akaSourceId)?.matchNo ?? null : null;
+      const aoSourceMatchNo = aoSourceId ? graph.matches.find((gm) => gm.id === aoSourceId)?.matchNo ?? null : null;
 
       const recorded = matchRowById.get(m.id);
 
@@ -220,15 +253,23 @@ export async function assembleCategoryDraw(
         slots: slotsForMatch,
         aka: {
           id: akaAthlete?.id,
-          displayName: akaAthlete?.name ?? "TBD",
+          name: akaAthlete?.name ?? (isAkaBye ? "BYE" : "TBD"),
+          displayName: akaAthlete?.name ?? (isAkaBye ? "BYE" : "TBD"),
           school: akaAthlete?.school || akaAthlete?.dojo || undefined,
           chestNumber: akaAthlete?.chestNumber ?? null,
+          isBye: isAkaBye,
+          isPending: !akaAthlete && !isAkaBye,
+          sourceMatchNo: akaSourceMatchNo,
         },
         ao: {
           id: aoAthlete?.id,
-          displayName: aoAthlete?.name ?? "TBD",
+          name: aoAthlete?.name ?? (isAoBye ? "BYE" : "TBD"),
+          displayName: aoAthlete?.name ?? (isAoBye ? "BYE" : "TBD"),
           school: aoAthlete?.school || aoAthlete?.dojo || undefined,
           chestNumber: aoAthlete?.chestNumber ?? null,
+          isBye: isAoBye,
+          isPending: !aoAthlete && !isAoBye,
+          sourceMatchNo: aoSourceMatchNo,
         },
         akaScore: recorded?.akaScore ?? 0,
         aoScore: recorded?.aoScore ?? 0,
