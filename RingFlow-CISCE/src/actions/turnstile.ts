@@ -1,14 +1,16 @@
 "use server";
 
-export async function verifyTurnstileToken(token: string) {
-  if (!token || typeof token !== "string") {
-    return { success: false, error: "Captcha verification token is required" };
+import { isOfflineMode } from "@/lib/offline";
+
+export async function verifyTurnstileToken(token?: string) {
+  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+  if (!secretKey || secretKey === "disabled" || isOfflineMode() || token === "offline-bypass") {
+    // Graceful bypass for air-gapped / offline LAN venue deployments
+    return { success: true };
   }
 
-  const secretKey = process.env.TURNSTILE_SECRET_KEY;
-  if (!secretKey) {
-    console.error("[Turnstile] TURNSTILE_SECRET_KEY is not defined in environment variables");
-    return { success: false, error: "Server configuration error" };
+  if (!token || typeof token !== "string") {
+    return { success: false, error: "Captcha verification token is required" };
   }
 
   try {

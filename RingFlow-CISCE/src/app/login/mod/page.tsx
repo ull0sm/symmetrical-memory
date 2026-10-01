@@ -6,6 +6,7 @@ import { requestModeratorAccess } from "@/actions/moderator";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { RingFlowLogo } from "@/components/ui/ringflow-logo";
 import { v4 as uuidv4 } from "uuid";
+import { isOfflineMode, isTurnstileEnabled } from "@/lib/offline";
 
 // Simple user-agent parser
 function parseUserAgent(ua: string) {
@@ -36,6 +37,9 @@ function ModeratorLoginContent() {
   const turnstileRef = useRef<any>(null);
   const router = useRouter();
 
+  const isOffline = isOfflineMode();
+  const turnstileRequired = isTurnstileEnabled();
+
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
     if (val.length > 6) val = val.slice(0, 6);
@@ -56,7 +60,7 @@ function ModeratorLoginContent() {
       return;
     }
 
-    if (!turnstileToken) {
+    if (turnstileRequired && !turnstileToken) {
       setError("Please complete the Cloudflare security verification.");
       return;
     }
@@ -88,7 +92,7 @@ function ModeratorLoginContent() {
         accessCode,
         moderatorName.trim(),
         deviceInfo,
-        turnstileToken
+        turnstileToken || (turnstileRequired ? "" : "offline-bypass")
       );
 
       if (result.success && result.requestId) {
@@ -120,6 +124,13 @@ function ModeratorLoginContent() {
         <p className="font-body-sm text-on-surface-variant mb-6">
           Enter your Tatami Access Code to request entry
         </p>
+
+        {isOffline && (
+          <div className="mb-5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-secondary/10 border border-secondary/20 text-secondary text-xs font-semibold">
+            <span className="material-symbols-outlined text-sm">wifi_off</span>
+            Offline Venue LAN Mode Active
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-error/10 border border-error/20 text-error text-label-sm font-label-sm text-left">
@@ -170,29 +181,36 @@ function ModeratorLoginContent() {
             <span className="text-[11px] opacity-80">Obtain code from tournament admin</span>
           </div>
 
-          <div className="flex justify-center min-h-[65px] pt-1">
-            <Turnstile
-              ref={turnstileRef}
-              siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
-              onSuccess={(token) => {
-                setTurnstileToken(token);
-                setError("");
-              }}
-              onExpire={() => {
-                setTurnstileToken("");
-              }}
-              onError={() => {
-                setTurnstileToken("");
-              }}
-              options={{
-                theme: "light",
-              }}
-            />
-          </div>
+          {turnstileRequired && process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ? (
+            <div className="flex justify-center min-h-[65px] pt-1">
+              <Turnstile
+                ref={turnstileRef}
+                siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+                onSuccess={(token) => {
+                  setTurnstileToken(token);
+                  setError("");
+                }}
+                onExpire={() => {
+                  setTurnstileToken("");
+                }}
+                onError={() => {
+                  setTurnstileToken("");
+                }}
+                options={{
+                  theme: "light",
+                }}
+              />
+            </div>
+          ) : null}
 
           <button
             type="submit"
-            disabled={!turnstileToken || isLoading || accessCode.length < 6 || !moderatorName.trim()}
+            disabled={
+              (turnstileRequired && !turnstileToken) ||
+              isLoading ||
+              accessCode.length < 6 ||
+              !moderatorName.trim()
+            }
             className="w-full bg-primary hover:bg-black text-white font-headline-sm py-4 rounded-lg transition-all flex items-center justify-center gap-2 group disabled:opacity-50 mt-2 shadow-xs cursor-pointer"
           >
             {isLoading ? (

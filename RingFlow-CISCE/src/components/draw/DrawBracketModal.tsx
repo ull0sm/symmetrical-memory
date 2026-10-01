@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { getAthleteDraw, getCategoryDraw, toggleCategoryDrawLock } from "@/actions/draws";
 import { downloadCategoryDrawPdf } from "@/actions/drawPdfs";
 import { DrawBracket } from "./DrawBracket";
+import { KataPoolTableDraw } from "./KataPoolTableDraw";
 import { useRouter } from "next/navigation";
 
 interface Props {
@@ -37,6 +38,13 @@ export function DrawBracketModal({
   const [drawData, setDrawData] = useState<any>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isTogglingLock, setIsTogglingLock] = useState(false);
+  const isKata =
+    categoryName?.toLowerCase().includes("kata") ||
+    drawData?.categoryName?.toLowerCase()?.includes("kata") ||
+    drawData?.draw?.format === "KATA_GROUP_POOLS";
+  const [viewMode, setViewMode] = useState<"tree" | "tables">(
+    categoryName?.toLowerCase().includes("kata") ? "tables" : "tree"
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -50,6 +58,13 @@ export function DrawBracketModal({
       .then((data) => {
         if (mounted) {
           setDrawData(data);
+          const isCategoryKata =
+            categoryName?.toLowerCase().includes("kata") ||
+            (data && "categoryName" in data && typeof data.categoryName === "string" && data.categoryName.toLowerCase().includes("kata")) ||
+            (data && "draw" in data && data.draw?.format === "KATA_GROUP_POOLS");
+          if (isCategoryKata) {
+            setViewMode("tables");
+          }
           setLoading(false);
         }
       })
@@ -132,6 +147,11 @@ export function DrawBracketModal({
                 <h2 className="font-bold text-base text-[#1B1815]">
                   {categoryName || drawData?.categoryName || "Draw bracket"}
                 </h2>
+                {drawData?.draw?.version && (
+                  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-bold font-data-mono bg-blue-50 text-blue-800 border border-blue-200">
+                    v{drawData.draw.version}
+                  </span>
+                )}
                 {drawData?.isDrawLocked && (
                   <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded text-[10px] font-bold font-data-mono bg-amber-50 text-amber-800 border border-amber-200">
                     <span className="material-symbols-outlined text-[12px]">lock</span>
@@ -149,6 +169,34 @@ export function DrawBracketModal({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* View Mode Switcher for Kata / Pools */}
+            {(isKata || drawData?.draw?.format === "KATA_GROUP_POOLS") && (
+              <div className="flex items-center bg-[#F5F3EC] border border-[#E1DDCF] p-0.5 rounded-lg text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("tables")}
+                  className={`px-2 py-1 rounded-md transition-colors ${
+                    viewMode === "tables"
+                      ? "bg-white text-[#1B1815] shadow-xs font-bold"
+                      : "text-[#68645A] hover:text-[#1B1815]"
+                  }`}
+                >
+                  Pool Tables
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("tree")}
+                  className={`px-2 py-1 rounded-md transition-colors ${
+                    viewMode === "tree"
+                      ? "bg-white text-[#1B1815] shadow-xs font-bold"
+                      : "text-[#68645A] hover:text-[#1B1815]"
+                  }`}
+                >
+                  Bracket Tree
+                </button>
+              </div>
+            )}
+
             {allowPdf && drawData?.draw && (
               <button
                 type="button"
@@ -208,6 +256,15 @@ export function DrawBracketModal({
               <p className="text-xs text-[#68645A] max-w-sm mb-4">
                 This category doesn&apos;t have an active digital draw. Click &ldquo;Generate Digital Draw&rdquo; in category options to create one.
               </p>
+            </div>
+          ) : viewMode === "tables" ? (
+            <div className="h-full overflow-y-auto p-2">
+              <KataPoolTableDraw
+                drawData={drawData?.flightDraw}
+                categoryName={categoryName || drawData.categoryName || "Draw"}
+                matches={drawData.matches}
+                allAthletes={drawData.athletes || []}
+              />
             </div>
           ) : (
             <DrawBracket

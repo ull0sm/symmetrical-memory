@@ -1,8 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
-import { setCategoryDrawOption, toggleCategoryDrawLock, generateCategoryDraw } from "@/actions/draws";
+import React, { useState, useEffect } from "react";
+import {
+  setCategoryDrawOption,
+  toggleCategoryDrawLock,
+  generateCategoryDraw,
+  flushCategoryDraw,
+} from "@/actions/draws";
 import { downloadCategoryDrawPdf } from "@/actions/drawPdfs";
+import { updateCategoryKataSettings } from "@/actions/categories";
 
 export type CategoryDrawInfo = {
   id: string;
@@ -14,11 +20,24 @@ export type CategoryDrawInfo = {
   doc_url?: string | null;
   bronze_medals?: number | null;
   draw_state?: string | null;
+  draw_version?: number | null;
+  drawVersion?: number | null;
   is_locked?: boolean;
   confirmed_matches?: number;
   live_matches?: number;
   total_matches?: number;
   has_draw?: boolean;
+  event_type?: string | null;
+  eventType?: string | null;
+  discipline?: string | null;
+  kata_format?: string | null;
+  kataFormat?: string | null;
+  kata_scoring_mode?: string | null;
+  kataScoringMode?: string | null;
+  pool_size?: number | null;
+  poolSize?: number | null;
+  advance_per_pool?: number | null;
+  advancePerPool?: number | null;
 };
 
 interface Props {
@@ -41,9 +60,28 @@ export function CategoryDrawDrawer({
   const [isSavingBronze, setIsSavingBronze] = useState(false);
   const [isTogglingLock, setIsTogglingLock] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isFlushing, setIsFlushing] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [showEmergencyReset, setShowEmergencyReset] = useState(false);
   const [resetConfirmInput, setResetConfirmInput] = useState("");
+
+  // Kata Settings State
+  const [kataFormat, setKataFormat] = useState<string>("GROUP_POOLS");
+  const [kataScoringMode, setKataScoringMode] = useState<string>("FLAG");
+  const [poolSize, setPoolSize] = useState<number>(8);
+  const [advancePerPool, setAdvancePerPool] = useState<number>(2);
+  const [isSavingKata, setIsSavingKata] = useState(false);
+  const [kataSaveNotice, setKataSaveNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (category) {
+      setKataFormat(category.kata_format || category.kataFormat || "GROUP_POOLS");
+      setKataScoringMode(category.kata_scoring_mode || category.kataScoringMode || "FLAG");
+      setPoolSize(category.pool_size || category.poolSize || 8);
+      setAdvancePerPool(category.advance_per_pool || category.advancePerPool || 2);
+      setKataSaveNotice(null);
+    }
+  }, [category]);
 
   if (!isOpen || !category) return null;
 
@@ -130,6 +168,31 @@ export function CategoryDrawDrawer({
     }
   };
 
+  const handleFlushDraw = async () => {
+    const confirmFlush = confirm(
+      `Are you sure you want to FLUSH all draw data for "${category.name}"?\n\n` +
+      `This will completely wipe and reset matches, slots, versions, and scores for THIS category only.\n` +
+      `No other categories or tournament data will be affected.\n\n` +
+      `After flushing, you can generate a clean new draw.`
+    );
+    if (!confirmFlush) return;
+
+    setIsFlushing(true);
+    try {
+      const res = await flushCategoryDraw(category.id);
+      if (res.success) {
+        alert(`Draw for "${category.name}" has been flushed cleanly.`);
+        onRefresh();
+      } else {
+        alert(res.error || "Failed to flush draw.");
+      }
+    } catch (err: any) {
+      alert(err?.message || "Failed to flush draw.");
+    } finally {
+      setIsFlushing(false);
+    }
+  };
+
   const handleDownloadPdf = async () => {
     setIsDownloadingPdf(true);
     try {
@@ -156,6 +219,38 @@ export function CategoryDrawDrawer({
     }
   };
 
+  const handleSaveKataSettings = async () => {
+    if (lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED") {
+      alert("Cannot change competition format while bouts are in progress or completed.");
+      return;
+    }
+    setIsSavingKata(true);
+    setKataSaveNotice(null);
+    try {
+      const res = await updateCategoryKataSettings(category.id, tournamentId, {
+        kataFormat,
+        kataScoringMode,
+        poolSize,
+        advancePerPool,
+      });
+      if (res.success) {
+        setKataSaveNotice("Saved! Changes apply next time this category's draw is generated.");
+        onRefresh();
+      } else {
+        alert("Failed to update Kata settings.");
+      }
+    } catch (err: any) {
+      alert(err?.message || "Failed to update Kata settings.");
+    } finally {
+      setIsSavingKata(false);
+    }
+  };
+
+  const isKataCategory =
+    category.discipline === "KATA" ||
+    category.event_type === "kata" ||
+    category.eventType === "kata" ||
+    category.name?.toLowerCase().includes("kata");
   const bronzeValue = category.bronze_medals === null || category.bronze_medals === undefined ? "inherit" : String(category.bronze_medals);
 
   return (
@@ -171,7 +266,14 @@ export function CategoryDrawDrawer({
             <span className="text-[11px] font-bold font-data-mono tracking-wider text-[#0E9C7C] uppercase">
               Tournament Draw Management
             </span>
-            <h2 className="text-lg font-bold text-[#1B1815] mt-0.5">{category.name}</h2>
+            <div className="flex items-center gap-2 mt-0.5">
+              <h2 className="text-lg font-bold text-[#1B1815]">{category.name}</h2>
+              {hasDraw && (
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold font-data-mono bg-blue-50 text-blue-800 border border-blue-200">
+                  Draw v{category.draw_version || category.drawVersion || 1}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 text-xs text-[#68645A] mt-1 font-data-mono">
               <span>{category.age_bracket || "All Ages"}</span>
               <span>•</span>
@@ -254,79 +356,263 @@ export function CategoryDrawDrawer({
             )}
           </div>
 
-          {/* Bronze Medal Format Cards */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-[#1B1815] uppercase tracking-wider flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px] text-[#C08A5A]">workspace_premium</span>
-                Bronze Medal & Repechage Format
-              </label>
-              {(lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED") && (
-                <span className="text-[10px] font-bold font-data-mono text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                  LOCKED BY LIVE MATCHES
-                </span>
-              )}
-            </div>
+          {/* Conditional: Kata Settings vs Kumite Bronze Settings */}
+          {isKataCategory ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#1B1815] uppercase tracking-wider flex items-center gap-1.5 font-data-mono">
+                  <span className="material-symbols-outlined text-[16px] text-[#0E9C7C]">sports_martial_arts</span>
+                  Kata Competition Settings (PRD)
+                </label>
+                {(lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED") && (
+                  <span className="text-[10px] font-bold font-data-mono text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    LOCKED BY LIVE MATCHES
+                  </span>
+                )}
+              </div>
 
-            <div className="grid grid-cols-1 gap-2">
-              {[
-                {
-                  value: "inherit",
-                  title: "Default (Inherit Event Setting)",
-                  desc: "Follows the tournament-wide bronze policy configured in Settings.",
-                },
-                {
-                  value: "2",
-                  title: "Official WKF (2 Bronzes · Full)",
-                  desc: "Full repechage ladders for everyone beaten by finalists. Standard WKF format.",
-                },
-                {
-                  value: "1",
-                  title: "Local Official (1 Bronze Playoff)",
-                  desc: "Early losers eliminated; losing semi-finalists face off in a single bronze match.",
-                },
-                {
-                  value: "3",
-                  title: "Local Official (Joint 3rd · 2 Bronzes)",
-                  desc: "Both semi-final losers awarded bronze directly without any extra bouts.",
-                },
-                {
-                  value: "0",
-                  title: "No Bronze",
-                  desc: "Pure single elimination stopping at the final. No bronze bouts.",
-                },
-              ].map((opt) => {
-                const isSelected = bronzeValue === opt.value;
-                const isDisabled = lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED" || isSavingBronze;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    disabled={isDisabled}
-                    onClick={() => {
-                      const numVal = opt.value === "inherit" ? null : (Number(opt.value) as 0 | 1 | 2 | 3);
-                      handleBronzeChange(numVal);
-                    }}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                      isSelected
-                        ? "border-[#0E9C7C] bg-emerald-50/50 shadow-xs"
-                        : "border-[#E1DDCF] bg-white hover:border-[#C0BAA8]"
-                    } ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className={`text-xs font-bold ${isSelected ? "text-[#0E9C7C]" : "text-[#1B1815]"}`}>
-                        {opt.title}
+              {/* Competition Format Cards */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-[#504C42] uppercase tracking-wider block">
+                  1. Competition Format
+                </span>
+                <div className="grid grid-cols-1 gap-2">
+                  {[
+                    {
+                      id: "BRACKET",
+                      title: "Single Elimination with Repechage",
+                      desc: "Official WKF knockout bracket with repechage ladders.",
+                    },
+                    {
+                      id: "GROUP_POOLS",
+                      title: "Groups then Elimination",
+                      desc: "Balanced preliminary flight tables, top qualifiers advance to championship flight.",
+                    },
+                    {
+                      id: "ROUND_ROBIN",
+                      title: "Pure Round-Robin",
+                      desc: "Full round-robin group where standings directly decide the final medals.",
+                    },
+                  ].map((fmt) => {
+                    const isSelected = kataFormat === fmt.id;
+                    const isDisabled = lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED" || isSavingKata;
+                    return (
+                      <button
+                        key={fmt.id}
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => setKataFormat(fmt.id)}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? "border-[#0E9C7C] bg-emerald-50/50 shadow-xs"
+                            : "border-[#E1DDCF] bg-white hover:border-[#C0BAA8]"
+                        } ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`text-xs font-bold ${isSelected ? "text-[#0E9C7C]" : "text-[#1B1815]"}`}>
+                            {fmt.title}
+                          </span>
+                          {isSelected && (
+                            <span className="material-symbols-outlined text-[16px] text-[#0E9C7C]">check_circle</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#68645A] mt-0.5">{fmt.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Ranking Method Cards */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-[#504C42] uppercase tracking-wider block">
+                  2. Ranking Method
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    {
+                      id: "FLAG",
+                      title: "WKF Victory Points",
+                      desc: "Wins = 3 VP. Tie-breaks: Head-to-Head & Votes.",
+                    },
+                    {
+                      id: "POINTS",
+                      title: "Total Score",
+                      desc: "Ranks athletes by accumulated performance score.",
+                    },
+                  ].map((m) => {
+                    const isSelected = kataScoringMode === m.id;
+                    const isDisabled = lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED" || isSavingKata;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => setKataScoringMode(m.id)}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? "border-[#0E9C7C] bg-emerald-50/50 shadow-xs"
+                            : "border-[#E1DDCF] bg-white hover:border-[#C0BAA8]"
+                        } ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`text-xs font-bold ${isSelected ? "text-[#0E9C7C]" : "text-[#1B1815]"}`}>
+                            {m.title}
+                          </span>
+                          {isSelected && (
+                            <span className="material-symbols-outlined text-[16px] text-[#0E9C7C]">check_circle</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-[#68645A] mt-1">{m.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Pool Size & Advancers */}
+              {kataFormat !== "BRACKET" && (
+                <div className="bg-white border border-[#E1DDCF] rounded-xl p-3.5 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-bold text-[#1B1815] block mb-1">
+                        Group Pool Size
+                      </label>
+                      <input
+                        type="number"
+                        min={2}
+                        max={32}
+                        disabled={lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED" || isSavingKata}
+                        value={poolSize}
+                        onChange={(e) => setPoolSize(parseInt(e.target.value, 10) || 8)}
+                        className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2.5 py-1.5 text-xs font-data-mono font-bold focus:border-[#0E9C7C] outline-none"
+                      />
+                      <span className="text-[10px] text-[#8C877C] block mt-0.5">
+                        WKF recommendation: 6-8 per pool
                       </span>
-                      {isSelected && (
-                        <span className="material-symbols-outlined text-[16px] text-[#0E9C7C]">check_circle</span>
-                      )}
                     </div>
-                    <p className="text-[11px] text-[#68645A] mt-1">{opt.desc}</p>
-                  </button>
-                );
-              })}
+
+                    <div>
+                      <label className="text-[11px] font-bold text-[#1B1815] block mb-1">
+                        Advancers per Group
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={16}
+                        disabled={lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED" || isSavingKata}
+                        value={advancePerPool}
+                        onChange={(e) => setAdvancePerPool(parseInt(e.target.value, 10) || 2)}
+                        className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2.5 py-1.5 text-xs font-data-mono font-bold focus:border-[#0E9C7C] outline-none"
+                      />
+                      <span className="text-[10px] text-[#8C877C] block mt-0.5">
+                        Default: Top 2 advance (Q)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Save Kata Settings Action */}
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  disabled={lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED" || isSavingKata}
+                  onClick={handleSaveKataSettings}
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#0E9C7C] hover:bg-[#0c8569] text-white font-bold text-xs font-data-mono transition-all cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-[16px]">save</span>
+                  <span>{isSavingKata ? "Saving Kata Settings..." : "Save Kata Settings"}</span>
+                </button>
+                {kataSaveNotice && (
+                  <p className="text-[11px] text-[#0E9C7C] font-semibold text-center">
+                    {kataSaveNotice}
+                  </p>
+                )}
+                <p className="text-[10px] text-[#8C877C] text-center">
+                  Saved settings will be applied when you generate or regenerate this category&apos;s draw.
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Kumite Bronze Medal Format Cards */
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-[#1B1815] uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[16px] text-[#C08A5A]">workspace_premium</span>
+                  Bronze Medal & Repechage Format
+                </label>
+                {(lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED") && (
+                  <span className="text-[10px] font-bold font-data-mono text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    LOCKED BY LIVE MATCHES
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                {[
+                  {
+                    value: "inherit",
+                    title: "Default (Inherit Event Setting)",
+                    desc: "Follows the tournament-wide bronze policy configured in Settings.",
+                  },
+                  {
+                    value: "2",
+                    title: isKataCategory ? "2 Bronze Medals (Cross-over Bouts)" : "Official WKF (2 Bronzes · Full)",
+                    desc: isKataCategory
+                      ? "Pool A #2 faces Pool B #3, and Pool B #2 faces Pool A #3 for two 3rd place medals."
+                      : "Full repechage ladders for everyone beaten by finalists. Standard WKF format.",
+                  },
+                  {
+                    value: "1",
+                    title: isKataCategory ? "1 Bronze Medal (Pool Runner-up Playoff)" : "Local Official (1 Bronze Playoff)",
+                    desc: isKataCategory
+                      ? "Direct 3rd place match between Pool A #2 and Pool B #2."
+                      : "Early losers eliminated; losing semi-finalists face off in a single bronze match.",
+                  },
+                  {
+                    value: "3",
+                    title: "Local Official (Joint 3rd · 2 Bronzes)",
+                    desc: "Both semi-final losers awarded bronze directly (no extra bouts).",
+                  },
+                  {
+                    value: "0",
+                    title: "No Bronze Matches",
+                    desc: "Final championship match only for 1st (Gold) and 2nd (Silver).",
+                  },
+                ].map((opt) => {
+                  const isSelected = bronzeValue === opt.value;
+                  const isDisabled = lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED" || isSavingBronze;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => {
+                        const numVal = opt.value === "inherit" ? null : (Number(opt.value) as 0 | 1 | 2 | 3);
+                        handleBronzeChange(numVal);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        isSelected
+                          ? "border-[#0E9C7C] bg-emerald-50/50 shadow-xs"
+                          : "border-[#E1DDCF] bg-white hover:border-[#C0BAA8]"
+                      } ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-bold ${isSelected ? "text-[#0E9C7C]" : "text-[#1B1815]"}`}>
+                          {opt.title}
+                        </span>
+                        {isSelected && (
+                          <span className="material-symbols-outlined text-[16px] text-[#0E9C7C]">check_circle</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-[#68645A] mt-1">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Primary Bracket Actions */}
           <div className="space-y-2.5 pt-2">
@@ -420,14 +706,29 @@ export function CategoryDrawDrawer({
             {(lifecycle === "NO_DRAW" || lifecycle === "DRAFT") && (
               <button
                 type="button"
-                disabled={isRegenerating}
-                onClick={() => handleRegenerate(false)}
+                disabled={isRegenerating || isFlushing}
+                onClick={() => handleRegenerate(true)}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#0E9C7C] hover:bg-[#0B7C63] text-white font-bold text-xs font-data-mono tracking-wider transition-all cursor-pointer shadow-sm"
               >
                 <span className={`material-symbols-outlined text-[18px] ${isRegenerating ? "animate-spin" : ""}`}>
                   autorenew
                 </span>
                 <span>{hasDraw ? "REGENERATE DRAFT BRACKET" : "GENERATE DIGITAL BRACKET"}</span>
+              </button>
+            )}
+
+            {/* Flush Category Draw Button */}
+            {hasDraw && (
+              <button
+                type="button"
+                disabled={isFlushing || isRegenerating}
+                onClick={handleFlushDraw}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-300 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs font-data-mono tracking-wider transition-all cursor-pointer shadow-xs"
+              >
+                <span className={`material-symbols-outlined text-[18px] ${isFlushing ? "animate-spin" : ""}`}>
+                  delete_sweep
+                </span>
+                <span>{isFlushing ? "FLUSHING CATEGORY..." : "FLUSH CATEGORY DRAW"}</span>
               </button>
             )}
           </div>

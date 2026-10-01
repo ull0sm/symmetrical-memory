@@ -9,6 +9,8 @@ import PublicTournamentGrid from "@/components/public/PublicTournamentGrid";
 import { RingFlowLogo } from "@/components/ui/ringflow-logo";
 import { getEventDateKey } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 export default async function PublicHome() {
   const rawTournaments = await db.query.tournaments.findMany({
     with: {

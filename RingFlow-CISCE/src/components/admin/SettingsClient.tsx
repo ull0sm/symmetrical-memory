@@ -35,6 +35,8 @@ interface Tournament {
   show_public_draws?: boolean;
   show_public_scoreboard?: boolean;
   default_bronze_medals?: number | null;
+  tunnel_url?: string | null;
+  tunnelUrl?: string | null;
 }
 
 interface Props {
@@ -54,6 +56,7 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
     show_public_draws: tournament.show_public_draws === true,
     show_public_scoreboard: tournament.show_public_scoreboard === true,
     default_bronze_medals: (tournament.default_bronze_medals ?? 2) as 0 | 1 | 2 | 3,
+    tunnel_url: tournament.tunnel_url || tournament.tunnelUrl || "",
   });
   
   const [organiserCode, setOrganiserCode] = useState(tournament.organiser_code || "------");
@@ -67,11 +70,27 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
   // 0 = closed, 1 = typing "delete", 2 = typing "tournament name"
   const [deletePhase, setDeletePhase] = useState(0);
   const [deleteInput, setDeleteInput] = useState("");
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
   // Sync initial props
   useEffect(() => {
     setRequests(initialOrganiserRequests);
   }, [initialOrganiserRequests]);
+
+  // Sync form when tournament prop updates
+  useEffect(() => {
+    setForm({
+      name: tournament.name,
+      event_date: tournament.event_date || "",
+      status: tournament.status,
+      venue: tournament.venue || "",
+      city: tournament.city || "",
+      show_public_draws: tournament.show_public_draws === true,
+      show_public_scoreboard: tournament.show_public_scoreboard === true,
+      default_bronze_medals: (tournament.default_bronze_medals ?? 2) as 0 | 1 | 2 | 3,
+      tunnel_url: tournament.tunnel_url || tournament.tunnelUrl || "",
+    });
+  }, [tournament]);
 
   const refreshRequests = useCallback(async () => {
     try {
@@ -170,11 +189,17 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
 
   const handleSave = async () => {
     setIsSaving(true);
+    setSaveSuccessMessage(null);
     try {
-      await updateTournamentSettings(tournament.id, form);
-      alert("Settings saved successfully.");
-    } catch (err) {
-      alert("Failed to save settings.");
+      await updateTournamentSettings(tournament.id, {
+        ...form,
+        default_bronze_medals: Number(form.default_bronze_medals) as 0 | 1 | 2 | 3,
+      });
+      setSaveSuccessMessage("Settings saved successfully.");
+      router.refresh();
+      setTimeout(() => setSaveSuccessMessage(null), 4000);
+    } catch (err: any) {
+      alert(err?.message || "Failed to save settings.");
     } finally {
       setIsSaving(false);
     }
@@ -406,13 +431,52 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                   />
                 </button>
               </div>
+
+              {/* Public Tunnel / Internet Remote Access URL */}
+              <div className="pt-6 border-t border-outline-variant/60 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[20px] text-[#0E9C7C]">router</span>
+                  <label className="font-label-caps text-[11px] font-bold text-primary">
+                    PUBLIC TUNNEL URL (FOR JUDGE PHONES & QR CODES)
+                  </label>
+                </div>
+                <p className="text-body-xs text-on-surface-variant max-w-xl">
+                  If running on a local LAN/computer with a tunnel (e.g. Cloudflare Tunnel, ngrok, Pinggy, Tailscale Funnel) so external judges can submit marks over the internet, paste the public tunnel base URL here. All Judge QR codes and mobile links will automatically use this URL.
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="url"
+                    value={form.tunnel_url}
+                    onChange={(e) => setForm({ ...form, tunnel_url: e.target.value })}
+                    placeholder="e.g. https://karate-tourney.trycloudflare.com or https://xxxx.ngrok-free.app"
+                    className="flex-1 p-3 border border-outline-variant rounded focus:border-secondary focus:ring-1 focus:ring-secondary outline-none font-data-mono text-xs bg-white"
+                  />
+                  {form.tunnel_url && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(form.tunnel_url, "_blank")}
+                      className="px-3 py-3 border border-outline-variant hover:bg-[#F5F3EC] rounded text-xs font-bold font-data-mono text-primary flex items-center gap-1 cursor-pointer shrink-0"
+                      title="Test URL in new tab"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                      Test
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="mt-8 flex justify-end">
+            <div className="mt-8 flex items-center justify-end gap-3">
+              {saveSuccessMessage && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold animate-in fade-in">
+                  <span className="material-symbols-outlined text-[16px] text-emerald-600">check_circle</span>
+                  <span>{saveSuccessMessage}</span>
+                </div>
+              )}
               <button 
                 onClick={handleSave}
                 disabled={isSaving}
-                className="px-6 py-2.5 bg-primary text-white font-label-caps text-label-caps rounded hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+                className="px-6 py-2.5 bg-primary text-white font-label-caps text-label-caps rounded hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2 cursor-pointer"
               >
                 {isSaving ? (
                   <>

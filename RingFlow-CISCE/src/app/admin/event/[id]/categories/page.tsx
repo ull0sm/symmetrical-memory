@@ -76,6 +76,7 @@ export default async function AdminCategories({ params }: { params: Promise<{ id
       expectedMatches: Math.max(0, realAthleteCount - 1),
       hasDraw: Boolean(draw),
       drawState: draw?.state ?? null,
+      drawVersion: draw?.version ?? null,
       confirmedMatches: Number(matchStat?.confirmed ?? 0),
       liveMatches: Number(matchStat?.live ?? 0),
       totalMatches: Number(matchStat?.total ?? 0),

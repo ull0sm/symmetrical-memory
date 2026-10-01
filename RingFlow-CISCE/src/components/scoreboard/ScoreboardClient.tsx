@@ -9,6 +9,7 @@ import { BoutHeader } from "@/components/scoreboard/BoutHeader";
 import { ClockStage } from "@/components/scoreboard/ClockStage";
 import { FighterPanel } from "@/components/scoreboard/FighterPanel";
 import { NextBoutStrip } from "@/components/scoreboard/NextBoutStrip";
+import { KataScoreboardStage } from "@/components/scoreboard/KataScoreboardStage";
 
 interface Props {
   ringId: string;
@@ -90,7 +91,7 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
     }
   }, [ringId]);
 
-  // Poll on a cadence the screen earns: fast only while a clock runs.
+  // Fast polling while clock is running or in active kata bouts; safety net idle cadence otherwise
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -101,7 +102,7 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
         ? HIDDEN_POLL_MS
         : clockStatusRef.current === "running"
           ? RUNNING_POLL_MS
-          : IDLE_POLL_MS;
+          : 8000;
       timer = setTimeout(async () => {
         await fetchBout();
         schedule();
@@ -163,7 +164,7 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
     [fetchBout]
   );
 
-  useLiveEvents({ ringId }, handleLiveEvent, { debounceMs: 0 });
+  const { connected: isLiveStreamConnected } = useLiveEvents({ ringId }, handleLiveEvent, { debounceMs: 0 });
 
   // Chrome (fullscreen button, status) fades out so the screen stays clean.
   const revealChrome = useCallback(() => {
@@ -257,33 +258,59 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
   const category = data?.category;
   const ring = data?.ring;
 
-  const isDecided = currentMatch?.status === "CONFIRMED";
-  const akaWon = isDecided && currentMatch?.winnerId && currentMatch.winnerId === currentMatch.aka?.id;
-  const aoWon = isDecided && currentMatch?.winnerId && currentMatch.winnerId === currentMatch.ao?.id;
+  const isKata =
+    category?.discipline === "KATA" ||
+    category?.event_type === "kata" ||
+    category?.eventType === "kata" ||
+    category?.name?.toLowerCase().includes("kata") ||
+    Boolean(currentMatch?.kataScoringMode || currentMatch?.kata_scoring_mode);
+
+  const isPointsMode =
+    category?.kataScoringMode === "POINTS" ||
+    category?.kata_scoring_mode === "POINTS" ||
+    currentMatch?.kataScoringMode === "POINTS" ||
+    currentMatch?.kata_scoring_mode === "POINTS" ||
+    (isKata &&
+      category?.kataScoringMode !== "FLAG" &&
+      category?.kata_scoring_mode !== "FLAG" &&
+      currentMatch?.kataScoringMode !== "FLAG" &&
+      currentMatch?.kata_scoring_mode !== "FLAG");
+
+  const akaDisplayScore = isKata
+    ? (isPointsMode ? Number(currentMatch?.akaScoreTotal || currentMatch?.aka_score_total || 0) : (currentMatch?.aka_flags ?? currentMatch?.akaFlags ?? 0))
+    : (currentMatch?.akaScore ?? 0);
+
+  const aoDisplayScore = isKata
+    ? (isPointsMode ? Number(currentMatch?.aoScoreTotal || currentMatch?.ao_score_total || 0) : (currentMatch?.ao_flags ?? currentMatch?.aoFlags ?? 0))
+    : (currentMatch?.aoScore ?? 0);
+
+  const isDecided = currentMatch?.status === "CONFIRMED" || currentMatch?.status === "COMPLETED";
+  const akaWon = isDecided && (currentMatch?.winnerSide === "AKA" || (currentMatch?.winnerId && currentMatch.winnerId === currentMatch.aka?.id));
+  const aoWon = isDecided && (currentMatch?.winnerSide === "AO" || (currentMatch?.winnerId && currentMatch.winnerId === currentMatch.ao?.id));
   const swapped = Boolean(ring?.sidesSwapped);
 
   const aka = {
     side: "AKA" as const,
     fighter: currentMatch?.aka ?? { name: "TBD" },
-    score: currentMatch?.akaScore ?? 0,
-    penalties: currentMatch?.akaPenalties ?? 0,
-    hasSenshu: currentMatch?.senshu === "AKA",
+    score: akaDisplayScore,
+    penalties: isKata ? 0 : (currentMatch?.akaPenalties ?? 0),
+    hasSenshu: isKata ? false : (currentMatch?.senshu === "AKA"),
     isWinner: Boolean(akaWon),
   };
 
   const ao = {
     side: "AO" as const,
     fighter: currentMatch?.ao ?? { name: "TBD" },
-    score: currentMatch?.aoScore ?? 0,
-    penalties: currentMatch?.aoPenalties ?? 0,
-    hasSenshu: currentMatch?.senshu === "AO",
+    score: aoDisplayScore,
+    penalties: isKata ? 0 : (currentMatch?.aoPenalties ?? 0),
+    hasSenshu: isKata ? false : (currentMatch?.senshu === "AO"),
     isWinner: Boolean(aoWon),
   };
 
   const left = swapped ? ao : aka;
   const right = swapped ? aka : ao;
 
-  const connection = now - lastSyncAt > STALE_MS ? "reconnecting" : "live";
+  const connection = isLiveStreamConnected || now - lastSyncAt <= 15000 ? "live" : "reconnecting";
 
   const nextCategoryName =
     !data?.nextBout && data?.assignment?.status !== "running" ? category?.name ?? null : null;
@@ -309,17 +336,31 @@ export function ScoreboardClient({ ringId, initialData }: Props) {
       />
 
       <main
-        className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] transition-transform origin-center"
+        className={`min-h-0 flex-1 transition-transform origin-center ${
+          isKata ? "flex flex-col" : "grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+        }`}
         style={{ zoom: scale }}
       >
-        <FighterPanel {...left} mirrored={false} />
-        <ClockStage
-          remainingMs={remainingMs}
-          status={clock.status}
-          boutDecided={Boolean(isDecided)}
-          offsetMs={offsetMs}
-        />
-        <FighterPanel {...right} mirrored />
+        {isKata ? (
+          <KataScoreboardStage
+            aka={aka}
+            ao={ao}
+            currentMatch={currentMatch}
+            kataScores={currentMatch?.kataScores || data?.kataScores || []}
+            isPointsMode={isPointsMode}
+          />
+        ) : (
+          <>
+            <FighterPanel {...left} mirrored={false} />
+            <ClockStage
+              remainingMs={remainingMs}
+              status={clock.status}
+              boutDecided={Boolean(isDecided)}
+              offsetMs={offsetMs}
+            />
+            <FighterPanel {...right} mirrored />
+          </>
+        )}
       </main>
 
       <NextBoutStrip nextBout={data?.nextBout ?? null} nextCategoryName={nextCategoryName} />

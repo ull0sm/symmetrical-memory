@@ -13,6 +13,7 @@ import {
   drawVersions,
   tournaments,
   eventLog,
+  kataScores,
 } from "@/db/schema";
 import { resolveDraw } from "@/engine/draw-engine";
 import type { DrawGraph } from "@/engine/draw-engine/types";
@@ -20,6 +21,7 @@ import { normalizeClock } from "@/lib/matchClock";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
+import { advanceKataPoolFinalists } from "@/actions/kata";
 
 function assembleRingActiveBout({
   ring,
@@ -64,20 +66,29 @@ function assembleRingActiveBout({
     const akaAth = akaSlot?.athleteId ? athleteMap.get(akaSlot.athleteId) : null;
     const aoAth = aoSlot?.athleteId ? athleteMap.get(aoSlot.athleteId) : null;
 
+    const isFinished = m.status === "CONFIRMED" || m.status === "COMPLETED" || m.status === "BYE";
+    const isSolo = Boolean(
+      (m.bracketType === "POOL" || (category as any)?.type?.toLowerCase()?.includes("kata") || (category as any)?.name?.toLowerCase()?.includes("kata")) &&
+      akaAth &&
+      !aoAth &&
+      (!aoSlot?.athleteId || m.roundName?.includes("Solo") || m.roundName?.includes("Bye"))
+    );
+
     const isReady =
-      Boolean(akaAth && aoAth) &&
-      m.status !== "CONFIRMED" &&
-      m.status !== "BYE";
-    const isFinished = m.status === "CONFIRMED" || m.status === "BYE";
+      (Boolean(akaAth && aoAth) || (isSolo && Boolean(akaAth))) &&
+      !isFinished;
 
     return {
       ...m,
+      isSolo,
       aka: akaAth
         ? { id: akaAth.id, name: akaAth.name, school: akaAth.school || akaAth.dojo || "", chestNumber: akaAth.chestNumber }
         : { id: null, name: "TBD", school: "", chestNumber: null },
       ao: aoAth
-        ? { id: aoAth.id, name: aoAth.name, school: aoAth.school || aoAth.dojo || "", chestNumber: aoAth.chestNumber }
-        : { id: null, name: "TBD", school: "", chestNumber: null },
+        ? { id: aoAth.id, name: aoAth.name, school: aoAth.school || aoAth.dojo || "", chestNumber: aoAth.chestNumber, isSolo: false }
+        : isSolo
+        ? { id: null, name: "Solo Performance", school: "", chestNumber: null, isSolo: true }
+        : { id: null, name: "TBD", school: "", chestNumber: null, isSolo: false },
       isReady,
       isFinished,
     };
@@ -86,7 +97,7 @@ function assembleRingActiveBout({
   // Identify fighters who recently competed to ensure rest time
   const recentFighterIds = new Set<string>();
   const lastFinishedMatch = enrichedMatches
-    .filter((m) => m.status === "CONFIRMED")
+    .filter((m) => m.isFinished)
     .sort((a, b) => (b.matchNo ?? 0) - (a.matchNo ?? 0))[0];
   if (lastFinishedMatch) {
     if (lastFinishedMatch.aka?.id) recentFighterIds.add(lastFinishedMatch.aka.id);
@@ -162,6 +173,7 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
       id: tournaments.id,
       name: tournaments.name,
       showPublicDraws: tournaments.showPublicDraws,
+      tunnelUrl: tournaments.tunnelUrl,
     })
     .from(tournaments)
     .where(eq(tournaments.id, ring.tournamentId));
@@ -241,7 +253,7 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
 
   const athleteMap = new Map(relevantAthletes.map((a) => [a.id, a]));
 
-  return assembleRingActiveBout({
+  const boutResult = assembleRingActiveBout({
     ring,
     tournament,
     assignment,
@@ -252,6 +264,17 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
     athleteMap,
     targetMatchId: matchId,
   });
+
+  if (boutResult.currentMatch?.id) {
+    const scores = await db
+      .select()
+      .from(kataScores)
+      .where(eq(kataScores.matchId, boutResult.currentMatch.id));
+    boutResult.currentMatch.kataScores = scores;
+    (boutResult as any).kataScores = scores;
+  }
+
+  return boutResult;
 }
 
 export async function setActiveBout(ringId: string, matchId: string) {
@@ -697,6 +720,13 @@ export async function confirmBoutResult(
     }
   });
 
+  // Automatically advance finalists if this category is running Kata pools
+  try {
+    await advanceKataPoolFinalists(categoryId);
+  } catch (advErr) {
+    console.error("advanceKataPoolFinalists error in confirmBoutResult:", advErr);
+  }
+
   return { success: true };
 }
 
@@ -797,6 +827,23 @@ export async function getTournamentActiveBouts(tournamentId: string) {
       allSlots: catSlots,
       athleteMap,
     });
+  }
+
+  // Populate kataScores for current matches
+  const currentMatchIds = Object.values(boutMap)
+    .map((b: any) => b.currentMatch?.id)
+    .filter(Boolean) as string[];
+
+  if (currentMatchIds.length > 0) {
+    const allKataScores = await db
+      .select()
+      .from(kataScores)
+      .where(inArray(kataScores.matchId, currentMatchIds));
+    for (const b of Object.values(boutMap) as any[]) {
+      if (b.currentMatch?.id) {
+        b.currentMatch.kataScores = allKataScores.filter((s) => s.matchId === b.currentMatch.id);
+      }
+    }
   }
 
   return boutMap;

@@ -10,6 +10,7 @@ import { ensureAdminOwnsTournament } from "./admin";
 import { normalizeAccessCode, generateUnambiguousCode, isValidUuid } from "@/lib/utils";
 import { secureCookieFlag } from "@/lib/serverCookies";
 import { serializeOrganiserRequest } from "@/lib/serializers";
+import { isOfflineMode } from "@/lib/offline";
 
 async function setOrganiserCookie(token: string) {
   const cookieStore = await cookies();
@@ -30,15 +31,21 @@ export async function requestOrganiserAccess(
   deviceInfo?: any,
   turnstileToken?: string
 ) {
-  if (!turnstileToken) {
-    return { success: false, error: "Security check is required." };
-  }
+  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+  const isTurnstileRequired = Boolean(
+    secretKey && secretKey !== "disabled" && !isOfflineMode()
+  );
+  if (isTurnstileRequired) {
+    if (!turnstileToken) {
+      return { success: false, error: "Security check is required." };
+    }
 
-  const { verifyTurnstileToken } = await import("./turnstile");
-  const verification = await verifyTurnstileToken(turnstileToken);
+    const { verifyTurnstileToken } = await import("./turnstile");
+    const verification = await verifyTurnstileToken(turnstileToken);
 
-  if (!verification.success) {
-    return { success: false, error: verification.error || "Security check failed." };
+    if (!verification.success) {
+      return { success: false, error: verification.error || "Security check failed." };
+    }
   }
 
   const cleanCode = (accessCode || "").trim().toUpperCase();

@@ -9,6 +9,8 @@ import {
   drawVersions,
   matches,
   matchSlots,
+  matchEvents,
+  kataScores,
 } from "@/db/schema";
 import { resolveDraw } from "@/engine/draw-engine";
 import type { DrawGraph } from "@/engine/draw-engine/types";
@@ -232,4 +234,58 @@ export async function toggleCategoryDrawLock(categoryId: string) {
   } catch {}
 
   return { success: true, isLocked: !isLocked, state: nextState };
+}
+
+/**
+ * Completely flushes and purges all draws, matches, slots, and scores for a specific category.
+ * Strictly isolated: operates only on the specified categoryId with zero impact on other categories.
+ */
+export async function flushCategoryDraw(categoryId: string) {
+  const [cat] = await db
+    .select({ tournamentId: categories.tournamentId })
+    .from(categories)
+    .where(eq(categories.id, categoryId));
+
+  if (!cat) return { success: false, error: "Category not found" };
+  await ensureAdminOwnsTournament(cat.tournamentId);
+
+  await db.transaction(async (tx) => {
+    // 1. Find all matches for this category
+    const catMatches = await tx
+      .select({ id: matches.id })
+      .from(matches)
+      .where(eq(matches.categoryId, categoryId));
+    const matchIds = catMatches.map((m) => m.id);
+
+    // 2. Delete kata_scores, matchEvents, slots, and matches for this category in clean FK order
+    if (matchIds.length > 0) {
+      await tx.delete(kataScores).where(inArray(kataScores.matchId, matchIds));
+      await tx.delete(matchEvents).where(inArray(matchEvents.matchId, matchIds));
+      await tx.delete(matchSlots).where(inArray(matchSlots.matchId, matchIds));
+      await tx.delete(matches).where(eq(matches.categoryId, categoryId));
+    }
+
+    // 3. Find and delete draw record & version history
+    const [draw] = await tx
+      .select({ id: draws.id })
+      .from(draws)
+      .where(eq(draws.categoryId, categoryId));
+
+    if (draw) {
+      await tx.delete(drawVersions).where(eq(drawVersions.drawId, draw.id));
+      await tx.delete(draws).where(eq(draws.id, draw.id));
+    }
+
+    // 4. Reset expected matches on category
+    await tx
+      .update(categories)
+      .set({ expectedMatches: 0 })
+      .where(eq(categories.id, categoryId));
+  });
+
+  try {
+    revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
+  } catch {}
+
+  return { success: true };
 }

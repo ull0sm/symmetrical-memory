@@ -116,3 +116,36 @@ export async function deleteCategory(categoryId: string, tournamentId: string) {
 
   revalidatePath(`/admin/event/${tournamentId}/categories`);
 }
+
+export async function updateCategoryKataSettings(
+  categoryId: string,
+  tournamentId: string,
+  settings: {
+    kataFormat?: string; // 'BRACKET' | 'GROUP_POOLS' | 'ROUND_ROBIN'
+    kataScoringMode?: string; // 'FLAG' | 'POINTS'
+    poolSize?: number;
+    advancePerPool?: number;
+  }
+) {
+  await ensureAdminOwnsTournament(tournamentId);
+
+  const patch: Record<string, any> = {};
+  if (settings.kataFormat !== undefined) patch.kataFormat = settings.kataFormat;
+  if (settings.kataScoringMode !== undefined) patch.kataScoringMode = settings.kataScoringMode;
+  if (settings.poolSize !== undefined) {
+    patch.poolSize = Math.max(2, Math.min(64, Math.floor(Number(settings.poolSize) || 8)));
+  }
+  if (settings.advancePerPool !== undefined) {
+    patch.advancePerPool = Math.max(1, Math.min(16, Math.floor(Number(settings.advancePerPool) || 2)));
+  }
+
+  await db
+    .update(categories)
+    .set(patch)
+    .where(
+      and(eq(categories.id, categoryId), eq(categories.tournamentId, tournamentId))
+    );
+
+  revalidatePath(`/admin/event/${tournamentId}/categories`);
+  return { success: true };
+}

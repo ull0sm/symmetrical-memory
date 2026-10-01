@@ -18,7 +18,8 @@ export type TournamentInput = {
   venue: string;
   city: string;
   categories: CategoryInput[];
-  ringCount: number;
+  ringCount?: number;
+  ring_count?: number;
 };
 
 export async function createTournament(input: TournamentInput) {
@@ -34,7 +35,7 @@ export async function createTournament(input: TournamentInput) {
   const city = (input.city || "").trim().slice(0, 200) || null;
   const eventDate = input.event_date ? input.event_date.split("T")[0] : null;
 
-  const ringCount = Math.floor(Number(input.ringCount));
+  const ringCount = Math.floor(Number(input.ringCount ?? input.ring_count));
   if (isNaN(ringCount) || ringCount < 1 || ringCount > 50) {
     throw new Error("Ring count must be an integer between 1 and 50.");
   }
@@ -93,6 +94,7 @@ export async function createTournament(input: TournamentInput) {
     name: `Tatami ${String(i + 1).padStart(2, "0")}`,
     ringOrder: i + 1,
     accessCode: generateAccessCode(),
+    judgePin: String(Math.floor(1000 + Math.random() * 9000)),
   }));
 
   if (ringsToInsert.length > 0) {

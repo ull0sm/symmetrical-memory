@@ -122,12 +122,54 @@ The codebase enforces strict production build and linting standards:
 ```bash
 npm run lint          # ESLint 9 validation (0 errors)
 npm run build         # Next.js compilation, route validation & typecheck
-npm run test:e2e      # End-to-end automated functional test suite
 ```
+
+---
+
+## Administrator Management
+
+Create or update tournament administrator accounts directly from the command line:
+
+```bash
+npm run db:create-admin -- --email=admin@ringflow.org --password=yourpassword --name="Tournament Director"
+```
+
+Or using positional arguments:
+
+```bash
+npm run db:create-admin admin@ringflow.org yourpassword "Tournament Director"
+```
+
+---
+
+## Offline Venue & Homelab Deployment
+
+RingFlow is engineered for **100% offline venue operations** without internet connectivity (e.g. Proxmox homelab desktop running Ubuntu VM connected directly to a TP-Link wireless router):
+
+1. **Air-Gapped Setup**: Self-hosted fonts (`/fonts/material-symbols-outlined.woff2`), embedded browser PDF viewer, and in-memory SSE bus.
+2. **Turnstile Bypass**: Set `OFFLINE_MODE="true"` and `TURNSTILE_SECRET_KEY="disabled"` in `.env.local` to allow instant LAN logins for table officials and marshalls without external Cloudflare requests.
+3. **LAN Binding**: `npm run start` automatically binds to `0.0.0.0:3000`, allowing all devices connected to the TP-Link router to open `http://<SERVER_IP>:3000`.
+
+👉 Read the complete step-by-step [OFFLINE_VENUE_GUIDE.md](OFFLINE_VENUE_GUIDE.md).
+
+---
+
+## Kata Pool Flight & Medal Round Architecture
+
+RingFlow implements official WKF Kata rules with strict point isolation between preliminary pools and medal flights:
+
+1. **Preliminary Flight Pools (Pool A & Pool B)**:
+   * Competitors perform their preliminary kata and receive scores (5-judge Olympic drop or points deductions).
+   * Preliminary points determine **rank in pool only** to decide qualifiers.
+2. **Championship & Medal Flight Bouts**:
+   * Top 2 from each pool advance to the Medal Flight (Gold Final and Bronze matches).
+   * **Bout Scores are Strictly Independent**: Preliminary points (e.g. `16.20 pts`) do **not** carry over as the final bout score. They are displayed transparently as "Pool Qualification Scores" while the Championship matches start fresh from `0.00`.
+   * Final medals (🥇 Gold, 🥈 Silver, 🥉 Bronze) are awarded solely based on the results of the completed Medal Bouts.
 
 ---
 
 ## Quick Navigation
 
-* **Local Installation & Setup**: Follow the [QUICKSTART.md](QUICKSTART.md) guide to spin up PostgreSQL, seed demo data, and run RingFlow locally.
-* **Contributing**: Review [CONTRIBUTING.md](CONTRIBUTING.md) for architecture guidelines, coding conventions, and pull request workflows.
+* **Offline Venue Deployment**: Follow the [OFFLINE_VENUE_GUIDE.md](OFFLINE_VENUE_GUIDE.md) for homelab & TP-Link air-gapped setup.
+* **Local Quickstart**: Follow the [QUICKSTART.md](QUICKSTART.md) guide to spin up PostgreSQL and seed demo data.
+* **Contributing**: Review [CONTRIBUTING.md](CONTRIBUTING.md) for architecture guidelines and coding conventions.
