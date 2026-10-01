@@ -30,7 +30,7 @@ each role file says so under **Known gaps**, with a link to [PLAN.md](../PLAN.md
 | Athletes roster / import | O | R | R | R (current bout) | — | search only |
 | Generate / lock / flush draws | O | — | — | — | — | — |
 | View draws / brackets | O | R | R | R | — | if `showPublicDraws`, or own athlete |
-| Draw sheet PDFs | O | R | R | R | — | — |
+| Draw sheet PDFs | O | — | — | — | — | — |
 | Ring balancing (assign/reorder categories) | O | R | R | reorder own pending queue | — | — |
 | Approve organiser / stager / moderator | O | — | — | — | — | — |
 | Approve / kick judges | O | — | — | own tatami | — | — |
@@ -41,7 +41,7 @@ each role file says so under **Known gaps**, with a link to [PLAN.md](../PLAN.md
 | Athlete attendance (optional) | O | — | O | R | — | — |
 | Live dashboard, all tatamis | O | R | R | own tatami | — | R (public view) |
 | Audit log | O | R | — | — | — | — |
-| Results export (CSV/PDF) | O | R | — | — | — | — |
+| Results export (CSV/PDF) | O | R (no UI yet) | — | — | — | — |
 | Scoreboard TV | O | R | — | own tatami | — | if `showPublicScoreboard` |
 
 ## Sessions (target)
@@ -57,12 +57,13 @@ All session cookies are `httpOnly` and `SameSite=Lax`, and are `Secure` when ser
 Tokens are stored hashed, and request IDs are never accepted as credentials.
 
 ## Where the auth code is
-- Admin: `src/actions/auth.ts`, `ensureAdmin` / `ensureAdminOwnsTournament` in `src/actions/admin.ts`
-- Organiser: `src/actions/organiser.ts`
-- Stager: `src/actions/stager.ts`
-- Moderator: `src/actions/moderator.ts` (`validateModeratorSession`)
-- Judge: `src/actions/judgeAuth.ts`, `src/actions/kata.ts`
-- Cross-role staff check: `src/lib/staffAccess.ts`
-- Middleware (UX redirects + tunnel host block): `src/utils/supabase/middleware.ts`
+All in `src/lib/auth/` (plain modules, never callable from a browser):
+- `principal.ts` — reads the session cookies and re-verifies each identity against the DB per request.
+- `guards.ts` — `requireAdmin`, `requireTournamentAdmin`, `getTournamentStaff`/`requireTournamentStaff`,
+  `getRingModerator`/`requireRingModerator`, `requireRingOperator`, `requireMatchModerator`.
+- `scope.ts` — resolves ring/category/match/athlete → tournament (and tatami for matches).
+- `claims.ts` — binds an access request to the browser that made it (claim cookie + hash).
+- `cookies.ts` — cookie names and the one `setSessionCookie` (httpOnly, SameSite=Lax, Secure on HTTPS).
 
-PLAN Phase 2 replaces these with one module, `src/lib/auth/`. Update this list when that lands.
+Admin login is in `src/actions/auth.ts`; each role's request/approve/revoke flow is in its
+`src/actions/<role>.ts`. Middleware (`src/utils/supabase/middleware.ts`) only does UX redirects.

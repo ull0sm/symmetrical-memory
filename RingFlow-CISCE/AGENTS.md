@@ -80,8 +80,12 @@ Local DB: `docker compose up -d db`. Env template: `.env.example`.
 - Clock is authoritative on the server (`rings.timer_*` ms fields, `src/lib/matchClock.ts`).
 
 ## Gotchas
-- `ensureAdminOwnsTournament` currently does **not** check ownership, and `ensureAdmin` has a
-  non-production fallback that makes every request an admin. Both are fixed in PLAN Phase 1–2. Don't rely on them as they are.
-- Organiser and stager auth still contain dead Supabase `auth.getUser()` calls (being removed).
-- Kata preliminary pool scores never carry into medal bouts. Medal bouts start at 0.
+- Use the guards in `src/lib/auth/guards.ts`; there is no `ensureAdmin` any more. Guards throw
+  `AuthError`; pages catch nothing and let the layout/page `redirect()` instead.
+- A server action can be invoked with any page's path; never rely on the route to protect it.
+- Seed scripts and other tooling call the cores in `src/lib/` (e.g. `lib/bouts/results.ts`,
+  `lib/roster/*`), never the guarded actions — those need a browser session.
+- Kata preliminary pool scores never carry into medal bouts. Medal bouts start at 0. Every finished
+  bout (kumite or kata) has status `CONFIRMED`.
+- Category discipline comes from `categories.event_type` (`lib/categories/eventType.ts`), not the name.
 - `PRD.md` is the product spec. If you find older text (e.g. "no scoring, no brackets"), it's obsolete.

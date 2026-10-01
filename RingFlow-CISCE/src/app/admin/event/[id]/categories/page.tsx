@@ -1,7 +1,7 @@
 import React from "react";
 import AdminHeader from "@/components/layout/AdminHeader";
 import { redirect } from "next/navigation";
-import { ensureAdminOwnsTournament } from "@/actions/admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 import CategoriesClient from "@/components/admin/CategoriesClient";
 import { db } from "@/db";
 import {
@@ -17,7 +17,7 @@ import { syncTournamentCategoryCounts, getActiveAthleteCounts } from "@/lib/cate
 export default async function AdminCategories({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
   try {
-    await ensureAdminOwnsTournament(tournamentId);
+    await requireTournamentAdmin(tournamentId);
   } catch {
     redirect("/admin");
   }

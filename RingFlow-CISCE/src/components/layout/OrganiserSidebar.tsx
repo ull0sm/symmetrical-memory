@@ -54,22 +54,20 @@ export default function OrganiserSidebar({ initialCounts }: { initialCounts?: Si
   };
 
   const handleRevoked = React.useCallback(() => {
-    document.cookie = "org_token=; path=/; max-age=0; SameSite=Lax";
-    document.cookie = "org_name=; path=/; max-age=0; SameSite=Lax";
+    void logoutOrganiser().catch(() => {});
     try {
       localStorage.removeItem("ringflow_organiser_name");
     } catch {}
     router.replace("/");
   }, [router]);
 
-  const checkSession = React.useCallback(async (token: string) => {
+  // The session cookie is httpOnly, so the server reads it; the browser never sees the token.
+  const checkSession = React.useCallback(async () => {
     try {
-      const res = await validateOrganiserSessionAction(token);
+      const res = await validateOrganiserSessionAction();
       if (!res.valid) {
-        if (res.reason === "revoked" || res.reason === "expired" || res.reason === "not_found") {
-          handleRevoked();
-        }
-      } else if (res.organiserName) {
+        handleRevoked();
+      } else if ("organiserName" in res && res.organiserName) {
         setOrganiserName(res.organiserName);
         localStorage.setItem("ringflow_organiser_name", res.organiserName);
       }
@@ -84,12 +82,7 @@ export default function OrganiserSidebar({ initialCounts }: { initialCounts?: Si
   useLiveEvents(
     { tournamentId: id },
     React.useCallback(() => {
-      const match =
-        typeof document !== "undefined"
-          ? document.cookie.match(/(?:^|; )org_token=([^;]*)/)
-          : null;
-      const token = match ? decodeURIComponent(match[1]) : null;
-      if (token) checkSession(token);
+      void checkSession();
     }, [checkSession])
   );
 
@@ -97,23 +90,15 @@ export default function OrganiserSidebar({ initialCounts }: { initialCounts?: Si
   useEffect(() => {
     let isCleanedUp = false;
 
-    const match =
-      typeof document !== "undefined"
-        ? document.cookie.match(/(?:^|; )org_token=([^;]*)/)
-        : null;
-    const token = match ? decodeURIComponent(match[1]) : null;
+    void checkSession();
+    const interval = setInterval(() => {
+      if (!isCleanedUp) void checkSession();
+    }, 60000);
 
-    if (token) {
-      checkSession(token);
-      const interval = setInterval(() => {
-        if (!isCleanedUp) checkSession(token);
-      }, 15000);
-
-      return () => {
-        isCleanedUp = true;
-        clearInterval(interval);
-      };
-    }
+    return () => {
+      isCleanedUp = true;
+      clearInterval(interval);
+    };
   }, [checkSession]);
 
   // Fetch tournament counts
@@ -485,16 +470,12 @@ export default function OrganiserSidebar({ initialCounts }: { initialCounts?: Si
           setIsLoggingOut(true);
           try {
             await logoutOrganiser();
-            document.cookie = "org_token=; path=/; max-age=0; SameSite=Lax";
-            document.cookie = "org_name=; path=/; max-age=0; SameSite=Lax";
             try {
               localStorage.removeItem("ringflow_organiser_name");
             } catch {}
             router.replace("/");
           } catch (e) {
             console.error("Organiser logout error:", e);
-            document.cookie = "org_token=; path=/; max-age=0; SameSite=Lax";
-            document.cookie = "org_name=; path=/; max-age=0; SameSite=Lax";
             try {
               localStorage.removeItem("ringflow_organiser_name");
             } catch {}

@@ -1,13 +1,12 @@
 "use server";
 
-import { ensureAdminOwnsTournament } from "./admin";
+import { requireTournamentStaff } from "@/lib/auth/guards";
 import { generateDrawStatePdfBytes } from "@/lib/pdf/drawStatePdfGenerator";
 import { buildTournamentDrawStates } from "@/lib/results/drawStates";
 import {
   buildTournamentResults,
   rowsToCsv,
   safeFilename,
-  type TournamentResults,
 } from "@/lib/results/resultsDataset";
 
 /**
@@ -15,7 +14,7 @@ import {
  * read the file as UTF-8 instead of mangling names.
  */
 export async function exportTournamentResultsCsv(tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentStaff(tournamentId, ["admin", "organiser"]);
 
   const results = await buildTournamentResults(tournamentId);
   if (!results) return { success: false as const, error: "Tournament not found" };
@@ -35,7 +34,7 @@ export async function exportTournamentResultsCsv(tournamentId: string) {
 
 /** Printable draw state per category: every bout, its points, and the winner. */
 export async function exportTournamentResultsPdf(tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentStaff(tournamentId, ["admin", "organiser"]);
 
   const results = await buildTournamentResults(tournamentId);
   if (!results) return { success: false as const, error: "Tournament not found" };

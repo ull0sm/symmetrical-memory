@@ -4,7 +4,7 @@ import AdminHeader from "@/components/layout/AdminHeader";
 import { db } from "@/db";
 import { tournaments as tournamentsTable } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { ensureAdmin } from "@/actions/admin";
+import { requireAdmin } from "@/lib/auth/guards";
 import { formatDisplayDate } from "@/lib/utils";
 
 export default async function EventSelectionPage() {
@@ -13,7 +13,7 @@ export default async function EventSelectionPage() {
   let tournaments: any[] = [];
 
   try {
-    adminId = await ensureAdmin();
+    adminId = (await requireAdmin()).adminId;
     const rows = await db
       .select()
       .from(tournamentsTable)

@@ -1,7 +1,7 @@
 import React from "react";
 import AdminDashboardClient from "@/components/admin/AdminDashboardClient";
 import { redirect } from "next/navigation";
-import { ensureAdminOwnsTournament } from "@/actions/admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 import { getTournamentActiveBouts } from "@/actions/matches";
 import { db } from "@/db";
 import {
@@ -24,7 +24,7 @@ import {
 export default async function AdminDashboard({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
   try {
-    await ensureAdminOwnsTournament(tournamentId);
+    await requireTournamentAdmin(tournamentId);
   } catch {
     redirect("/admin");
   }

@@ -6,7 +6,7 @@ import { formatDisplayDateWithWeekday } from "@/lib/utils";
 import { matchesCategorySearch } from "@/lib/searchUtils";
 import { getTournamentActiveBouts } from "@/actions/matches";
 import { searchTournamentAthletes } from "@/actions/athletes";
-import { getAdminDashboardData } from "@/actions/admin";
+import { getPublicFloorData } from "@/actions/public";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import "./public-spectator.css";
@@ -242,7 +242,7 @@ export default function PublicEventClient({
   // Live sync of floor data (rings, assignments, bouts)
   const syncFloorData = useCallback(async () => {
     try {
-      const data = await getAdminDashboardData(tournament.id);
+      const data = await getPublicFloorData(tournament.id);
       if (data) {
         if (data.rings) setRings(data.rings as Ring[]);
         if (data.assignments) setAssignments(data.assignments as CategoryAssignment[]);

@@ -71,7 +71,8 @@ export default async function PublicEventPage({ params }: { params: Promise<{ id
       .orderBy(asc(categoryAssignmentsTable.queueOrder));
 
     const catMap = new Map<string, any>(catRows.map((c) => [c.id, c]));
-    assignments = rawAssignments.map((a) =>
+    // Stager names are staff details, not spectator information.
+    assignments = rawAssignments.map(({ stagerName: _stagerName, ...a }) =>
       serializeCategoryAssignment(a, catMap.get(a.categoryId))
     );
   }

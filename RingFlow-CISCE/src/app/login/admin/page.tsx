@@ -41,12 +41,6 @@ function AdminLoginContent() {
     }
   };
 
-  const handleFillDemo = () => {
-    setEmail("admin@ringflow.org");
-    setPassword("admin123");
-    setError("");
-  };
-
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#FAF9F5] p-4 sm:p-6">
       <div className="w-full max-w-md bg-white border border-[#E1DDCF] rounded-2xl p-6 sm:p-8 shadow-[0_4px_24px_rgba(0,0,0,0.06)] transition-all">
@@ -153,26 +147,6 @@ function AdminLoginContent() {
           </button>
         </form>
 
-        {/* Local Demo Credentials Helper */}
-        <div className="mt-6 pt-5 border-t border-[#F1EFE9]">
-          <div className="bg-[#FAF9F5] border border-[#E1DDCF] rounded-xl p-3.5 flex items-center justify-between gap-3">
-            <div className="text-left">
-              <div className="text-[11px] font-bold text-[#475569] uppercase tracking-wider">
-                Default Credentials
-              </div>
-              <div className="text-xs text-[#64748B] mt-0.5 font-mono">
-                admin@ringflow.org · admin123
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleFillDemo}
-              className="text-xs font-bold text-[#0E9C7C] hover:text-[#0A6F57] bg-white border border-[#E1DDCF] hover:border-[#0E9C7C]/40 px-2.5 py-1.5 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer"
-            >
-              Autofill
-            </button>
-          </div>
-        </div>
 
         {/* Footer info */}
         <div className="mt-5 text-center">

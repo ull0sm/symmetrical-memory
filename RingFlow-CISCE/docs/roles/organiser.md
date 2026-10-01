@@ -16,17 +16,11 @@ about one event but must not change anything.
 | Athlete roster | `/organiser/event/[id]/athletes` (`AthletesClient readOnly`) |
 | Categories | `/organiser/event/[id]/categories` (`CategoriesClient readOnly`) |
 | Ring balance board | `/organiser/event/[id]/rings/balance` (`RingBalancingClient readOnly`) |
-| Brackets, draw-sheet PDFs, results export, audit log | via shared viewers |
+| Brackets (view), results export, audit log (Phase 3) | via shared viewers |
 
 ## Cannot
 Anything that writes: settings, categories, athletes, draws, assignments, approvals, clocks,
 pausing, or scoring.
 
 ## Known gaps (see [PLAN.md](../PLAN.md))
-- P1: `clock.ts` (`authorizeRingControl`) and `rings.ts` (`setAllRingTimers`) let organisers control
-  clocks. That's a write path and must be removed. `ensureOrganiser()` isn't tied to a tournament,
-  so it currently works across events.
-- P1: the session cookie isn't `httpOnly`. The request ID is accepted as a session token.
-- P2: the dead Supabase `auth.getUser()` admin branch in `ensureOrganiser*` needs removing.
-- The README used to describe organisers importing rosters and generating draws. That's obsolete:
-  organisers are read-only by product decision.
+- Results export is allowed server-side but there is no export button on the organiser screens yet.

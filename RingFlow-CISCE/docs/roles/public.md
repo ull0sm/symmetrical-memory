@@ -28,8 +28,5 @@
 - Read-only. There are no write actions for the public, ever.
 
 ## Known gaps (see [PLAN.md](../PLAN.md))
-- P1: `PublicEventClient` calls `getAdminDashboardData`, which is an admin action with no guard and
-  returns the full event log.
-- P1: `getRingActiveBout` and `getTournamentActiveBouts` don't enforce `show_public_scoreboard`.
-  Only the layout does.
-- P1: `/api/live` events leak session tokens, request IDs and judge device tokens.
+- None known after Phase 1. Public reads go through `actions/public.ts`, `getTournamentActiveBouts`
+  and `getRingActiveBout`, all credential-free; the live feed whitelists public tables and fields.

@@ -15,7 +15,7 @@ signal the tatami when a category is ready.
 |---|---|---|
 | See all tatamis' queues (current, next, upcoming) | `/stager/event/[id]/balance` (`StagerBalancingClient`) | `balancing.getBalancingAssignments` |
 | Mark a category **calling** → **ready** → clear | same | `stager.updateCategoryStagerStatus` |
-| View brackets and draw-sheet PDFs to call athletes | `DrawBracketModal`, `PdfViewerModal` | `draws.getCategoryDraw`, `drawPdfs.*` |
+| View brackets to call athletes | `DrawBracketModal` | `draws.getCategoryDraw` |
 | Search athletes | header search | `athletes.searchTournamentAthletes` |
 | *(planned, optional)* mark athletes present / absent / withdrawn | stager board | Phase 6 |
 
@@ -30,6 +30,4 @@ taken. If an athlete is marked absent, the moderator gets a hint (for example, "
 consider Kiken"). The moderator still makes the decision.
 
 ## Known gaps (see [PLAN.md](../PLAN.md))
-- P1: the cookie isn't `httpOnly`. The request ID is accepted as a token (`ensureStager*` uses `or(sessionToken, id)`).
-- P1: `getBalancingAssignments(ringIds)` has no auth or tenancy check.
-- P2: the dead Supabase admin fallback needs removing. The real admin cookie should be recognised instead.
+- Phase 6: optional attendance marking is not built yet.

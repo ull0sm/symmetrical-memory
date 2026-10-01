@@ -8,7 +8,8 @@ import {
 } from "@/db/schema";
 import { eq, inArray, and } from "drizzle-orm";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
-import { ensureAdminOwnsTournament } from "./admin";
+import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { isValidUuid } from "@/lib/utils";
 
 export type AssignmentInput = {
   category_id: string;
@@ -28,12 +29,15 @@ export async function saveAssignments(
   assignments: AssignmentInput[]
 ): Promise<SaveAssignmentsResult> {
   try {
-    // Authorize admin ONLY (strictly admin-only category assignments)
+    // Only the event's admin assigns categories to tatamis.
     try {
-      await ensureAdminOwnsTournament(tournamentId);
-    } catch (authErr: any) {
-      console.warn("Unauthorized attempt to save assignments:", authErr?.message);
+      await requireTournamentAdmin(tournamentId);
+    } catch {
       return { success: false, error: "Unauthorized: Only administrators can assign categories to Tatamis." };
+    }
+
+    if (!Array.isArray(assignments) || assignments.length > 5000) {
+      return { success: false, error: "Invalid assignment list" };
     }
 
     // 1. Deduplicate payload by category_id (latest entry wins)
@@ -58,6 +62,15 @@ export async function saveAssignments(
     }
 
     const ringIds = rings.map((r) => r.id);
+    const validRingIds = new Set(ringIds);
+    for (const a of validAssignments) {
+      if (!validRingIds.has(a.ring_id!)) {
+        return { success: false, error: `Tatami ${a.ring_id} does not belong to this tournament` };
+      }
+      if (!Number.isInteger(a.queue_order) || a.queue_order < 0 || a.queue_order > 100000) {
+        return { success: false, error: "Invalid queue order" };
+      }
+    }
 
     // 3. Fetch current live assignments to preserve matches_completed and guard running categories
     let currentAssignments: any[] = [];
@@ -133,6 +146,17 @@ export async function saveAssignments(
         const existingRows = rows.filter((r) => currentMap.has(r.categoryId));
         const newRows = rows.filter((r) => !currentMap.has(r.categoryId));
 
+        // (ring_id, queue_order) is unique, so park every row being moved on a
+        // temporary negative slot first; otherwise swapping two categories'
+        // positions collides halfway through.
+        let parking = -1;
+        for (const r of existingRows) {
+          await tx
+            .update(categoryAssignmentsTable)
+            .set({ queueOrder: parking-- })
+            .where(eq(categoryAssignmentsTable.categoryId, r.categoryId));
+        }
+
         // Update existing rows in place
         for (const r of existingRows) {
           await tx
@@ -176,14 +200,24 @@ export async function saveAssignments(
   }
 }
 
+/** Queue state for the given tatamis. All must belong to one tournament the caller staffs. */
 export async function getBalancingAssignments(ringIds: string[]) {
-  if (!ringIds || ringIds.length === 0) return [];
+  const ids = (Array.isArray(ringIds) ? ringIds : []).filter(isValidUuid).slice(0, 200);
+  if (ids.length === 0) return [];
+
+  const owners = await db
+    .select({ tournamentId: ringsTable.tournamentId })
+    .from(ringsTable)
+    .where(inArray(ringsTable.id, ids));
+  const tournamentIds = new Set(owners.map((o) => o.tournamentId));
+  if (tournamentIds.size !== 1) return [];
+  await requireTournamentStaff([...tournamentIds][0]);
 
   try {
     const rows = await db
       .select()
       .from(categoryAssignmentsTable)
-      .where(inArray(categoryAssignmentsTable.ringId, ringIds));
+      .where(inArray(categoryAssignmentsTable.ringId, ids));
 
     return rows.map((row) => ({
       category_id: row.categoryId,

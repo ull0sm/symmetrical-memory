@@ -1,15 +1,16 @@
 "use server";
 
 import { db } from "@/db";
-import { categories, tournaments } from "@/db/schema";
+import { categories } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { ensureAdminOwnsTournament } from "./admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 import { CategoryInput } from "./tournament";
 import { syncTournamentCategoryCounts } from "@/lib/categories/syncCounts";
+import { inferEventType, isEventType } from "@/lib/categories/eventType";
 
 export async function addCategory(tournamentId: string, input: CategoryInput) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const name = (input.name || "").trim().slice(0, 200);
   if (!name) throw new Error("Category name is required");
@@ -25,6 +26,7 @@ export async function addCategory(tournamentId: string, input: CategoryInput) {
     .values({
       tournamentId,
       name,
+      eventType: inferEventType(name),
       ageBracket: (input.age_bracket || "").trim().slice(0, 100) || null,
       weightClass: (input.weight_class || "").trim().slice(0, 100) || null,
       athletesCount,
@@ -39,7 +41,7 @@ export async function addCategory(tournamentId: string, input: CategoryInput) {
 }
 
 export async function bulkAddCategories(tournamentId: string, inputCategories: any[]) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const toInsert = (Array.isArray(inputCategories) ? inputCategories : []).map(
     (cat) => {
@@ -47,9 +49,11 @@ export async function bulkAddCategories(tournamentId: string, inputCategories: a
         0,
         Math.min(10000, Math.floor(Number(cat.athletes_count) || 0))
       );
+      const catName = String(cat.name || "").trim().slice(0, 200);
       return {
         tournamentId,
-        name: (cat.name || "").trim().slice(0, 200),
+        name: catName,
+        eventType: isEventType(cat.event_type) ? cat.event_type : inferEventType(catName),
         ageBracket: (cat.age_bracket || "").trim().slice(0, 100) || null,
         weightClass: (cat.weight_class || "").trim().slice(0, 100) || null,
         athletesCount,
@@ -64,13 +68,14 @@ export async function bulkAddCategories(tournamentId: string, inputCategories: a
     }
   );
 
-  if (toInsert.length > 0) {
-    await db.insert(categories).values(toInsert);
+  const named = toInsert.filter((c) => c.name.length > 0);
+  if (named.length > 0) {
+    await db.insert(categories).values(named);
     await syncTournamentCategoryCounts(tournamentId);
   }
 
   revalidatePath(`/admin/event/${tournamentId}/categories`);
-  return { success: true, count: toInsert.length };
+  return { success: true, count: named.length };
 }
 
 export async function updateCategory(
@@ -78,10 +83,14 @@ export async function updateCategory(
   tournamentId: string,
   updates: Partial<CategoryInput> & { expected_matches?: number }
 ) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const patch: Record<string, any> = {};
-  if (updates.name !== undefined) patch.name = updates.name.trim().slice(0, 200);
+  if (updates.name !== undefined) {
+    const nextName = updates.name.trim().slice(0, 200);
+    if (!nextName) throw new Error("Category name is required");
+    patch.name = nextName;
+  }
   if (updates.age_bracket !== undefined)
     patch.ageBracket = updates.age_bracket.trim().slice(0, 100);
   if (updates.weight_class !== undefined)
@@ -92,8 +101,9 @@ export async function updateCategory(
     patch.expectedMatches = Math.max(0, count - 1);
   }
   if (updates.expected_matches !== undefined) {
-    patch.expectedMatches = updates.expected_matches;
+    patch.expectedMatches = Math.max(0, Math.min(10000, Math.floor(Number(updates.expected_matches) || 0)));
   }
+  if (Object.keys(patch).length === 0) return;
 
   await db
     .update(categories)
@@ -106,7 +116,7 @@ export async function updateCategory(
 }
 
 export async function deleteCategory(categoryId: string, tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   await db
     .delete(categories)
@@ -127,11 +137,21 @@ export async function updateCategoryKataSettings(
     advancePerPool?: number;
   }
 ) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const patch: Record<string, any> = {};
-  if (settings.kataFormat !== undefined) patch.kataFormat = settings.kataFormat;
-  if (settings.kataScoringMode !== undefined) patch.kataScoringMode = settings.kataScoringMode;
+  if (settings.kataFormat !== undefined) {
+    if (settings.kataFormat !== "BRACKET" && settings.kataFormat !== "GROUP_POOLS") {
+      throw new Error("Kata format must be BRACKET or GROUP_POOLS");
+    }
+    patch.kataFormat = settings.kataFormat;
+  }
+  if (settings.kataScoringMode !== undefined) {
+    if (settings.kataScoringMode !== "FLAG" && settings.kataScoringMode !== "POINTS") {
+      throw new Error("Kata scoring mode must be FLAG or POINTS");
+    }
+    patch.kataScoringMode = settings.kataScoringMode;
+  }
   if (settings.poolSize !== undefined) {
     patch.poolSize = Math.max(2, Math.min(64, Math.floor(Number(settings.poolSize) || 8)));
   }

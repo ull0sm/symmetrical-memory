@@ -4,7 +4,11 @@ import React, { useState, useRef, useEffect, useTransition } from "react";
 import { logoutModerator, updateModeratorName } from "@/actions/moderator";
 import { useRouter } from "next/navigation";
 
-export default function ModeratorProfileMenu({ moderator }: { moderator: any }) {
+export default function ModeratorProfileMenu({
+  moderator,
+}: {
+  moderator: { id: string; moderator_name: string | null };
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmingLogout, setIsConfirmingLogout] = useState(false);
@@ -52,7 +56,7 @@ export default function ModeratorProfileMenu({ moderator }: { moderator: any }) 
       return;
     }
     try {
-      await updateModeratorName(moderator.id, name);
+      await updateModeratorName(name);
     } catch (e) {
       console.error(e);
       setName(moderator.moderator_name || "Unknown");

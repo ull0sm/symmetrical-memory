@@ -4,9 +4,10 @@ import {
   tournaments,
   rings,
 } from "../src/db/schema";
-import { saveCategoryDefinitions } from "../src/actions/categoryDefinitions";
+// Scripts run without a browser session, so they call the cores the guarded actions wrap.
+import { writeCategoryDefinitions } from "../src/lib/roster/categoryDefinitions";
 import { OFFICIAL_PRESETS } from "../src/lib/constants/categoryPresets";
-import { importOfficialRoster } from "../src/actions/officialImport";
+import { importOfficialRosterCore } from "../src/lib/roster/officialImport";
 import { hashPassword } from "../src/lib/auth/password";
 import { sql } from "drizzle-orm";
 
@@ -89,7 +90,7 @@ async function resetAndSeed() {
 
   // 5. Configure Official Category Definitions (30 CISCE categories)
   console.log("\n📋 5. Configuring 30 Official Category Definitions...");
-  await saveCategoryDefinitions(tournament.id, OFFICIAL_PRESETS.CISCE_OFFICIAL);
+  await writeCategoryDefinitions(tournament.id, OFFICIAL_PRESETS.CISCE_OFFICIAL);
   console.log("✅ 30 Official Category Definitions saved & synced to categories table.");
 
   // 6. Import Multiple Athletes across Multiple Categories
@@ -418,7 +419,7 @@ async function resetAndSeed() {
     },
   ];
 
-  const importResult = await importOfficialRoster(tournament.id, athleteRoster);
+  const importResult = await importOfficialRosterCore(tournament.id, athleteRoster);
   console.log(`✅ Roster import complete:`);
   console.log(`   - Total athletes registered: ${importResult.totalAthletes}`);
   console.log(`   - Kumite entries assigned: ${importResult.kumiteEntriesCreated}`);

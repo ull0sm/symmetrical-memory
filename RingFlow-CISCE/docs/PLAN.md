@@ -10,39 +10,41 @@ the app working. Tick items as they land.
 Goal: nobody can become admin, change a score, or hijack a session without credentials.
 This phase only adds guards and removes leaks. There are no new features and no schema changes.
 
-- [ ] **1.1 Remove the admin backdoors.** Delete `loginAsDevAdmin` and `logoutDevAdmin`, the
+- [x] **1.1 Remove the admin backdoors.** Delete `loginAsDevAdmin` and `logoutDevAdmin`, the
   `admin_dev_id` cookie everywhere (auth.ts, middleware, staffAccess, scoreboard layout), the
   non-production fallback in `ensureAdmin`, the `admin123` auto-password in `auth.ts`, and the
   credentials prefilled on `/login/admin`.
-- [ ] **1.2 Enforce tenancy.** `ensureAdminOwnsTournament` must check `tournaments.admin_id = adminId`.
+- [x] **1.2 Enforce tenancy.** `ensureAdminOwnsTournament` must check `tournaments.admin_id = adminId`.
   The admin event list must filter by owner.
-- [ ] **1.3 Guard bout control.** `matches.ts` (`setActiveBout`, `updateLiveMatchState`,
+- [x] **1.3 Guard bout control.** `matches.ts` (`setActiveBout`, `updateLiveMatchState`,
   `confirmBoutResult`) and `kata.ts` (`finalizeKataBout`, `submitModeratorManualKataMarks`,
   `advanceKataPoolFinalists`, `voidJudgeVote`, `updateRingJudgePin`, `regenerateRingJudgePin`) must
   require the moderator of the match's tatami (resolve match → category → assignment → ring).
   The match must also belong to the category running on that tatami.
-- [ ] **1.4 Guard admin reads and unguarded writes:** `getAdminDashboardData`, `getLiveLogs`,
+- [x] **1.4 Guard admin reads and unguarded writes:** `getAdminDashboardData`, `getLiveLogs`,
   `getPendingModeratorRequests`, `getTournamentSearchMeta`, `getSidebarTournamentCounts`,
   `getStagerCodes`, `getBalancingAssignments` (staff of that tournament), `categoryDefinitions.*`,
   `importOfficialRoster`, `getModeratorRingAssignments` (moderator of the tatami or staff),
   `updateModeratorName` (validate the session).
-- [ ] **1.5 Stop leaking secrets on `/api/live`.** Remove `sessionToken` and device tokens from every
+- [x] **1.5 Stop leaking secrets on `/api/live`.** Remove `sessionToken` and device tokens from every
   `broadcastLiveEvent`. A `requestId` scope should only receive `{status}`, never tokens. A stream
   with no scope gets nothing. (`eventMatchesScope` currently returns `true` for an empty scope.)
-- [ ] **1.6 Stop accepting request IDs as credentials.** Remove the `or(sessionToken, id)` matches
+- [x] **1.6 Stop accepting request IDs as credentials.** Remove the `or(sessionToken, id)` matches
   in organiser, stager and moderator auth. `check*Status(requestId)` may set the cookie **once**
   for the waiting-room browser: bind it with a one-time `claim_secret` cookie set when the request
   is created.
-- [ ] **1.7 Make the organiser truly read-only and scoped.** Drop organisers from `authorizeRingControl`
+- [x] **1.7 Make the organiser truly read-only and scoped.** Drop organisers from `authorizeRingControl`
   and `setAllRingTimers`. Replace unscoped `ensureOrganiser()` checks with tournament-scoped checks.
-- [ ] **1.8 Stop exposing the judge PIN.** Remove `judgePin` from `getRingKataState` and everything
+- [x] **1.8 Stop exposing the judge PIN.** Remove `judgePin` from `getRingKataState` and everything
   else the judge page or public can reach. Remove the `"1234"` fallbacks. Generate a random PIN when
   a ring is created.
-- [ ] **1.9 Fix cookies.** Make all role cookies `httpOnly`, use `secureCookieFlag()` everywhere,
+- [x] **1.9 Fix cookies.** Make all role cookies `httpOnly`, use `secureCookieFlag()` everywhere,
   and drop the `stager_name` / `org_name` cookies (read names from the DB).
-- [ ] **1.10 Protect public data.** Give `PublicEventClient` a public action that returns a
+- [x] **1.10 Protect public data.** Give `PublicEventClient` a public action that returns a
   minimal DTO instead of `getAdminDashboardData`. `getRingActiveBout` / `getTournamentActiveBouts`
   must enforce `show_public_scoreboard` for non-staff.
+
+**Status (2026-10-01): done.** Guards live in `src/lib/auth/` (built here rather than in Phase 2). Also fixed while in there: kata results stored as `CONFIRMED` (they were missing from the official export), bracket-format kata now advances winners, kata draw sheets no longer crash, draws merge both athlete sources, unique access/organiser/stager codes, admin "resume" no longer starts the bout clock, safe queue reordering, zero-mark kata rows, fake 7.5/7.0 default kata scores removed, seed scripts work again. Verified by a 72-check HTTP attack/role suite.
 
 **Done when:** an unauthenticated `curl` POST to any server action ID (other than the login,
 request-access and public reads) fails, and `/api/live` with an empty scope receives nothing.
@@ -52,7 +54,7 @@ request-access and public reads) fails, and `/api/live` with an empty scope rece
 ## Phase 2 — One auth layer (structure)
 Goal: auth is declared once per action instead of being copy-pasted.
 
-- [ ] **2.1 `src/lib/auth/` module** (plain module, not `"use server"`):
+- [x] **2.1 `src/lib/auth/` module** (plain module, not `"use server"`) — landed in Phase 1:
   - `principal.ts`: `getPrincipal()` resolves cookies to
     `{ role, actorId, actorName, tournamentId?, ringId?, seat? }`, cached per request.
   - `guards.ts`: `requireAdmin()`, `requireTournamentAdmin(tid)`, `requireStaff(tid, roles[])`,

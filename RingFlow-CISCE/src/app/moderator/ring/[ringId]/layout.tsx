@@ -1,7 +1,6 @@
 import React from "react";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { validateModeratorSession } from "@/actions/moderator";
+import { getRingModerator } from "@/lib/auth/guards";
 import { db } from "@/db";
 import { rings as ringsTable } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -18,16 +17,9 @@ export default async function ModeratorRingLayout({
 }) {
   const { ringId } = await params;
 
-  // Validate Auth
-  const cookieStore = await cookies();
-  const token = cookieStore.get("mod_token")?.value;
-
-  if (!token) {
-    redirect("/login/mod");
-  }
-
-  const moderatorSession = await validateModeratorSession(ringId, token);
-  if (!moderatorSession) {
+  // Only the approved moderator of this exact tatami gets the desk.
+  const moderator = await getRingModerator(ringId);
+  if (!moderator) {
     redirect("/login/mod");
   }
 
@@ -58,7 +50,7 @@ export default async function ModeratorRingLayout({
         </div>
         <div className="flex shrink-0 items-center gap-2 sm:gap-4">
           <ModeratorTopTabs ringId={ringId} />
-          <ModeratorProfileMenu moderator={moderatorSession} />
+          <ModeratorProfileMenu moderator={{ id: moderator.requestId, moderator_name: moderator.name }} />
         </div>
       </header>
 

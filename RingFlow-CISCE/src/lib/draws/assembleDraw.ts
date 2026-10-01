@@ -1,6 +1,6 @@
 import { db } from "@/db";
 import { athletes, categories, draws, drawVersions, matches, matchSlots } from "@/db/schema";
-import { resolveDraw } from "@/engine/draw-engine/resolution";
+import { resolveDraw, type Podium } from "@/engine/draw-engine/resolution";
 import type { DrawGraph } from "@/engine/draw-engine/types";
 import { eq, inArray, sql } from "drizzle-orm";
 
@@ -67,12 +67,34 @@ export interface BracketMatchView {
   } | null;
 }
 
+/**
+ * Podium for a kata pool flight, read from its confirmed medal bouts: the
+ * final's winner and loser take gold and silver, bronze bout winners take bronze.
+ */
+function kataPoolPodium(
+  dbMatches: (typeof matches.$inferSelect)[],
+  dbSlots: (typeof matchSlots.$inferSelect)[]
+): Podium | null {
+  const decided = (m: typeof matches.$inferSelect) => m.status === "CONFIRMED" && Boolean(m.winnerId);
+  const medal = dbMatches.filter((m) => m.poolGroup === "Final Flight" || m.bracketType === "BRONZE");
+  const final = medal.find((m) => m.bracketType === "MAIN");
+  if (!final || !decided(final)) return null;
+
+  const finalSlots = dbSlots.filter((s) => s.matchId === final.id);
+  const silver = finalSlots.map((s) => s.athleteId).find((id) => id && id !== final.winnerId) ?? null;
+  const bronzes = medal
+    .filter((m) => m.bracketType === "BRONZE" && decided(m))
+    .map((m) => m.winnerId as string);
+
+  return { goldRegistrationId: final.winnerId as string, silverRegistrationId: silver, bronzeRegistrationIds: bronzes };
+}
+
 export async function assembleCategoryDraw(
   categoryId: string,
   options?: { athleteId?: string | null }
 ) {
   const [category] = await db
-    .select({ name: categories.name })
+    .select({ name: categories.name, tournamentId: categories.tournamentId })
     .from(categories)
     .where(eq(categories.id, categoryId));
 
@@ -110,8 +132,10 @@ export async function assembleCategoryDraw(
       )
     );
 
-  // Fetch all athletes in this tournament for name mapping
-  const athleteList = await db.select().from(athletes);
+  // Athletes of this tournament only, for name mapping.
+  const athleteList = category
+    ? await db.select().from(athletes).where(eq(athletes.tournamentId, category.tournamentId))
+    : [];
   const athleteMap = new Map(athleteList.map((a) => [a.id, a]));
 
   // Map outcomes if matches were completed
@@ -131,8 +155,6 @@ export async function assembleCategoryDraw(
     }
   }
 
-  const resolved = resolveDraw(graph, outcomes);
-  const resolvedMatchMap = new Map(resolved.matches.map((rm) => [rm.matchId, rm]));
   // The recorded rows carry the scores the draw sheet should display.
   const matchRowById = new Map(dbMatches.map((row) => [row.id, row]));
 
@@ -143,6 +165,11 @@ export async function assembleCategoryDraw(
     draw.format === "KATA_GROUP_POOLS" ||
     Boolean((graph as any)?.flightDraw) ||
     dbMatches.some((m) => m.poolGroup);
+
+  // A kata pool flight is not an elimination tree: its stored graph does not
+  // describe the pool bouts, so it is never run through the bracket resolver.
+  const resolved = isKataPools ? null : resolveDraw(graph, outcomes);
+  const resolvedMatchMap = new Map((resolved?.matches ?? []).map((rm) => [rm.matchId, rm]));
 
   if (isKataPools && dbMatches.length > 0) {
     const sortedDbMatches = [...dbMatches].sort((a, b) => a.matchNo - b.matchNo);
@@ -305,7 +332,7 @@ export async function assembleCategoryDraw(
     bronzeMedals: draw.bronzeMedals ?? 2,
     matches: Object.values(matchesMap),
     athletes: catAthletes,
-    podium: resolved.podium,
+    podium: resolved ? resolved.podium : kataPoolPodium(dbMatches, dbSlots),
     highlightAthleteId: options?.athleteId ?? null,
     flightDraw: (graph as any)?.flightDraw ?? null,
   };

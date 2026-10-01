@@ -5,33 +5,28 @@ import OrganiserHeader from "@/components/layout/OrganiserHeader";
 import { db } from "@/db";
 import { tournaments as tournamentsTable } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { ensureOrganiser } from "@/actions/organiser";
+import { getAdminPrincipal, getOrganiserPrincipal } from "@/lib/auth/principal";
 import { formatDisplayDate } from "@/lib/utils";
 import { serializeTournament } from "@/lib/serializers";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrganiserTournamentSelectionPage() {
-  let organiser;
-
-  try {
-    organiser = await ensureOrganiser();
-  } catch {
-    redirect("/");
-  }
-
-  if (organiser?.tournamentId) {
+  const organiser = await getOrganiserPrincipal();
+  if (organiser) {
     redirect(`/organiser/event/${organiser.tournamentId}/dashboard`);
   }
 
-  if (organiser?.role !== "admin" || !organiser?.id) {
+  // An admin may preview the organiser view of their own tournaments.
+  const admin = await getAdminPrincipal();
+  if (!admin) {
     redirect("/");
   }
 
   const rows = await db
     .select()
     .from(tournamentsTable)
-    .where(eq(tournamentsTable.adminId, organiser.id))
+    .where(eq(tournamentsTable.adminId, admin.adminId))
     .orderBy(desc(tournamentsTable.createdAt));
 
   const tournamentList = rows.map(serializeTournament);

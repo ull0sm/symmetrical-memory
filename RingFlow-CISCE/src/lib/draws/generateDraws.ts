@@ -19,6 +19,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { syncTournamentCategoryCounts, getActiveAthleteCounts } from "@/lib/categories/syncCounts";
 import { generateKataFlightDraw } from "@/engine/draw-engine/kataFlightDraw";
+import { isKataCategory } from "@/lib/categories/eventType";
 
 /**
  * The unimplemented-by-design core of draw generation: pure database work with
@@ -110,22 +111,24 @@ export async function performCategoryDraw(
     .innerJoin(athletes, eq(categoryEntries.athleteId, athletes.id))
     .where(eq(categoryEntries.categoryId, categoryId));
 
-  // Fallback: if category_entries is empty, check legacy athletes.category_id
-  let participantList = entries;
-  if (participantList.length === 0) {
-    const legacyAthletes = await db
-      .select({
-        entryId: athletes.id,
-        athleteId: athletes.id,
-        name: athletes.name,
-        school: athletes.school,
-        dojo: athletes.dojo,
-        seed: sql<number | null>`null`,
-      })
-      .from(athletes)
-      .where(eq(athletes.categoryId, categoryId));
-    participantList = legacyAthletes;
-  }
+  // Athletes reach a category two ways: official-import entries and the
+  // athlete's own category (manual add / move). Use both, once each, the same
+  // way the category counts do — otherwise a manually added athlete would be
+  // silently left out of a category that also has imported entries.
+  const directAthletes = await db
+    .select({
+      entryId: athletes.id,
+      athleteId: athletes.id,
+      name: athletes.name,
+      school: athletes.school,
+      dojo: athletes.dojo,
+      seed: sql<number | null>`null`,
+    })
+    .from(athletes)
+    .where(eq(athletes.categoryId, categoryId));
+
+  const seen = new Set(entries.map((e) => e.athleteId));
+  const participantList = [...entries, ...directAthletes.filter((a) => !seen.has(a.athleteId))];
 
   if (participantList.length < 2) {
     return {
@@ -152,7 +155,7 @@ export async function performCategoryDraw(
     .where(eq(categories.id, categoryId));
 
   // 4. Select ruleset
-  const isKata = cat.name.toLowerCase().includes("kata");
+  const isKata = isKataCategory(cat);
   const ruleset = isKata ? WKF_KATA_2026 : WKF_KUMITE_2026;
 
   // 5. Run draw engine

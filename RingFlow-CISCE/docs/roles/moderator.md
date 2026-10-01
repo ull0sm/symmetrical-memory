@@ -34,17 +34,12 @@ Touch other tatamis, edit categories, athletes or draws, change ring assignments
 
 ## Rules
 - Only bouts in the category that is **running on this tatami** can be made live or confirmed.
-- Confirmed results are final from the moderator's side. Corrections go through the audited
-  correction flow (Phase 3).
+- A confirmed result can be corrected by the moderator only while that category is still on their
+  tatami (running or paused); a correction that would undo later bouts asks for explicit
+  confirmation first. Every confirmation records who did it.
 - Every score change, result, override, and queue change is audited with the moderator's name and session.
 
 ## Known gaps (see [PLAN.md](../PLAN.md))
-- P1: **every action in `matches.ts` and `kata.ts` is unauthenticated.** Anyone can change scores
-  and results.
-- P1: approving a moderator broadcasts their `sessionToken` over the unauthenticated `/api/live`
-  feed. `checkModeratorStatus(requestId)` hands the cookie to anyone who has the request ID, and
-  request IDs are broadcast too. `validateModeratorSession` accepts the request ID as a token.
-- P1: `updateModeratorName` doesn't validate the session. `getModeratorRingAssignments` has no auth.
-- P2: the same 4-line auth check is copy-pasted into about 10 actions. Replace it with
-  `requireRingOperator(ringId)`.
-- P3: `event_log.moderator_session_id` is never filled in, so there's no actor on any log entry.
+- Corrections: the moderator can still re-confirm (correct) a bout while its category is on the
+  mat; it is recorded with the moderator's name. Phase 3 adds a mandatory reason and the audit log.
+- Phase 4: judge approval panel is not built yet.

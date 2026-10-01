@@ -1,4 +1,6 @@
 import React from "react";
+import { redirect } from "next/navigation";
+import { getTournamentStaff } from "@/lib/auth/guards";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { athletes, categories, rings, tournaments } from "@/db/schema";
@@ -16,6 +18,10 @@ export default async function AdminLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  if (!(await getTournamentStaff(id, ["admin"]))) {
+    redirect("/admin");
+  }
 
   const [tournament] = await db
     .select({ name: tournaments.name })

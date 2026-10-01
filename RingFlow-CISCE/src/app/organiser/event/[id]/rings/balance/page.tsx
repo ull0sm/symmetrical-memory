@@ -1,7 +1,7 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import RingBalancingClient from "@/app/admin/event/[id]/rings/balance/RingBalancingClient";
-import { ensureOrganiserHasAccessToTournament } from "@/actions/organiser";
+import { getTournamentStaff } from "@/lib/auth/guards";
 import { db } from "@/db";
 import {
   tournaments as tournamentsTable,
@@ -16,9 +16,8 @@ import { serializeRing, serializeCategory, serializeCategoryAssignment } from "@
 export default async function OrganiserRingBalancingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
 
-  try {
-    await ensureOrganiserHasAccessToTournament(tournamentId);
-  } catch {
+  // Organisers of this event, or its own admin previewing the organiser view.
+  if (!(await getTournamentStaff(tournamentId, ["organiser", "admin"]))) {
     redirect("/");
   }
 

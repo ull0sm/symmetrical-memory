@@ -3,7 +3,7 @@
 import { db } from "@/db";
 import { categories } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { staffRolesForTournament } from "@/lib/staffAccess";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 import { buildAllCategoryDrawPdfs, buildCategoryDrawPdf } from "@/lib/pdf/drawSheetFiles";
 
 /**
@@ -18,10 +18,7 @@ async function assertAdminForCategory(categoryId: string) {
 
   if (!cat) throw new Error("Category not found");
 
-  const roles = await staffRolesForTournament(cat.tournamentId);
-  if (!roles.includes("admin")) {
-    throw new Error("Access denied: Only tournament administrators can download draw sheets.");
-  }
+  await requireTournamentAdmin(cat.tournamentId);
 }
 
 /** One category's official draw sheet, base64-encoded. STRICTLY ADMIN ONLY. */
@@ -32,10 +29,7 @@ export async function downloadCategoryDrawPdf(categoryId: string) {
 
 /** Every category's draw sheet in the tournament, zipped. STRICTLY ADMIN ONLY. */
 export async function downloadAllCategoryDrawPdfs(tournamentId: string) {
-  const roles = await staffRolesForTournament(tournamentId);
-  if (!roles.includes("admin")) {
-    throw new Error("Access denied: Only tournament administrators can download draw sheets.");
-  }
+  await requireTournamentAdmin(tournamentId);
 
   return buildAllCategoryDrawPdfs(tournamentId);
 }

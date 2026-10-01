@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { sql, relations } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -74,7 +75,8 @@ export const rings = pgTable(
     sidesSwapped: boolean('sides_swapped').notNull().default(false),
     currentMatchId: text('current_match_id'),
     matchDurationSeconds: integer('match_duration_seconds').notNull().default(180),
-    judgePin: text('judge_pin').notNull().default('1234'),
+    // Random per tatami; there is no shared default PIN.
+    judgePin: text('judge_pin').notNull().$defaultFn(() => String(randomInt(1000, 10000))),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
@@ -175,6 +177,8 @@ export const moderatorRequests = pgTable('moderator_requests', {
   sessionToken: uuid('session_token').unique(),
   deviceInfo: jsonb('device_info').default({}),
   moderatorName: text('moderator_name'),
+  // sha256 of the one-time secret held (httpOnly) by the browser that asked for access.
+  claimHash: text('claim_hash'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
@@ -191,6 +195,8 @@ export const organiserRequests = pgTable('organiser_requests', {
   sessionToken: uuid('session_token').unique(),
   deviceInfo: jsonb('device_info').default({}),
   organiserName: text('organiser_name'),
+  // sha256 of the one-time secret held (httpOnly) by the browser that asked for access.
+  claimHash: text('claim_hash'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
@@ -207,6 +213,8 @@ export const stagerRequests = pgTable('stager_requests', {
   sessionToken: uuid('session_token').unique(),
   deviceInfo: jsonb('device_info').default({}),
   stagerName: text('stager_name'),
+  // sha256 of the one-time secret held (httpOnly) by the browser that asked for access.
+  claimHash: text('claim_hash'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),

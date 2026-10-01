@@ -5,7 +5,10 @@ import { tournaments } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { ensureAdminOwnsTournament } from "./admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
+
+const TOURNAMENT_STATUSES = ["draft", "active", "completed"] as const;
+type TournamentStatus = (typeof TOURNAMENT_STATUSES)[number];
 
 export async function updateTournamentSettings(
   tournamentId: string,
@@ -23,11 +26,22 @@ export async function updateTournamentSettings(
     tunnelUrl?: string | null;
   }
 ) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
-  const eventDate = data.event_date ? data.event_date.split("T")[0] : null;
+  const name = String(data.name ?? "").trim().slice(0, 200);
+  if (!name) return { success: false, error: "Tournament name is required." };
+
+  const status = TOURNAMENT_STATUSES.includes(data.status as TournamentStatus) ? data.status : null;
+  if (!status) return { success: false, error: "Status must be draft, active or completed." };
+
+  const rawDate = data.event_date ? String(data.event_date).split("T")[0] : null;
+  const eventDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
+
   const rawTunnel = data.tunnel_url ?? data.tunnelUrl ?? null;
-  const cleanTunnel = rawTunnel ? rawTunnel.trim().replace(/\/+$/, "") : null;
+  const cleanTunnel = rawTunnel ? rawTunnel.trim().replace(/\/+$/, "").slice(0, 300) : null;
+  if (cleanTunnel && !/^https?:\/\/[^\s]+$/i.test(cleanTunnel)) {
+    return { success: false, error: "The judge link must start with http:// or https://" };
+  }
 
   const rawBronze = data.default_bronze_medals != null ? Number(data.default_bronze_medals) : 2;
   const defaultBronzeMedals: 0 | 1 | 2 | 3 = [0, 1, 2, 3].includes(rawBronze)
@@ -37,11 +51,11 @@ export async function updateTournamentSettings(
   await db
     .update(tournaments)
     .set({
-      name: data.name,
+      name,
       eventDate,
-      status: data.status,
-      venue: data.venue || null,
-      city: data.city || null,
+      status,
+      venue: String(data.venue ?? "").trim().slice(0, 200) || null,
+      city: String(data.city ?? "").trim().slice(0, 200) || null,
       showPublicDraws: data.show_public_draws ?? true,
       showPublicScoreboard: data.show_public_scoreboard ?? false,
       defaultBronzeMedals,
@@ -63,7 +77,7 @@ export async function updateTournamentSettings(
 }
 
 export async function deleteTournament(tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   await db.delete(tournaments).where(eq(tournaments.id, tournamentId));
 

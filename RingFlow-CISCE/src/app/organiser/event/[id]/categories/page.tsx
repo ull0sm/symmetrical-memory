@@ -2,7 +2,7 @@ import React from "react";
 import OrganiserHeader from "@/components/layout/OrganiserHeader";
 import { redirect } from "next/navigation";
 import CategoriesClient from "@/components/admin/CategoriesClient";
-import { ensureOrganiserHasAccessToTournament } from "@/actions/organiser";
+import { getTournamentStaff } from "@/lib/auth/guards";
 import { db } from "@/db";
 import { tournaments as tournamentsTable, categories as categoriesTable } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
@@ -12,9 +12,8 @@ import { syncTournamentCategoryCounts, getActiveAthleteCounts } from "@/lib/cate
 export default async function OrganiserCategoriesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
 
-  try {
-    await ensureOrganiserHasAccessToTournament(tournamentId);
-  } catch {
+  // Organisers of this event, or its own admin previewing the organiser view.
+  if (!(await getTournamentStaff(tournamentId, ["organiser", "admin"]))) {
     redirect("/");
   }
 

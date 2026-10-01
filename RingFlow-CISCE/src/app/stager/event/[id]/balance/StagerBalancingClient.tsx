@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { updateCategoryStagerStatus } from "@/actions/stager";
+import { updateCategoryStagerStatus, logoutStager } from "@/actions/stager";
 import { getBalancingAssignments } from "@/actions/balancing";
 import StagerStatusIndicator from "@/components/ui/StagerStatusIndicator";
 import { PdfViewerModal } from "@/components/ui/PdfViewerModal";
@@ -243,7 +243,7 @@ export default function StagerBalancingClient({
       }));
 
       try {
-        const res = await updateCategoryStagerStatus(categoryId, tournamentId, newStatus, currentStagerName);
+        const res = await updateCategoryStagerStatus(categoryId, tournamentId, newStatus);
         if (!res.success) {
           // Rollback on failure
           setAssignmentsMap((prev) => ({
@@ -1187,8 +1187,7 @@ export default function StagerBalancingClient({
         onConfirm={async () => {
           setIsLoggingOut(true);
           try {
-            document.cookie = "stager_token=; path=/; max-age=0; SameSite=Lax";
-            document.cookie = "stager_name=; path=/; max-age=0; SameSite=Lax";
+            await logoutStager().catch(() => {});
             router.push("/login/stager");
           } catch (e) {
             router.push("/login/stager");

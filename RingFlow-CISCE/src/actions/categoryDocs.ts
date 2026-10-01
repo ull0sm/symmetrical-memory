@@ -2,7 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
-import { ensureAdminOwnsTournament } from "./admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -75,7 +75,7 @@ export async function uploadCategoryPDFs(
   tournamentId: string,
   formData: FormData
 ): Promise<PDFUploadResult> {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
   const supabase = await createClient();
 
   // 1. Verify tournament
@@ -170,7 +170,7 @@ export async function removeCategoryPDF(
   tournamentId: string,
   categoryId: string
 ): Promise<void> {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
   const supabase = await createClient();
 
   const storagePath = `${tournamentId}/${categoryId}.pdf`;

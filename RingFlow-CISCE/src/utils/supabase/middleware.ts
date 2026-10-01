@@ -39,9 +39,10 @@ export async function updateSession(request: NextRequest) {
   if (pathname.startsWith('/organiser')) {
     const isWaitingRoom = pathname.startsWith('/organiser/waiting')
     const orgToken = request.cookies.get('org_token')?.value
-    const hasAuthCookie = request.cookies.getAll().some(c => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
+    const adminSession = request.cookies.get('admin_session')?.value
 
-    if (!isWaitingRoom && !orgToken && !hasAuthCookie) {
+    // UX redirect only; every page and action re-checks the session itself.
+    if (!isWaitingRoom && !orgToken && !adminSession) {
       const url = request.nextUrl.clone()
       url.pathname = '/'
       return NextResponse.redirect(url)
@@ -55,8 +56,9 @@ export async function updateSession(request: NextRequest) {
   if (pathname.startsWith('/stager')) {
     const isWaitingRoom = pathname.startsWith('/stager/waiting')
     const stagerToken = request.cookies.get('stager_token')?.value
+    const adminSession = request.cookies.get('admin_session')?.value
 
-    if (!isWaitingRoom && !stagerToken) {
+    if (!isWaitingRoom && !stagerToken && !adminSession) {
       const url = request.nextUrl.clone()
       url.pathname = '/login/stager'
       return NextResponse.redirect(url)
@@ -82,7 +84,7 @@ export async function updateSession(request: NextRequest) {
 
   // ─── Admin routes: cookie-based session auth, zero external network calls ─
   if (pathname.startsWith('/admin')) {
-    const adminSession = request.cookies.get('admin_session')?.value || request.cookies.get('admin_dev_id')?.value
+    const adminSession = request.cookies.get('admin_session')?.value
     if (!adminSession) {
       const url = request.nextUrl.clone()
       url.pathname = '/login/admin'
@@ -93,7 +95,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (pathname === '/login/admin') {
-    const adminSession = request.cookies.get('admin_session')?.value || request.cookies.get('admin_dev_id')?.value
+    const adminSession = request.cookies.get('admin_session')?.value
     if (adminSession) {
       const url = request.nextUrl.clone()
       url.pathname = '/admin'

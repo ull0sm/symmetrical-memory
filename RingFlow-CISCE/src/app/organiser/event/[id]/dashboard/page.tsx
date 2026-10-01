@@ -1,7 +1,7 @@
 import React from "react";
 import AdminDashboardClient from "@/components/admin/AdminDashboardClient";
 import { redirect } from "next/navigation";
-import { ensureOrganiserHasAccessToTournament } from "@/actions/organiser";
+import { getTournamentStaff } from "@/lib/auth/guards";
 import { getTournamentActiveBouts } from "@/actions/matches";
 import { db } from "@/db";
 import {
@@ -24,9 +24,8 @@ import {
 export default async function OrganiserDashboard({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
   
-  try {
-    await ensureOrganiserHasAccessToTournament(tournamentId);
-  } catch {
+  // Organisers of this event, or its own admin previewing the organiser view.
+  if (!(await getTournamentStaff(tournamentId, ["organiser", "admin"]))) {
     redirect("/");
   }
 

@@ -4,10 +4,17 @@
  * across all existing UI components without regressions.
  */
 
+/**
+ * Tournament shape for every screen. The organiser code and stager codes are
+ * credentials and are left out; the admin settings screen uses
+ * `serializeTournamentForAdmin`.
+ */
 export function serializeTournament(t: any) {
   if (!t) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { organiserCode, stagerCodes, organiser_code, stager_codes, ...rest } = t;
   return {
-    ...t,
+    ...rest,
     id: t.id,
     admin_id: t.adminId,
     name: t.name,
@@ -16,8 +23,6 @@ export function serializeTournament(t: any) {
     venue: t.venue,
     city: t.city,
     status: t.status,
-    organiser_code: t.organiserCode,
-    stager_codes: t.stagerCodes || [],
     show_public_draws: t.showPublicDraws ?? true,
     show_public_scoreboard: t.showPublicScoreboard ?? false,
     default_bronze_medals: t.defaultBronzeMedals ?? 2,
@@ -28,15 +33,31 @@ export function serializeTournament(t: any) {
   };
 }
 
+/** Admin settings only: includes the organiser and stager access codes. */
+export function serializeTournamentForAdmin(t: any) {
+  if (!t) return null;
+  return {
+    ...serializeTournament(t),
+    organiser_code: t.organiserCode,
+    stager_codes: t.stagerCodes || [],
+  };
+}
+
+/**
+ * Public-safe ring shape. The tatami access code and judge PIN are credentials:
+ * they are never serialized here. Admin screens read them through their own
+ * guarded queries.
+ */
 export function serializeRing(r: any) {
   if (!r) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { accessCode, judgePin, access_code, judge_pin, ...rest } = r;
   return {
-    ...r,
+    ...rest,
     id: r.id,
     tournament_id: r.tournamentId,
     name: r.name,
     ring_order: r.ringOrder,
-    access_code: r.accessCode,
     timer_status: r.timerStatus || 'idle',
     timer_started_at: r.timerStartedAt ? new Date(r.timerStartedAt).toISOString() : null,
     timer_paused_at: r.timerPausedAt ? new Date(r.timerPausedAt).toISOString() : null,
@@ -47,8 +68,6 @@ export function serializeRing(r: any) {
     current_match_id: r.currentMatchId ?? null,
     match_duration_seconds: r.matchDurationSeconds ?? 180,
     mat_name: r.matName ?? null,
-    judge_pin: r.judgePin ?? "1234",
-    judgePin: r.judgePin ?? "1234",
   };
 }
 
@@ -112,8 +131,10 @@ export function serializeCategoryAssignment(a: any, category?: any) {
 
 export function serializeModRequest(mr: any, ring?: any) {
   if (!mr) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { sessionToken, session_token, claimHash, ...rest } = mr;
   return {
-    ...mr,
+    ...rest,
     id: mr.id,
     ring_id: mr.ringId,
     tournament_id: mr.tournamentId,
@@ -164,13 +185,14 @@ export function serializeAthlete(a: any, categoryName?: string | null) {
 
 export function serializeOrganiserRequest(or: any) {
   if (!or) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { sessionToken, session_token, claimHash, ...rest } = or;
   return {
-    ...or,
+    ...rest,
     id: or.id,
     tournament_id: or.tournamentId || or.tournament_id,
     access_code_used: or.accessCodeUsed || or.access_code_used,
     status: or.status,
-    session_token: or.sessionToken || or.session_token,
     device_info: or.deviceInfo || or.device_info,
     organiser_name: or.organiserName || or.organiser_name,
     expires_at: or.expiresAt ? new Date(or.expiresAt).toISOString() : (or.expires_at || null),
@@ -181,14 +203,15 @@ export function serializeOrganiserRequest(or: any) {
 
 export function serializeStagerRequest(sr: any) {
   if (!sr) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { sessionToken, session_token, claimHash, ...rest } = sr;
   return {
-    ...sr,
+    ...rest,
     id: sr.id,
     tournament_id: sr.tournamentId || sr.tournament_id,
     access_code_used: sr.accessCodeUsed || sr.access_code_used,
     stager_name: sr.stagerName || sr.stager_name,
     status: sr.status,
-    session_token: sr.sessionToken || sr.session_token,
     device_info: sr.deviceInfo || sr.device_info,
     expires_at: sr.expiresAt ? new Date(sr.expiresAt).toISOString() : (sr.expires_at || null),
     created_at: sr.createdAt ? new Date(sr.createdAt).toISOString() : (sr.created_at || null),
