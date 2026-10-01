@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { categories, draws } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { CategoryDrawState } from "@/lib/pdf/drawStatePdfGenerator";
+import { getBoutOfficials } from "@/lib/results/officials";
 
 /**
  * Every category that has a draw, with its current state — bouts, points and
@@ -19,6 +20,7 @@ export async function buildTournamentDrawStates(tournamentId: string): Promise<C
 
   const ordered = [...drawn].sort((a, b) => a.name.localeCompare(b.name));
   const states: CategoryDrawState[] = [];
+  const officials = await getBoutOfficials(tournamentId);
 
   for (const category of ordered) {
     try {
@@ -29,6 +31,9 @@ export async function buildTournamentDrawStates(tournamentId: string): Promise<C
         tournamentSize: draw.draw?.tournamentSize,
         bronzeMedals: draw.bronzeMedals ?? 2,
         matches: draw.matches,
+        officials: Object.fromEntries(
+          draw.matches.filter((m) => officials.has(m.matchId)).map((m) => [m.matchId, officials.get(m.matchId)!])
+        ),
       });
     } catch (err) {
       // One unreadable bracket must not sink the whole document.

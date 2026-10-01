@@ -112,6 +112,13 @@ Goal: every official action can be traced to a person, so results can be defende
 
 ---
 
+**Status (2026-10-01 checkpoint): implemented, static checks pass; runtime re-test pending.**
+See `/CLAUDE_HANDOFF.md` at the repo root. 3.1–3.6 are coded (audit_log + trigger,
+`lib/audit.ts` wired into all official actions, reason-required corrections and admin
+`correctBoutResult`, Official Record page, accountable exports, event_log keeps actor in metadata).
+
+---
+
 ## Phase 4 — Judge system rebuild (kata)
 Spec: [roles/judge.md](roles/judge.md).
 

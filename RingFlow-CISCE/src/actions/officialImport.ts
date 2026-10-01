@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
 import { officialRosterSchema, parseInput } from "@/lib/validation";
@@ -14,8 +15,20 @@ export async function importOfficialRoster(
   tournamentId: string,
   rawAthletes: RawImportAthlete[]
 ): Promise<ImportResult> {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   const result = await importOfficialRosterCore(tournamentId, parseInput(officialRosterSchema, rawAthletes, "roster"));
+  await audit({
+    tournamentId,
+    actor: admin,
+    action: "ATHLETES_IMPORTED",
+    after: {
+      source: "official roster",
+      athletes: result.totalAthletes,
+      kumiteEntries: result.kumiteEntriesCreated,
+      kataEntries: result.kataEntriesCreated,
+      uncategorized: result.uncategorized.length,
+    },
+  });
   try {
     revalidatePath(`/admin/event/${tournamentId}/athletes`);
     revalidatePath(`/admin/event/${tournamentId}/categories`);

@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { assembleCategoryDraw, type BracketMatchView } from "@/lib/draws/assembleDraw";
 import {
@@ -67,8 +68,18 @@ export async function generateCategoryDraw(
 
   if (!cat) return { success: false, error: "Category not found" };
 
-  await requireTournamentAdmin(cat.tournamentId);
-  return performCategoryDraw(categoryId, options);
+  const admin = await requireTournamentAdmin(cat.tournamentId);
+  const result = await performCategoryDraw(categoryId, options);
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: "DRAW_GENERATED",
+    targetType: "category",
+    targetId: categoryId,
+    after: { options: options ?? null, success: Boolean((result as { success?: boolean })?.success !== false) },
+  });
+  return result;
 }
 export async function setCategoryDrawOption(
   categoryId: string,
@@ -81,13 +92,22 @@ export async function setCategoryDrawOption(
 
   if (!cat) return { success: false, error: "Category not found" };
 
-  await requireTournamentAdmin(cat.tournamentId);
+  const admin = await requireTournamentAdmin(cat.tournamentId);
 
   if (bronzeMedals !== null && ![0, 1, 2, 3].includes(bronzeMedals)) {
     return { success: false, error: "Bronze medals must be 0, 1, 2, 3 or null" };
   }
 
   await db.update(categories).set({ bronzeMedals }).where(eq(categories.id, categoryId));
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: "DRAW_OPTION_CHANGED",
+    targetType: "category",
+    targetId: categoryId,
+    after: { bronzeMedals },
+  });
 
   try {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
@@ -103,8 +123,10 @@ export async function generateAllTournamentDraws(
   tournamentId: string,
   options?: { bronzeMedals?: 0 | 1 | 2 | 3; separateByClub?: boolean }
 ) {
-  await requireTournamentAdmin(tournamentId);
-  return performGenerateAllTournamentDraws(tournamentId, options);
+  const admin = await requireTournamentAdmin(tournamentId);
+  const result = await performGenerateAllTournamentDraws(tournamentId, options);
+  await audit({ tournamentId, actor: admin, action: "DRAWS_GENERATED", after: { options: options ?? null } });
+  return result;
 }
 
 /**
@@ -173,7 +195,7 @@ export async function lockCategoryDraw(categoryId: string) {
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
-  await requireTournamentAdmin(cat.tournamentId);
+  const admin = await requireTournamentAdmin(cat.tournamentId);
 
   await db
     .update(draws)
@@ -183,6 +205,15 @@ export async function lockCategoryDraw(categoryId: string) {
   try {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
   } catch {}
+
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: "DRAW_LOCKED",
+    targetType: "category",
+    targetId: categoryId,
+  });
 
   return { success: true };
 }
@@ -194,7 +225,7 @@ export async function unlockCategoryDraw(categoryId: string) {
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
-  await requireTournamentAdmin(cat.tournamentId);
+  const admin = await requireTournamentAdmin(cat.tournamentId);
 
   await db
     .update(draws)
@@ -204,6 +235,15 @@ export async function unlockCategoryDraw(categoryId: string) {
   try {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
   } catch {}
+
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: "DRAW_UNLOCKED",
+    targetType: "category",
+    targetId: categoryId,
+  });
 
   return { success: true };
 }
@@ -215,7 +255,7 @@ export async function toggleCategoryDrawLock(categoryId: string) {
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
-  await requireTournamentAdmin(cat.tournamentId);
+  const admin = await requireTournamentAdmin(cat.tournamentId);
 
   const [draw] = await db
     .select()
@@ -237,6 +277,15 @@ export async function toggleCategoryDrawLock(categoryId: string) {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
   } catch {}
 
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: isLocked ? "DRAW_UNLOCKED" : "DRAW_LOCKED",
+    targetType: "category",
+    targetId: categoryId,
+  });
+
   return { success: true, isLocked: !isLocked, state: nextState };
 }
 
@@ -251,7 +300,7 @@ export async function flushCategoryDraw(categoryId: string) {
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
-  await requireTournamentAdmin(cat.tournamentId);
+  const admin = await requireTournamentAdmin(cat.tournamentId);
 
   await db.transaction(async (tx) => {
     // 1. Find all matches for this category
@@ -290,6 +339,15 @@ export async function flushCategoryDraw(categoryId: string) {
   try {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
   } catch {}
+
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: "DRAW_FLUSHED",
+    targetType: "category",
+    targetId: categoryId,
+  });
 
   return { success: true };
 }

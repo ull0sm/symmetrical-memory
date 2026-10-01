@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
 import type { CategoryDefinitionInput } from "@/lib/constants/categoryPresets";
@@ -24,15 +25,17 @@ export async function getTournamentCategoryDefinitions(tournamentId: string) {
 }
 
 export async function saveCategoryDefinitions(tournamentId: string, defs: CategoryDefinitionInput[]) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   const res = await writeCategoryDefinitions(tournamentId, defs);
+  await audit({ tournamentId, actor: admin, action: "CATEGORY_DEFINITIONS_SAVED", after: { count: defs.length } });
   revalidateCategories(tournamentId);
   return res;
 }
 
 export async function loadPresetCategoryDefinitions(tournamentId: string, presetKey: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   const res = await writePresetCategoryDefinitions(tournamentId, presetKey);
+  await audit({ tournamentId, actor: admin, action: "CATEGORY_DEFINITIONS_SAVED", after: { preset: presetKey } });
   revalidateCategories(tournamentId);
   return res;
 }

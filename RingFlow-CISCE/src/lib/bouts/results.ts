@@ -36,6 +36,8 @@ export async function commitBoutResult(
     allowRollback?: boolean;
     /** Who confirmed it; recorded on the match event and the event log. */
     actor?: { role: string; id: string; name: string };
+    /** Why a confirmed result is being changed (required by the actions for corrections). */
+    reason?: string;
   }
 ): Promise<
   | { success: true }
@@ -202,6 +204,7 @@ export async function commitBoutResult(
         isReversingWinner,
         previousWinnerId: isAlreadyConfirmed ? match.winnerId : null,
         rollbackApplied: Boolean(details?.allowRollback),
+        reason: details?.reason ?? null,
       },
       actor: details?.actor ? `${details.actor.role}:${details.actor.name}` : null,
       deviceId: details?.actor?.id ?? null,

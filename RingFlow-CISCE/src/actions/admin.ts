@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
   tournaments,
@@ -45,7 +46,7 @@ async function haltRingClock(ringId: string) {
  */
 export async function adminSetRingStatus(ringId: string, isPaused: boolean) {
   const tournamentId = await tournamentIdForRing(ringId);
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   if (isPaused) await haltRingClock(ringId);
 
@@ -75,6 +76,18 @@ export async function adminSetRingStatus(ringId: string, isPaused: boolean) {
     metadata: { by: "admin" },
   });
 
+  await audit({
+    tournamentId,
+    ringId,
+    categoryId: assignment.categoryId,
+    actor: admin,
+    action: "ADMIN_RING_STATUS",
+    targetType: "category_assignment",
+    targetId: assignment.id,
+    before: { status: assignment.status },
+    after: { status: isPaused ? "paused" : "running" },
+  });
+
   broadcastLiveEvent({
     table: "category_assignments",
     op: "UPDATE",
@@ -88,7 +101,8 @@ export async function adminSetRingStatus(ringId: string, isPaused: boolean) {
 }
 
 export async function adminSetAllRingsStatus(tournamentId: string, isPaused: boolean) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
+  await audit({ tournamentId, actor: admin, action: "ADMIN_PAUSE_ALL", after: { paused: Boolean(isPaused) } });
 
   const ringList = await db
     .select({ id: rings.id })

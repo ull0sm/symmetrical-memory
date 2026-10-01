@@ -384,6 +384,19 @@ export function BoutScoringPad({
       if (!confirmed) return;
     }
 
+    // Changing a confirmed result goes in the official record with a reason.
+    let reason: string | undefined;
+    if (match.status === "CONFIRMED") {
+      const entered = window.prompt(
+        "This bout is already confirmed.\n\nWhy is the result being corrected? (Recorded in the official audit log.)"
+      );
+      if (!entered || entered.trim().length < 5) {
+        if (entered !== null) alert("Please give a short reason (at least 5 characters).");
+        return;
+      }
+      reason = entered.trim();
+    }
+
     try {
       setConfirming(true);
       const res = await confirmBoutResult(match.id, winnerId, {
@@ -394,6 +407,7 @@ export function BoutScoringPad({
         aoPenalties,
         senshu,
         method,
+        reason,
       });
 
       if (res && !res.success && (res as any).requiresRollbackConfirmation) {
@@ -417,6 +431,7 @@ export function BoutScoringPad({
           senshu,
           method,
           allowRollback: true,
+          reason,
         });
 
         if (!retryRes.success) {

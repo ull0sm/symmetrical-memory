@@ -9,7 +9,7 @@ import { verifyPassword } from "@/lib/auth/password";
 import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from "@/lib/auth/cookies";
 import { getAdminPrincipal } from "@/lib/auth/principal";
 import { hashToken, newSessionToken } from "@/lib/auth/tokens";
-import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, clientAddress, isBlocked, recordFailure } from "@/lib/rateLimit";
 
 const ADMIN_SESSION_SECONDS = 7 * 24 * 60 * 60;
 
@@ -41,11 +41,11 @@ export async function signInWithAdminPassword(
   }
 
   const address = await clientAddress();
-  const allowed = await allowAttempt([
+  const limits = [
     { key: `admin-login:addr:${address}`, ...RATE_LIMITS.adminLoginPerAddress },
     { key: `admin-login:email:${email}`, ...RATE_LIMITS.adminLoginPerEmail },
-  ]);
-  if (!allowed) return { success: false, error: TOO_MANY_ATTEMPTS };
+  ];
+  if (isBlocked(limits)) return { success: false, error: TOO_MANY_ATTEMPTS };
 
   const [admin] = await db.select().from(admins).where(eq(admins.email, email)).limit(1);
 
@@ -53,6 +53,7 @@ export async function signInWithAdminPassword(
   // there is no built-in default password.
   const valid = await verifyPassword(password, admin?.passwordHash || DUMMY_HASH);
   if (!admin || !admin.passwordHash || !valid) {
+    recordFailure(limits);
     return { success: false, error: "Invalid email or password." };
   }
 
