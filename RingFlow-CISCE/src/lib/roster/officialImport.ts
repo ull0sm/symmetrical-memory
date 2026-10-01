@@ -24,10 +24,10 @@ export type RawImportAthlete = {
   age?: number | string | null;
   sex?: string | null;
   weight?: number | string | null;
-  kata?: boolean | string | null;
-  kumite?: boolean | string | null;
-  teamKata?: boolean | string | null;
-  teamKumite?: boolean | string | null;
+  kata?: boolean | string | number | null;
+  kumite?: boolean | string | number | null;
+  teamKata?: boolean | string | number | null;
+  teamKumite?: boolean | string | number | null;
 };
 
 export type ImportResult = {

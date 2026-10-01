@@ -3,6 +3,8 @@ import { sql, relations } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   boolean,
+  customType,
+  index,
   date,
   integer,
   jsonb,
@@ -27,6 +29,24 @@ export const admins = pgTable('admins', {
     .notNull()
     .defaultNow(),
 });
+
+/** One row per signed-in admin browser. The cookie holds the token; only its hash is stored. */
+export const adminSessions = pgTable(
+  'admin_sessions',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    adminId: uuid('admin_id')
+      .notNull()
+      .references(() => admins.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    userAgent: text('user_agent'),
+    ip: text('ip'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+  },
+  (table) => [index('admin_sessions_admin_id_idx').on(table.adminId)]
+);
 
 export const tournaments = pgTable('tournaments', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -113,6 +133,28 @@ export const categories = pgTable('categories', {
     .defaultNow(),
 });
 
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+/**
+ * Category athlete-list PDFs uploaded by the admin. Kept in Postgres so the
+ * same build works on an offline venue server and a hosted one; served to
+ * staff only through /api/category-docs/[categoryId].
+ */
+export const categoryDocuments = pgTable('category_documents', {
+  categoryId: uuid('category_id')
+    .primaryKey()
+    .references(() => categories.id, { onDelete: 'cascade' }),
+  filename: text('filename').notNull(),
+  contentType: text('content_type').notNull().default('application/pdf'),
+  sizeBytes: integer('size_bytes').notNull(),
+  content: bytea('content').notNull(),
+  uploadedAt: timestamp('uploaded_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
 export const athletes = pgTable('athletes', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   categoryId: uuid('category_id').references(() => categories.id, {
@@ -174,7 +216,10 @@ export const moderatorRequests = pgTable('moderator_requests', {
     .references(() => rings.id, { onDelete: 'cascade' }),
   accessCodeUsed: text('access_code_used').notNull(),
   status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected' | 'expired' | 'revoked'
+  // Legacy plaintext column, no longer written (sessions are looked up by hash).
   sessionToken: uuid('session_token').unique(),
+  // sha256 of the session token the requesting browser holds in an httpOnly cookie.
+  sessionTokenHash: text('session_token_hash').unique(),
   deviceInfo: jsonb('device_info').default({}),
   moderatorName: text('moderator_name'),
   // sha256 of the one-time secret held (httpOnly) by the browser that asked for access.
@@ -192,7 +237,10 @@ export const organiserRequests = pgTable('organiser_requests', {
     .references(() => tournaments.id, { onDelete: 'cascade' }),
   accessCodeUsed: text('access_code_used').notNull(),
   status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected' | 'expired' | 'revoked'
+  // Legacy plaintext column, no longer written (sessions are looked up by hash).
   sessionToken: uuid('session_token').unique(),
+  // sha256 of the session token the requesting browser holds in an httpOnly cookie.
+  sessionTokenHash: text('session_token_hash').unique(),
   deviceInfo: jsonb('device_info').default({}),
   organiserName: text('organiser_name'),
   // sha256 of the one-time secret held (httpOnly) by the browser that asked for access.
@@ -210,7 +258,10 @@ export const stagerRequests = pgTable('stager_requests', {
     .references(() => tournaments.id, { onDelete: 'cascade' }),
   accessCodeUsed: text('access_code_used').notNull(),
   status: text('status').notNull().default('pending'),
+  // Legacy plaintext column, no longer written (sessions are looked up by hash).
   sessionToken: uuid('session_token').unique(),
+  // sha256 of the session token the requesting browser holds in an httpOnly cookie.
+  sessionTokenHash: text('session_token_hash').unique(),
   deviceInfo: jsonb('device_info').default({}),
   stagerName: text('stager_name'),
   // sha256 of the one-time secret held (httpOnly) by the browser that asked for access.

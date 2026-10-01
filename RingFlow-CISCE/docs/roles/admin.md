@@ -40,6 +40,4 @@ staff, and watch every tatami live.
 7. Afterwards: export results and the official record. Set the tournament status to `completed`.
 
 ## Known gaps (see [PLAN.md](../PLAN.md))
-- Phase 2: the admin cookie still holds the admin id (unguessable UUID, httpOnly) instead of a
-  random session token stored hashed; no rate limit on login yet.
 - Phase 3: no audit viewer and no admin "correct a confirmed result" flow yet.

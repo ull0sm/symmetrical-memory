@@ -26,7 +26,8 @@ const nextConfig: NextConfig = {
   ],
   experimental: {
     serverActions: {
-      bodySizeLimit: "4mb",
+      // Category PDFs upload one per request, up to 8 MB each.
+      bodySizeLimit: "10mb",
     },
   },
 };

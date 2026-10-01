@@ -15,12 +15,14 @@ import { normalizeAccessCode, isValidUuid } from "@/lib/utils";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { serializeCategoryAssignment } from "@/lib/serializers";
 import { isOfflineMode } from "@/lib/offline";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
 import {
   SESSION_COOKIES,
   clearCookies,
   setSessionCookie,
 } from "@/lib/auth/cookies";
 import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
+import { hashToken, newSessionToken } from "@/lib/auth/tokens";
 import {
   getRingModerator,
   requireRingModerator,
@@ -48,20 +50,19 @@ export async function approveModeratorRequest(requestId: string, ringId: string,
   if (!request) throw new Error("Request not found for this tatami");
   if (request.status !== "pending") throw new Error(`Request is already ${request.status}`);
 
-  const sessionToken = crypto.randomUUID();
-
   await db.transaction(async (tx) => {
     // One moderator per tatami: approving a new one ends the previous shift.
     await tx
       .update(moderatorRequests)
-      .set({ status: "revoked", sessionToken: null })
+      .set({ status: "revoked", sessionToken: null, sessionTokenHash: null })
       .where(and(eq(moderatorRequests.ringId, ringId), eq(moderatorRequests.status, "approved")));
 
     await tx
       .update(moderatorRequests)
       .set({
         status: "approved",
-        sessionToken,
+        sessionToken: null,
+        sessionTokenHash: null,
         expiresAt: new Date(Date.now() + MODERATOR_SESSION_SECONDS * 1000),
       })
       .where(eq(moderatorRequests.id, requestId));
@@ -97,7 +98,7 @@ export async function rejectModeratorRequest(requestId: string, tournamentId: st
 
   await db
     .update(moderatorRequests)
-    .set({ status: "rejected", sessionToken: null })
+    .set({ status: "rejected", sessionToken: null, sessionTokenHash: null })
     .where(eq(moderatorRequests.id, requestId));
 
   broadcastLiveEvent({
@@ -122,7 +123,7 @@ export async function revokeActiveModeratorSession(ringId: string, tournamentId:
 
   await db
     .update(moderatorRequests)
-    .set({ status: "revoked", sessionToken: null })
+    .set({ status: "revoked", sessionToken: null, sessionTokenHash: null })
     .where(and(eq(moderatorRequests.ringId, ringId), eq(moderatorRequests.status, "approved")));
 
   broadcastLiveEvent({
@@ -173,6 +174,10 @@ export async function requestModeratorAccess(
     platform: typeof deviceInfo?.platform === "string" ? deviceInfo.platform.slice(0, 100) : undefined,
     ip,
   };
+
+  if (!(await allowAttempt([{ key: `access-code:moderator:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }]))) {
+    return { success: false, error: TOO_MANY_ATTEMPTS };
+  }
 
   const cleanCode = (accessCode || "").trim().replace(/[\s\-_]/g, "").toUpperCase().slice(0, 20);
   if (cleanCode.length < 6) {
@@ -238,7 +243,6 @@ export async function checkModeratorStatus(requestId: string) {
   const [request] = await db
     .select({
       status: moderatorRequests.status,
-      sessionToken: moderatorRequests.sessionToken,
       ringId: moderatorRequests.ringId,
       expiresAt: moderatorRequests.expiresAt,
       claimHash: moderatorRequests.claimHash,
@@ -255,11 +259,17 @@ export async function checkModeratorStatus(requestId: string) {
 
   const ownsRequest = await holdsClaim("moderator", request.claimHash);
 
-  if (request.status === "approved" && request.sessionToken && ownsRequest) {
+  if (request.status === "approved" && ownsRequest) {
+    // The session is minted here, for the browser that asked; only its hash is kept.
+    const token = newSessionToken();
+    await db
+      .update(moderatorRequests)
+      .set({ sessionToken: null, sessionTokenHash: hashToken(token) })
+      .where(eq(moderatorRequests.id, requestId));
     const secondsLeft = request.expiresAt
       ? Math.max(60, Math.floor((request.expiresAt.getTime() - Date.now()) / 1000))
       : MODERATOR_SESSION_SECONDS;
-    await setSessionCookie(SESSION_COOKIES.moderator, request.sessionToken, secondsLeft);
+    await setSessionCookie(SESSION_COOKIES.moderator, token, secondsLeft);
     await clearCookies(claimCookieName("moderator"));
     return { status: "approved" as const, ringId: request.ringId };
   }
@@ -609,7 +619,7 @@ export async function logoutModerator() {
   if (moderator) {
     await db
       .update(moderatorRequests)
-      .set({ status: "expired", sessionToken: null })
+      .set({ status: "expired", sessionToken: null, sessionTokenHash: null })
       .where(eq(moderatorRequests.id, moderator.requestId));
     broadcastLiveEvent({
       table: "moderator_requests",

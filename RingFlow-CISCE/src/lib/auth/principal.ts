@@ -5,12 +5,13 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/db";
 import {
   admins,
+  adminSessions,
   moderatorRequests,
   organiserRequests,
   rings,
   stagerRequests,
 } from "@/db/schema";
-import { isValidUuid } from "@/lib/utils";
+import { hashToken, looksLikeToken } from "./tokens";
 import { SESSION_COOKIES } from "./cookies";
 
 /**
@@ -20,7 +21,7 @@ import { SESSION_COOKIES } from "./cookies";
  * Every identity is re-verified against the database on each request: a
  * revoked or expired session stops working on the very next click.
  */
-export type AdminPrincipal = { role: "admin"; adminId: string; name: string };
+export type AdminPrincipal = { role: "admin"; adminId: string; name: string; sessionId: string };
 export type OrganiserPrincipal = {
   role: "organiser";
   requestId: string;
@@ -46,18 +47,19 @@ export type Principal = AdminPrincipal | OrganiserPrincipal | StagerPrincipal | 
 const notExpired = (col: AnyPgColumn) => or(isNull(col), gt(col, new Date()));
 
 async function resolveAdmin(token: string | undefined): Promise<AdminPrincipal | null> {
-  if (!token || !isValidUuid(token)) return null;
+  if (!looksLikeToken(token)) return null;
   const [row] = await db
-    .select({ id: admins.id, name: admins.name, email: admins.email })
-    .from(admins)
-    .where(eq(admins.id, token))
+    .select({ id: admins.id, name: admins.name, email: admins.email, sessionId: adminSessions.id })
+    .from(adminSessions)
+    .innerJoin(admins, eq(admins.id, adminSessions.adminId))
+    .where(and(eq(adminSessions.tokenHash, hashToken(token)), gt(adminSessions.expiresAt, new Date())))
     .limit(1);
   if (!row) return null;
-  return { role: "admin", adminId: row.id, name: row.name || row.email };
+  return { role: "admin", adminId: row.id, name: row.name || row.email, sessionId: row.sessionId };
 }
 
 async function resolveOrganiser(token: string | undefined): Promise<OrganiserPrincipal | null> {
-  if (!token || !isValidUuid(token)) return null;
+  if (!looksLikeToken(token)) return null;
   const [row] = await db
     .select({
       id: organiserRequests.id,
@@ -67,7 +69,7 @@ async function resolveOrganiser(token: string | undefined): Promise<OrganiserPri
     .from(organiserRequests)
     .where(
       and(
-        eq(organiserRequests.sessionToken, token),
+        eq(organiserRequests.sessionTokenHash, hashToken(token)),
         eq(organiserRequests.status, "approved"),
         notExpired(organiserRequests.expiresAt)
       )
@@ -78,7 +80,7 @@ async function resolveOrganiser(token: string | undefined): Promise<OrganiserPri
 }
 
 async function resolveStager(token: string | undefined): Promise<StagerPrincipal | null> {
-  if (!token || !isValidUuid(token)) return null;
+  if (!looksLikeToken(token)) return null;
   const [row] = await db
     .select({
       id: stagerRequests.id,
@@ -88,7 +90,7 @@ async function resolveStager(token: string | undefined): Promise<StagerPrincipal
     .from(stagerRequests)
     .where(
       and(
-        eq(stagerRequests.sessionToken, token),
+        eq(stagerRequests.sessionTokenHash, hashToken(token)),
         eq(stagerRequests.status, "approved"),
         notExpired(stagerRequests.expiresAt)
       )
@@ -99,7 +101,7 @@ async function resolveStager(token: string | undefined): Promise<StagerPrincipal
 }
 
 async function resolveModerator(token: string | undefined): Promise<ModeratorPrincipal | null> {
-  if (!token || !isValidUuid(token)) return null;
+  if (!looksLikeToken(token)) return null;
   const [row] = await db
     .select({
       id: moderatorRequests.id,
@@ -111,7 +113,7 @@ async function resolveModerator(token: string | undefined): Promise<ModeratorPri
     .innerJoin(rings, eq(rings.id, moderatorRequests.ringId))
     .where(
       and(
-        eq(moderatorRequests.sessionToken, token),
+        eq(moderatorRequests.sessionTokenHash, hashToken(token)),
         eq(moderatorRequests.status, "approved"),
         notExpired(moderatorRequests.expiresAt)
       )

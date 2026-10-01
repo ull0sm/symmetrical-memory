@@ -9,9 +9,11 @@ import { normalizeAccessCode, isValidUuid } from "@/lib/utils";
 import { uniqueOrganiserCode } from "@/lib/accessCodes";
 import { serializeOrganiserRequest } from "@/lib/serializers";
 import { isOfflineMode } from "@/lib/offline";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from "@/lib/auth/cookies";
 import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
+import { hashToken, newSessionToken } from "@/lib/auth/tokens";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
 import { getOrganiserPrincipal } from "@/lib/auth/principal";
 
@@ -48,6 +50,10 @@ export async function requestOrganiserAccess(
     if (!verification.success) {
       return { success: false, error: verification.error || "Security check failed." };
     }
+  }
+
+  if (!(await allowAttempt([{ key: `access-code:organiser:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }]))) {
+    return { success: false, error: TOO_MANY_ATTEMPTS };
   }
 
   const cleanCode = (accessCode || "").trim().toUpperCase().slice(0, 20);
@@ -122,7 +128,6 @@ export async function checkOrganiserStatus(requestId: string) {
   const [request] = await db
     .select({
       status: organiserRequests.status,
-      sessionToken: organiserRequests.sessionToken,
       tournamentId: organiserRequests.tournamentId,
       expiresAt: organiserRequests.expiresAt,
       organiserName: organiserRequests.organiserName,
@@ -136,9 +141,15 @@ export async function checkOrganiserStatus(requestId: string) {
 
   const ownsRequest = await holdsClaim("organiser", request.claimHash);
 
-  if (request.status === "approved" && request.sessionToken && ownsRequest) {
+  if (request.status === "approved" && ownsRequest) {
+    // The session is minted here, for the browser that asked; only its hash is kept.
+    const token = newSessionToken();
+    await db
+      .update(organiserRequests)
+      .set({ sessionToken: null, sessionTokenHash: hashToken(token) })
+      .where(eq(organiserRequests.id, requestId));
     const secondsLeft = Math.max(60, Math.floor((request.expiresAt.getTime() - Date.now()) / 1000));
-    await setSessionCookie(SESSION_COOKIES.organiser, request.sessionToken, secondsLeft);
+    await setSessionCookie(SESSION_COOKIES.organiser, token, secondsLeft);
     await clearCookies(claimCookieName("organiser"), ...LEGACY_COOKIES);
     return {
       status: "approved" as const,
@@ -172,7 +183,8 @@ export async function approveOrganiserRequest(requestId: string, tournamentId: s
     .update(organiserRequests)
     .set({
       status: "approved",
-      sessionToken: crypto.randomUUID(),
+      sessionToken: null,
+        sessionTokenHash: null,
       expiresAt: new Date(Date.now() + ORGANISER_SESSION_SECONDS * 1000),
     })
     .where(eq(organiserRequests.id, requestId));
@@ -188,7 +200,7 @@ export async function rejectOrganiserRequest(requestId: string, tournamentId: st
 
   await db
     .update(organiserRequests)
-    .set({ status: "rejected", sessionToken: null })
+    .set({ status: "rejected", sessionToken: null, sessionTokenHash: null })
     .where(eq(organiserRequests.id, requestId));
 
   broadcastLiveEvent({ table: "organiser_requests", op: "UPDATE", id: requestId, tournamentId, status: "rejected" });
@@ -202,7 +214,7 @@ export async function revokeOrganiserSession(requestId: string, tournamentId: st
 
   await db
     .update(organiserRequests)
-    .set({ status: "revoked", sessionToken: null })
+    .set({ status: "revoked", sessionToken: null, sessionTokenHash: null })
     .where(eq(organiserRequests.id, requestId));
 
   broadcastLiveEvent({ table: "organiser_requests", op: "UPDATE", id: requestId, tournamentId, status: "revoked" });
@@ -260,7 +272,7 @@ export async function logoutOrganiser() {
   if (organiser) {
     await db
       .update(organiserRequests)
-      .set({ status: "expired", sessionToken: null })
+      .set({ status: "expired", sessionToken: null, sessionTokenHash: null })
       .where(eq(organiserRequests.id, organiser.requestId));
   }
   await clearCookies(SESSION_COOKIES.organiser, ...LEGACY_COOKIES);

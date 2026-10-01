@@ -23,6 +23,7 @@ import { commitBoutResult } from "../src/lib/bouts/results";
 import { buildAllCategoryDrawPdfs } from "../src/lib/pdf/drawSheetFiles";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "../src/lib/auth/password";
+import { hashToken } from "../src/lib/auth/tokens";
 
 async function runSeed() {
   console.log("🥋 Starting comprehensive RingFlow database seed...");
@@ -157,12 +158,13 @@ async function runSeed() {
 
   // 8. Create Approved Moderator Session for Ring 1
   const sessionToken = "11111111-2222-3333-4444-555555555555";
-  await db.delete(moderatorRequests).where(eq(moderatorRequests.sessionToken, sessionToken));
+  // Sessions are stored as hashes; a browser with mod_token=<sessionToken> is this moderator.
+  await db.delete(moderatorRequests).where(eq(moderatorRequests.sessionTokenHash, hashToken(sessionToken)));
   await db.insert(moderatorRequests).values({
     ringId: createdRings[0].id,
     accessCodeUsed: createdRings[0].accessCode,
     status: "approved",
-    sessionToken,
+    sessionTokenHash: hashToken(sessionToken),
     moderatorName: "Official Tatami Judge (Test)",
     expiresAt: new Date(Date.now() + 24 * 3600 * 1000),
   });

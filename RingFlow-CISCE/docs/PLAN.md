@@ -63,20 +63,33 @@ Goal: auth is declared once per action instead of being copy-pasted.
   - `scope.ts`: `tournamentIdFor({ ringId | categoryId | matchId | athleteId | assignmentId })`.
   - `permissions.ts`: the matrix from `roles/README.md` as data, so the UI can hide buttons from
     the same source.
-- [ ] **2.2 Admin sessions table.** Add `admin_sessions(id, admin_id, token_hash, created_at,
+- [x] **2.2 Admin sessions table.** Add `admin_sessions(id, admin_id, token_hash, created_at,
   expires_at, last_seen_at, user_agent, ip)`. The cookie holds a random token and the DB stores a
   SHA-256 hash. Logout deletes the row.
-- [ ] **2.3 Hash the staff session tokens** in `*_requests.session_token` (store a hash, compare the hash).
-- [ ] **2.4 Validate action inputs with zod** at the top of every action, through a small
+- [x] **2.3 Hash the staff session tokens** in `*_requests.session_token` (store a hash, compare the hash).
+- [x] **2.4 Validate action inputs with zod** at the top of every action, through a small
   `action(schema, guard, fn)` wrapper.
-- [ ] **2.5 Delete the Supabase leftovers:** `src/utils/supabase/*` (move the middleware to
+- [x] **2.5 Delete the Supabase leftovers:** `src/utils/supabase/*` (move the middleware to
   `src/middleware/`), `src/app/auth/callback`, the `@supabase/*` dependencies, `signInWithGoogleAdmin`,
   and the anon/service keys in `.env.example`.
-- [ ] **2.6 Simplify the middleware.** Keep the cookie-presence redirects as UX only. On tunnel or
+- [x] **2.6 Simplify the middleware.** Keep the cookie-presence redirects as UX only. On tunnel or
   judge hosts, also reject server-action POSTs (`Next-Action` header) on non-judge paths, as defence in depth.
-- [ ] **2.7 Rate-limit code entry** (organiser, stager, moderator, judge PIN). Codes are 6 characters
+- [x] **2.7 Rate-limit code entry** (organiser, stager, moderator, judge PIN). Codes are 6 characters
   and the PIN is 4, so they need per-IP and per-code attempt limits. Use an in-memory store, with a
   DB table when running multi-instance.
+
+---
+
+**Status (2026-10-01): done.** Admin logins live in `admin_sessions` (random token in the cookie,
+sha256 in the DB). Staff sessions are minted when the requesting browser collects them and stored
+only as `session_token_hash`. zod schemas in `src/lib/validation.ts` cover object inputs; scalar ids
+are checked by the guards. Rate limits in `src/lib/rateLimit.ts` (per address, per email, per
+tatami; the shared "direct" LAN bucket gets 10×). Supabase is gone: category PDFs are stored in
+`category_documents` and served staff-only by `/api/category-docs/[categoryId]`. The request gate
+moved to `src/lib/http/requestGate.ts`; Next only executes actions bundled into the posted page,
+and tunnel hosts may only reach `/judge` + `/api/live`, so 2.6 needed no extra code.
+Migration: `supabase/migrations/migration10_sessions_and_documents.sql`. Verified by a 22-check
+suite plus the 72-check Phase 1 suite.
 
 ---
 

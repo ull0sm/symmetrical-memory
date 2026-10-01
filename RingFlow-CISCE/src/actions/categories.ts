@@ -8,9 +8,11 @@ import { requireTournamentAdmin } from "@/lib/auth/guards";
 import { CategoryInput } from "./tournament";
 import { syncTournamentCategoryCounts } from "@/lib/categories/syncCounts";
 import { inferEventType, isEventType } from "@/lib/categories/eventType";
+import { categoryInputSchema, parseInput } from "@/lib/validation";
 
-export async function addCategory(tournamentId: string, input: CategoryInput) {
+export async function addCategory(tournamentId: string, rawInput: CategoryInput) {
   await requireTournamentAdmin(tournamentId);
+  const input = parseInput(categoryInputSchema, rawInput, "category");
 
   const name = (input.name || "").trim().slice(0, 200);
   if (!name) throw new Error("Category name is required");
@@ -40,8 +42,11 @@ export async function addCategory(tournamentId: string, input: CategoryInput) {
   return newCat;
 }
 
-export async function bulkAddCategories(tournamentId: string, inputCategories: any[]) {
+export async function bulkAddCategories(tournamentId: string, inputCategories: Record<string, unknown>[]) {
   await requireTournamentAdmin(tournamentId);
+  if (!Array.isArray(inputCategories) || inputCategories.length > 2000) {
+    throw new Error("Provide at most 2000 categories");
+  }
 
   const toInsert = (Array.isArray(inputCategories) ? inputCategories : []).map(
     (cat) => {
@@ -54,8 +59,8 @@ export async function bulkAddCategories(tournamentId: string, inputCategories: a
         tournamentId,
         name: catName,
         eventType: isEventType(cat.event_type) ? cat.event_type : inferEventType(catName),
-        ageBracket: (cat.age_bracket || "").trim().slice(0, 100) || null,
-        weightClass: (cat.weight_class || "").trim().slice(0, 100) || null,
+        ageBracket: String(cat.age_bracket ?? "").trim().slice(0, 100) || null,
+        weightClass: String(cat.weight_class ?? "").trim().slice(0, 100) || null,
         athletesCount,
         expectedMatches: Math.max(0, athletesCount - 1),
         hasFullRoster: false,

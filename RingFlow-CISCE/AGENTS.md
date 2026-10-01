@@ -12,7 +12,8 @@ work is tracked in [docs/PLAN.md](docs/PLAN.md).
 ## Stack
 Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind v4 · Drizzle ORM ·
 PostgreSQL 16 · SSE (`/api/live`) fed by Postgres `LISTEN/NOTIFY` and an in-memory bus · pdf-lib · xlsx · zod.
-There is no external auth provider. Sessions are cookie-based and verified against Postgres.
+There is no external auth provider (Supabase was removed). Sessions are random tokens in httpOnly
+cookies; Postgres stores only their sha256 (`admin_sessions`, `*_requests.session_token_hash`).
 
 ## Commands
 ```bash
@@ -37,7 +38,8 @@ Local DB: `docker compose up -d db`. Env template: `.env.example`.
 | `src/engine/draw-engine/` | Pure bracket generation/resolution (seeding, byes, repechage, kata flights). Imported as `@event-suite/draw-engine`. |
 | `src/engine/rules-engine/` | WKF rulesets (kumite, kata, team). Imported as `@event-suite/rules-engine`. |
 | `src/lib/` | Helpers: `staffAccess.ts` (who is staff for an event), `realtime/bus.ts`, `pdf/`, `results/`, `kata/scoringEngine.ts`, `matchClock.ts`, `serializers.ts`. |
-| `src/utils/supabase/middleware.ts` | Request middleware (wired in `src/proxy.ts`): cookie presence redirects + tunnel host block. **Not** a security boundary. |
+| `src/lib/auth/` | Sessions and guards: who is calling, what they may touch. Every action uses it. |
+| `src/lib/http/requestGate.ts` | Request gate (wired in `src/proxy.ts`): cookie-presence redirects + tunnel host block. **Not** a security boundary. |
 | `supabase/migrations/` | SQL migrations (hand-written `migrationN_*.sql` + drizzle output). The folder name is legacy. |
 | `docs/roles/` | One file per role: scope, permissions, workflow, key files, known gaps. |
 

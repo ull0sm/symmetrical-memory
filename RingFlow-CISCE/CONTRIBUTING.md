@@ -57,5 +57,6 @@ Read [AGENTS.md](AGENTS.md) (rules and layout), [PRD.md](PRD.md) (product) and
 3. **Realtime:** after a write, call `broadcastLiveEvent` with ids only (never tokens or PINs).
    Screens refetch through `useLiveEvents`.
 4. **Database changes:** edit `src/db/schema/index.ts`, then add an idempotent SQL file in
-   `supabase/migrations/` (`migrationN_description.sql`). If a new table must drive live screens,
+   `supabase/migrations/` (`migrationN_description.sql`). Name unique constraints the way
+   drizzle-kit does (`<table>_<column>_unique`) so `npm run db:push` agrees with the SQL. If a new table must drive live screens,
    add its trigger to the `ringflow_events` NOTIFY function (see `migration8_realtime_notify.sql`).

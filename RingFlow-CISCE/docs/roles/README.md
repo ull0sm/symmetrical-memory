@@ -44,17 +44,19 @@ each role file says so under **Known gaps**, with a link to [PLAN.md](../PLAN.md
 | Results export (CSV/PDF) | O | R (no UI yet) | — | — | — | — |
 | Scoreboard TV | O | R | — | own tatami | — | if `showPublicScoreboard` |
 
-## Sessions (target)
+## Sessions
 | Role | Credential | Lifetime | Revocation |
 |---|---|---|---|
 | Admin | password → random session token (hashed in DB), httpOnly cookie | 7 days | logout / password change |
 | Organiser | event code → admin approval → session token | 48 h | admin revokes |
 | Stager | stager code → admin approval → session token (one per code) | 48 h | admin revokes, or the code is approved again |
 | Moderator | tatami code → admin approval → session token (one per tatami) | 24 h | admin revokes, or a new moderator is approved |
-| Judge | tatami QR/PIN + seat → moderator approval → session token | until the panel is closed, max 12 h | moderator kicks, or the PIN is rotated |
+| Judge | tatami QR/PIN + seat → moderator approval → session token | until the panel is closed, max 12 h | moderator kicks, or the PIN is rotated (Phase 4) |
 
 All session cookies are `httpOnly` and `SameSite=Lax`, and are `Secure` when served over HTTPS.
-Tokens are stored hashed, and request IDs are never accepted as credentials.
+Tokens are stored hashed (sha256), and request IDs are never accepted as credentials. A staff
+session is created only when the browser that made the request (it holds the claim cookie)
+collects it after approval. Admin login, access-code requests and judge PINs are rate-limited.
 
 ## Where the auth code is
 All in `src/lib/auth/` (plain modules, never callable from a browser):

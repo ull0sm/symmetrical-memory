@@ -311,9 +311,20 @@ export default function CategoriesClient({
     if (pdfFiles.length === 0) return;
     setIsPdfUploading(true);
     try {
-      const formData = new FormData();
-      pdfFiles.forEach((f) => formData.append("pdfs", f));
-      const result = await uploadCategoryPDFs(tournamentId, formData);
+      // One file per request keeps every upload under the server's body limit.
+      const result: PDFUploadResult = { matched: [], unmatched: [], errors: [] };
+      for (const file of pdfFiles) {
+        const formData = new FormData();
+        formData.append("pdfs", file);
+        try {
+          const part = await uploadCategoryPDFs(tournamentId, formData);
+          result.matched.push(...part.matched);
+          result.unmatched.push(...part.unmatched);
+          result.errors.push(...part.errors);
+        } catch (err: any) {
+          result.errors.push({ filename: file.name, error: err?.message ?? "Upload failed" });
+        }
+      }
       setPdfResult(result);
       if (result.matched.length > 0) {
         setCategories((prev) =>

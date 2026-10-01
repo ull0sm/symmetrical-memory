@@ -1,7 +1,13 @@
-import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function updateSession(request: NextRequest) {
+/**
+ * First-pass request gate (wired in src/proxy.ts). It only does two things:
+ *  - on public tunnel hosts, refuse everything except the judge pages and the live feed;
+ *  - send browsers without a session cookie to the right login page.
+ * It is not a security boundary: every page and server action checks the
+ * session itself (src/lib/auth).
+ */
+export async function gateRequest(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const host = request.headers.get('host') || ''
   

@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { getTournamentStaff, requireTournamentAdmin } from "@/lib/auth/guards";
 import { isValidUuid } from "@/lib/utils";
 import { inferEventType } from "@/lib/categories/eventType";
+import { athleteInputSchema, masterRosterSchema, parseInput, simpleRosterSchema } from "@/lib/validation";
 import { syncTournamentCategoryCounts } from "@/lib/categories/syncCounts";
 
 export type AthleteInput = {
@@ -22,8 +23,9 @@ export type AthleteInput = {
   weight?: string | number | null;
 };
 
-export async function addAthlete(tournamentId: string, input: AthleteInput) {
+export async function addAthlete(tournamentId: string, rawInput: AthleteInput) {
   await requireTournamentAdmin(tournamentId);
+  const input = parseInput(athleteInputSchema, rawInput, "athlete");
 
   const name = (input.name || "").trim().slice(0, 200);
   if (!name) throw new Error("Athlete name is required");
@@ -177,9 +179,13 @@ export async function updateAthleteCategory(
 export async function bulkAddAthletes(
   tournamentId: string,
   categoryName: string,
-  rawAthletes: { no: string; name: string }[]
+  rawList: { no: string; name: string }[]
 ) {
   await requireTournamentAdmin(tournamentId);
+  // Blank spreadsheet rows are skipped, not an error.
+  const rawAthletes = parseInput(simpleRosterSchema, rawList, "athlete list").filter((a) => a.name);
+  categoryName = String(categoryName ?? "").trim().slice(0, 200);
+  if (!categoryName) throw new Error("Category name is required");
 
   // Find or create category
   const existingCats = await db
@@ -237,9 +243,11 @@ export async function bulkAddAthletes(
 
 export async function bulkAddMasterAthletes(
   tournamentId: string,
-  rawAthletes: any[]
+  rawList: unknown[]
 ) {
   await requireTournamentAdmin(tournamentId);
+  // Blank spreadsheet rows are skipped, not an error.
+  const rawAthletes = parseInput(masterRosterSchema, rawList, "athlete list").filter((a) => a.name);
 
   const existingCats = await db
     .select({
@@ -275,7 +283,7 @@ export async function bulkAddMasterAthletes(
     }
 
     if (!matchedId && a.belt && a.sex) {
-      const athleteAge = parseInt(a.age) || 0;
+      const athleteAge = parseInt(a.age ?? "") || 0;
       const aBelt = a.belt.trim().toLowerCase();
       const aSex = a.sex.trim().toLowerCase();
       const aDay = a.day ? a.day.trim().toLowerCase() : null;
