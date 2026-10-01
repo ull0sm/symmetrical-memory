@@ -571,6 +571,11 @@ export function CategoryDrawDrawer({
                       : "Early losers eliminated; losing semi-finalists face off in a single bronze match.",
                   },
                   {
+                    value: "3",
+                    title: "Local Official (Joint 3rd · 2 Bronzes)",
+                    desc: "Both semi-final losers awarded bronze directly (no extra bouts).",
+                  },
+                  {
                     value: "0",
                     title: "No Bronze Matches",
                     desc: "Final championship match only for 1st (Gold) and 2nd (Silver).",

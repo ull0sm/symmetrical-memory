@@ -70,11 +70,27 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
   // 0 = closed, 1 = typing "delete", 2 = typing "tournament name"
   const [deletePhase, setDeletePhase] = useState(0);
   const [deleteInput, setDeleteInput] = useState("");
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
 
   // Sync initial props
   useEffect(() => {
     setRequests(initialOrganiserRequests);
   }, [initialOrganiserRequests]);
+
+  // Sync form when tournament prop updates
+  useEffect(() => {
+    setForm({
+      name: tournament.name,
+      event_date: tournament.event_date || "",
+      status: tournament.status,
+      venue: tournament.venue || "",
+      city: tournament.city || "",
+      show_public_draws: tournament.show_public_draws === true,
+      show_public_scoreboard: tournament.show_public_scoreboard === true,
+      default_bronze_medals: (tournament.default_bronze_medals ?? 2) as 0 | 1 | 2 | 3,
+      tunnel_url: tournament.tunnel_url || tournament.tunnelUrl || "",
+    });
+  }, [tournament]);
 
   const refreshRequests = useCallback(async () => {
     try {
@@ -173,11 +189,17 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
 
   const handleSave = async () => {
     setIsSaving(true);
+    setSaveSuccessMessage(null);
     try {
-      await updateTournamentSettings(tournament.id, form);
-      alert("Settings saved successfully.");
-    } catch (err) {
-      alert("Failed to save settings.");
+      await updateTournamentSettings(tournament.id, {
+        ...form,
+        default_bronze_medals: Number(form.default_bronze_medals) as 0 | 1 | 2 | 3,
+      });
+      setSaveSuccessMessage("Settings saved successfully.");
+      router.refresh();
+      setTimeout(() => setSaveSuccessMessage(null), 4000);
+    } catch (err: any) {
+      alert(err?.message || "Failed to save settings.");
     } finally {
       setIsSaving(false);
     }
@@ -444,11 +466,17 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
               </div>
             </div>
 
-            <div className="mt-8 flex justify-end">
+            <div className="mt-8 flex items-center justify-end gap-3">
+              {saveSuccessMessage && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold animate-in fade-in">
+                  <span className="material-symbols-outlined text-[16px] text-emerald-600">check_circle</span>
+                  <span>{saveSuccessMessage}</span>
+                </div>
+              )}
               <button 
                 onClick={handleSave}
                 disabled={isSaving}
-                className="px-6 py-2.5 bg-primary text-white font-label-caps text-label-caps rounded hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+                className="px-6 py-2.5 bg-primary text-white font-label-caps text-label-caps rounded hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2 cursor-pointer"
               >
                 {isSaving ? (
                   <>
