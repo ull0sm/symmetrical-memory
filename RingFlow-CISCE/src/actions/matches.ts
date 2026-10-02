@@ -26,9 +26,44 @@ import {
 } from "@/lib/auth/guards";
 import { scopeForMatch, type MatchScope } from "@/lib/auth/scope";
 import type { Principal } from "@/lib/auth/principal";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, type InferSelectModel } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
+import type { RingClock } from "@/lib/matchClock";
+
+type RingRow = InferSelectModel<typeof rings>;
+type TournamentRow = InferSelectModel<typeof tournaments>;
+type CategoryRow = InferSelectModel<typeof categories>;
+type CategoryAssignmentRow = InferSelectModel<typeof categoryAssignments>;
+type MatchRow = InferSelectModel<typeof matches>;
+type MatchSlotRow = InferSelectModel<typeof matchSlots>;
+type AthleteRow = InferSelectModel<typeof athletes>;
+
+type Athlete = { id: string | null; name: string; school: string; chestNumber: string | null; isSolo?: boolean };
+type EnrichedMatch = MatchRow & {
+  isSolo: boolean;
+  aka: Athlete;
+  ao: Athlete;
+  isReady: boolean;
+  isFinished: boolean;
+  kataScores?: unknown[];
+};
+
+type TournamentSelection = Partial<TournamentRow> & { id: string; name: string };
+type PublicRing = Omit<RingRow, "accessCode" | "judgePin" | "judgePairingKey">;
+
+type RingActiveBoutResult = {
+  tournament: TournamentSelection | null;
+  ring: PublicRing;
+  assignment: CategoryAssignmentRow | null;
+  category: CategoryRow;
+  hasDraw: boolean;
+  currentMatch: EnrichedMatch | null;
+  nextBout: EnrichedMatch | null;
+  matches: EnrichedMatch[];
+  clock: RingClock;
+  serverNow: number;
+};
 
 function assembleRingActiveBout({
   ring,
@@ -41,16 +76,16 @@ function assembleRingActiveBout({
   athleteMap,
   targetMatchId,
 }: {
-  ring: any;
-  tournament: any;
-  assignment: any;
-  category: any;
+  ring: PublicRing;
+  tournament: TournamentSelection | null;
+  assignment: CategoryAssignmentRow | null;
+  category: CategoryRow;
   hasDraw: boolean;
-  allMatches: any[];
-  allSlots: any[];
-  athleteMap: Map<string, any>;
+  allMatches: MatchRow[];
+  allSlots: MatchSlotRow[];
+  athleteMap: Map<string, AthleteRow>;
   targetMatchId?: string | null;
-}) {
+}): RingActiveBoutResult {
   if (!hasDraw) {
     return {
       tournament: tournament || null,
@@ -75,7 +110,7 @@ function assembleRingActiveBout({
 
     const isFinished = m.status === "CONFIRMED" || m.status === "COMPLETED" || m.status === "BYE";
     const isSolo = Boolean(
-      (m.bracketType === "POOL" || (category as any)?.type?.toLowerCase()?.includes("kata") || (category as any)?.name?.toLowerCase()?.includes("kata")) &&
+      (m.bracketType === "POOL" || category.eventType?.toLowerCase()?.includes("kata") || category.name?.toLowerCase()?.includes("kata")) &&
       akaAth &&
       !aoAth &&
       (!aoSlot?.athleteId || m.roundName?.includes("Solo") || m.roundName?.includes("Bye"))
@@ -661,7 +696,7 @@ export async function getTournamentActiveBouts(tournamentId: string) {
   const athleteMap = new Map(athleteRows.map((a) => [a.id, a]));
 
   // Assemble bout map in memory (0 ms overhead)
-  const boutMap: Record<string, any> = {};
+  const boutMap: Record<string, RingActiveBoutResult> = {};
   for (const ring of ringRows) {
     const assignment = ringAssignmentMap.get(ring.id);
     if (!assignment) continue;
@@ -687,7 +722,7 @@ export async function getTournamentActiveBouts(tournamentId: string) {
 
   // Populate kataScores for current matches
   const currentMatchIds = Object.values(boutMap)
-    .map((b: any) => b.currentMatch?.id)
+    .map((b) => b.currentMatch?.id)
     .filter(Boolean) as string[];
 
   if (currentMatchIds.length > 0) {
@@ -695,10 +730,10 @@ export async function getTournamentActiveBouts(tournamentId: string) {
       .select()
       .from(kataScores)
       .where(inArray(kataScores.matchId, currentMatchIds));
-    for (const b of Object.values(boutMap) as any[]) {
-      if (b.currentMatch?.id) {
+    for (const b of Object.values(boutMap)) {
+      if (b.currentMatch) {
         b.currentMatch.kataScores = allKataScores
-          .filter((s) => s.matchId === b.currentMatch.id)
+          .filter((s) => s.matchId === b.currentMatch!.id)
           .map(publicKataScore);
       }
     }

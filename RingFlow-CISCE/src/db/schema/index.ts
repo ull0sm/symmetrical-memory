@@ -3,6 +3,7 @@ import { sql, relations } from 'drizzle-orm';
 import {
   type AnyPgColumn,
   boolean,
+  check,
   customType,
   index,
   date,
@@ -16,6 +17,16 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { STATUS_CHECKS, sqlList } from '../../lib/statuses';
+
+/** CHECK constraint for a status column; the allowed values live in lib/statuses.ts. */
+function statusCheck(name: string) {
+  const def = STATUS_CHECKS.find(([n]) => n === name);
+  if (!def) throw new Error(`Unknown status check ${name}`);
+  const [, , column, values, nullable] = def;
+  const expr = `${column} IN ${sqlList(values)}`;
+  return check(name, sql.raw(nullable ? `${column} IS NULL OR ${expr}` : expr));
+}
 
 // =========================================================================
 // 1. Core RingFlow Tables
@@ -72,7 +83,9 @@ export const tournaments = pgTable('tournaments', {
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
-});
+}, () => [
+  statusCheck('tournaments_status_check'),
+]);
 
 export const rings = pgTable(
   'rings',
@@ -106,7 +119,10 @@ export const rings = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [unique().on(table.tournamentId, table.name)]
+  (table) => [
+    unique().on(table.tournamentId, table.name),
+    statusCheck('rings_timer_status_check'),
+  ]
 );
 
 export const categories = pgTable('categories', {
@@ -136,7 +152,10 @@ export const categories = pgTable('categories', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
-});
+}, () => [
+  statusCheck('categories_event_type_check'),
+  statusCheck('categories_kata_scoring_mode_check'),
+]);
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType() {
@@ -211,6 +230,8 @@ export const categoryAssignments = pgTable(
   (table) => [
     unique().on(table.ringId, table.queueOrder),
     unique().on(table.categoryId),
+    statusCheck('category_assignments_status_check'),
+    statusCheck('category_assignments_stager_status_check'),
   ]
 );
 
@@ -233,7 +254,9 @@ export const moderatorRequests = pgTable('moderator_requests', {
     .notNull()
     .defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
-});
+}, () => [
+  statusCheck('moderator_requests_status_check'),
+]);
 
 export const organiserRequests = pgTable('organiser_requests', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -254,7 +277,9 @@ export const organiserRequests = pgTable('organiser_requests', {
     .notNull()
     .defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
-});
+}, () => [
+  statusCheck('organiser_requests_status_check'),
+]);
 
 export const stagerRequests = pgTable('stager_requests', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -275,7 +300,9 @@ export const stagerRequests = pgTable('stager_requests', {
     .notNull()
     .defaultNow(),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
-});
+}, () => [
+  statusCheck('stager_requests_status_check'),
+]);
 
 /**
  * A judge's phone on one tatami seat (PLAN Phase 4, docs/roles/judge.md).
@@ -309,6 +336,7 @@ export const judgeSessions = pgTable(
     uniqueIndex('judge_sessions_one_per_seat')
       .on(table.ringId, table.seat)
       .where(sql`status = 'approved'`),
+    statusCheck('judge_sessions_status_check'),
   ]
 );
 
@@ -429,7 +457,10 @@ export const categoryAttendance = pgTable(
     setBy: text('set_by').notNull(), // "role:name"
     setAt: timestamp('set_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
-  (table) => [unique().on(table.categoryId, table.athleteId)]
+  (table) => [
+    unique().on(table.categoryId, table.athleteId),
+    statusCheck('category_attendance_status_check'),
+  ]
 );
 
 export const categoryEntries = pgTable(
@@ -477,7 +508,9 @@ export const draws = pgTable('draws', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
-});
+}, () => [
+  statusCheck('draws_state_check'),
+]);
 
 export const drawVersions = pgTable(
   'draw_versions',
@@ -528,7 +561,14 @@ export const matches = pgTable(
     akaScoreTotal: numeric('aka_score_total', { precision: 5, scale: 2 }),
     aoScoreTotal: numeric('ao_score_total', { precision: 5, scale: 2 }),
   },
-  (table) => [unique().on(table.categoryId, table.matchNo)]
+  (table) => [
+    unique().on(table.categoryId, table.matchNo),
+    statusCheck('matches_status_check'),
+    statusCheck('matches_bracket_type_check'),
+    statusCheck('matches_winner_side_check'),
+    statusCheck('matches_kata_scoring_mode_check'),
+    statusCheck('matches_kata_voting_check'),
+  ]
 );
 
 export const kataScores = pgTable(
@@ -553,7 +593,11 @@ export const kataScores = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [unique().on(table.matchId, table.judgeSeat, table.targetSide)]
+  (table) => [
+    unique().on(table.matchId, table.judgeSeat, table.targetSide),
+    statusCheck('kata_scores_target_side_check'),
+    statusCheck('kata_scores_score_type_check'),
+  ]
 );
 
 export const matchSlots = pgTable(

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Clock, Lock, LogOut, Maximize2, Minimize2, RefreshCw, ShieldAlert, Smartphone } from "lucide-react";
 import { getJudgeBout, getJudgeStatus, leaveJudgePanel, requestJudgeSeat, submitJudgeVote, type JudgeStatus } from "@/actions/judge";
 import { KataScoreWheelPicker } from "@/components/judge/KataScoreWheelPicker";
+import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { JUDGE_PANEL_SEATS } from "@/lib/constants";
 
@@ -101,18 +102,18 @@ export default function JudgeMobileClient({ ringId, pairingKey }: Props) {
     if (status?.status === "approved") refreshBout();
   }, [status?.status, refreshBout]);
 
-  // Slow fallback when the live feed is down.
-  useEffect(() => {
-    const s = status?.status;
-    if (s !== "pending" && s !== "approved") return;
-    const t = setInterval(() => (s === "pending" ? refreshStatus() : refreshBout()), s === "pending" ? 4000 : 10000);
-    return () => clearInterval(t);
-  }, [status?.status, refreshStatus, refreshBout]);
-
-  useLiveEvents({ ringId }, (event) => {
+  const { connected } = useLiveEvents({ ringId }, (event) => {
     if (event?.table === "judge_sessions") refreshStatus();
     else if (status?.status === "approved") refreshBout();
   });
+
+  // Polling only while the live feed is down (phones on flaky guest Wi-Fi).
+  const s = status?.status;
+  useFallbackPoll(
+    () => (s === "pending" ? refreshStatus() : s === "approved" ? refreshBout() : undefined),
+    connected,
+    s === "pending" ? 4000 : 10000
+  );
 
   // Keep the screen on while judging.
   useEffect(() => {

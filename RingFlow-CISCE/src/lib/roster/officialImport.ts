@@ -11,7 +11,7 @@ import {
   tournamentCategoryDefinitions,
   tournamentRegistrations,
 } from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type InferSelectModel } from "drizzle-orm";
 import { inferEventType, isEventType } from "@/lib/categories/eventType";
 
 export type RawImportAthlete = {
@@ -43,7 +43,7 @@ export type ImportResult = {
   }>;
 };
 
-function normalizeBoolean(val: any): boolean {
+function normalizeBoolean(val: unknown): boolean {
   if (typeof val === "boolean") return val;
   if (typeof val === "number") return val === 1;
   if (typeof val === "string") {
@@ -53,7 +53,7 @@ function normalizeBoolean(val: any): boolean {
   return false;
 }
 
-function normalizeGender(val: any): "M" | "F" | "any" {
+function normalizeGender(val: unknown): "M" | "F" | "any" {
   if (!val) return "any";
   const s = String(val).trim().toLowerCase();
   if (s === "m" || s === "male" || s === "boy") return "M";
@@ -61,7 +61,7 @@ function normalizeGender(val: any): "M" | "F" | "any" {
   return "any";
 }
 
-function normalizeNumber(val: any): number | null {
+function normalizeNumber(val: unknown): number | null {
   if (val == null) return null;
   if (typeof val === "number") return isNaN(val) ? null : val;
   const cleaned = String(val).replace(/[^0-9.]/g, "");
@@ -90,7 +90,7 @@ export async function importOfficialRosterCore(
   );
 
   // Helper to get or create operational category by name
-  async function getCategory(catName: string, def: any) {
+  async function getCategory(catName: string, def: InferSelectModel<typeof tournamentCategoryDefinitions>) {
     const norm = catName.toLowerCase().trim();
     let cat = catByName.get(norm);
     if (!cat) {

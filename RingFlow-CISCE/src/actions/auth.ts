@@ -10,8 +10,9 @@ import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from 
 import { getAdminPrincipal } from "@/lib/auth/principal";
 import { hashToken, newSessionToken } from "@/lib/auth/tokens";
 import { RATE_LIMITS, TOO_MANY_ATTEMPTS, clientAddress, isBlocked, recordFailure } from "@/lib/rateLimit";
+import { SESSION_TTL_SECONDS } from "@/lib/constants";
 
-const ADMIN_SESSION_SECONDS = 7 * 24 * 60 * 60;
+const ADMIN_SESSION_SECONDS = SESSION_TTL_SECONDS.admin;
 
 // A well-formed hash that matches no password. Checking against it means an
 // unknown email costs the same time as a wrong password, so the login form

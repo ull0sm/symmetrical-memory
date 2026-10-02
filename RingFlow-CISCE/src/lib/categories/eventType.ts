@@ -2,9 +2,10 @@
  * Category discipline. Stored in `categories.event_type`; the name is only a
  * fallback for rows created before the column was filled in.
  */
-export type EventType = "kumite" | "kata" | "team_kumite" | "team_kata";
+import { EVENT_TYPES, type EventType } from "@/lib/statuses";
 
-export const EVENT_TYPES: readonly EventType[] = ["kumite", "kata", "team_kumite", "team_kata"];
+export { EVENT_TYPES };
+export type { EventType };
 
 export function isEventType(value: unknown): value is EventType {
   return typeof value === "string" && (EVENT_TYPES as readonly string[]).includes(value);

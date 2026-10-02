@@ -13,7 +13,7 @@ import postgres from "postgres";
  */
 
 const FIRST = 8;
-const dir = path.resolve(process.cwd(), "supabase/migrations");
+const dir = path.resolve(process.cwd(), "db/migrations");
 
 async function main() {
   const url = process.env.DATABASE_URL;

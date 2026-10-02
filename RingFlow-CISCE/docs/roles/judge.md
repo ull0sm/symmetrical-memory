@@ -61,7 +61,7 @@ host block alone doesn't protect them.
 - Auth: `getJudgePrincipal` (`lib/auth/principal.ts`) and `requireJudge` (`lib/auth/guards.ts`). A judge is
   deliberately **not** a staff `Principal`.
 - Tables: `judge_sessions`, `kata_scores` (`judge_session_id`, `judge_name`), `matches.kata_voting`,
-  `rings.judge_pairing_key`. Migration: `supabase/migrations/migration12_judge_sessions.sql`.
+  `rings.judge_pairing_key`. Migration: `db/migrations/migration12_judge_sessions.sql`.
 
 ## Known gaps
 - Seven-judge panels: the server tally handles up to 7 seats, but the desk grid and the phone seat

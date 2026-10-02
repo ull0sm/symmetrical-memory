@@ -19,9 +19,9 @@ export interface LiveScope {
   requestId?: string | null;
 }
 
-export function useLiveEvents(
+export function useLiveEvents<T = unknown>(
   scope: LiveScope,
-  onChange: (event?: any) => void,
+  onChange: (event?: T) => void,
   options?: {
     enabled?: boolean;
     debounceMs?: number;
@@ -53,10 +53,10 @@ export function useLiveEvents(
     const source = new EventSource(`${feed === "staff" ? "/api/live/staff" : "/api/live"}?${params.toString()}`);
 
     const fire = (e?: MessageEvent) => {
-      let eventPayload: any = null;
+      let eventPayload: T | null = null;
       if (e?.data) {
         try {
-          eventPayload = JSON.parse(e.data);
+          eventPayload = JSON.parse(e.data) as T;
         } catch {}
       }
 

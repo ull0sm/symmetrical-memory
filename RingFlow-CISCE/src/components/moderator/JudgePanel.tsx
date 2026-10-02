@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { ChevronDown, ChevronUp, Lock, Power, QrCode, RefreshCw, Smartphone, Unlock, X } from "lucide-react";
 import { approveJudge, endJudgePanel, getJudgePanel, kickJudge, rejectJudge, rotateJudgePairing } from "@/actions/judgePanel";
 import { closeKataVoting, openKataVoting, voidJudgeVote } from "@/actions/kata";
+import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 
 type PanelSession = {
@@ -75,13 +76,12 @@ export function JudgePanel({ ringId, matchId, matchStatus, voting, scores, onCha
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 15000);
-    return () => clearInterval(t);
   }, [load]);
 
-  useLiveEvents({ ringId }, (event) => {
+  const { connected } = useLiveEvents({ ringId }, (event) => {
     if (event?.table === "judge_sessions" || event?.table === "rings") load();
   }, { feed: "staff" });
+  useFallbackPoll(load, connected);
 
   const pairingUrl = useMemo(() => {
     if (!panel) return null;

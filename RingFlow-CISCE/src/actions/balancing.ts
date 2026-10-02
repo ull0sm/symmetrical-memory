@@ -7,10 +7,12 @@ import {
   categories as categoriesTable,
   categoryAssignments as categoryAssignmentsTable,
 } from "@/db/schema";
-import { eq, inArray, and } from "drizzle-orm";
+import { eq, inArray, and, type InferSelectModel } from "drizzle-orm";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
 import { isValidUuid } from "@/lib/utils";
+
+type CategoryAssignmentRow = InferSelectModel<typeof categoryAssignmentsTable>;
 
 export type AssignmentInput = {
   category_id: string;
@@ -75,7 +77,7 @@ export async function saveAssignments(
     }
 
     // 3. Fetch current live assignments to preserve matches_completed and guard running categories
-    let currentAssignments: any[] = [];
+    let currentAssignments: CategoryAssignmentRow[] = [];
     if (ringIds.length > 0) {
       currentAssignments = await db
         .select()
@@ -204,9 +206,10 @@ export async function saveAssignments(
     }
 
     return { success: true };
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Unexpected error while saving assignments";
     console.error("Unexpected error in saveAssignments:", err);
-    return { success: false, error: err?.message || "Unexpected error while saving assignments" };
+    return { success: false, error: errorMessage };
   }
 }
 

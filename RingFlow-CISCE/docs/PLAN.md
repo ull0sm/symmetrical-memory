@@ -88,7 +88,7 @@ tatami; the shared "direct" LAN bucket gets 10×). Supabase is gone: category PD
 `category_documents` and served staff-only by `/api/category-docs/[categoryId]`. The request gate
 moved to `src/lib/http/requestGate.ts`; Next only executes actions bundled into the posted page,
 and tunnel hosts may only reach `/judge` + `/api/live`, so 2.6 needed no extra code.
-Migration: `supabase/migrations/migration10_sessions_and_documents.sql`. Verified by a 22-check
+Migration: `db/migrations/migration10_sessions_and_documents.sql`. Verified by a 22-check
 suite plus the 72-check Phase 1 suite.
 
 ---
@@ -198,9 +198,9 @@ Also fixed: category cards showed "UNDEFINED-UNDEFINED" for categories without a
 ---
 
 ## Phase 7 — Code quality (continuous, after Phase 2)
-- [ ] 7.1 Install vitest, add `npm test`, and make the existing engine tests run. Add tests for the
+- [x] 7.1 Install vitest, add `npm test`, and make the existing engine tests run. Add tests for the
   auth guards and for `confirmBoutResult` progression.
-- [ ] 7.2 `src/lib/constants.ts`: session TTLs, PIN length, code length, poll intervals, default clock
+- [x] 7.2 `src/lib/constants.ts`: session TTLs, PIN length, code length, poll intervals, default clock
   durations. Replace the magic numbers.
 - [ ] 7.3 Design tokens: replace about 2,100 inline hex colours in TSX with the Tailwind theme tokens
   from `globals.css`. Do this file by file, when a file is already being touched.
@@ -208,13 +208,35 @@ Also fixed: category cards showed "UNDEFINED-UNDEFINED" for categories without a
   `ModeratorCurrentClient`, `CategoriesClient`). The admin and stager balancing clients share logic,
   so extract it.
 - [ ] 7.5 Remove `any` (248 uses) and empty `catch {}` (60) in touched files. Log, or return typed errors.
-- [ ] 7.6 Status enums: add Postgres `CHECK` constraints or pg enums for the status columns, with
+- [x] 7.6 Status enums: add Postgres `CHECK` constraints or pg enums for the status columns, with
   matching TS union types.
 - [ ] 7.7 Migrations: consolidate into a single drizzle-kit migration history and rename `supabase/`
   to `db/`.
-- [ ] 7.8 Remove the polling that duplicates SSE where the stream is healthy. Keep only a slow fallback.
+- [x] 7.8 Remove the polling that duplicates SSE where the stream is healthy. Keep only a slow fallback.
 - [ ] 7.9 Remove the stale tsconfig aliases (`@event-suite/protocol|domain|scoring` point to folders
   that don't exist). Delete `silver-meme/` from the repo once you confirm.
+
+**Status (2026-10-02):**
+- **7.1 done.** vitest 5 (`npm test`, `vitest.config.ts`; `@types/node` moved to 22 to match `engines`). The 9 engine
+  test files run (225 tests). New: kata tally, env validation, security headers, status lists, and the auth
+  guards (DB and cookies mocked). 264 tests in total. `confirmBoutResult` progression is covered
+  end to end by the HTTP suites (phases 1 and 3) and by the engine's `resolution.test.ts`. `tests/http/` now has a
+  README; `run-suite.sh` takes `TEST_DATABASE_URL`, refuses port 5432 and fails on any failed check.
+- **7.2 done** for the shared tunables: `src/lib/constants/index.ts` (session TTLs, judge panel size and TTL,
+  fallback poll interval, bout length, kata mark range). UI-local numbers stay where they are used.
+- **7.3, 7.4, 7.5 ongoing**, file by file as planned. Every new component in phases 3–7 uses the CSS
+  tokens and no `any`. The giant components were not split: without UI tests that's a risky refactor,
+  better done as its own change.
+- **7.6 done.** `src/lib/statuses.ts` holds every allowed value and TS union. The schema declares matching
+  CHECKs (`statusCheck()`). `migration14_status_checks.sql` adds them NOT VALID and validates where the data
+  complies. A unit test keeps the three in sync.
+- **7.7 partly.** `supabase/` is now `db/`. The workflow is `db:push` (schema) + `db:migrate` (SQL 8+).
+  Collapsing everything into one drizzle-kit migration history changes how existing databases are
+  upgraded, so that's a decision for the user. Note: `drizzle-kit push` currently asks about re-adding the
+  existing `kata_scores` unique constraint; check before answering.
+- **7.8 done.** `hooks/useFallbackPoll`: staff screens and judge phones poll only while their live stream
+  is down, and refetch once on reconnect.
+- **7.9 partly.** Stale aliases removed. `silver-meme/` is still there, waiting for the user to confirm.
 
 ---
 

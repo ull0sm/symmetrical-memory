@@ -11,6 +11,7 @@ import { toggleRingTimer, setAllRingTimers, resetRingTimer } from "@/actions/rin
 import { getTournamentActiveBouts } from "@/actions/matches";
 import { getAdminDashboardData } from "@/actions/admin";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
 import OverviewSupportFooter from "@/components/support/OverviewSupportFooter";
 import BackNavigationGuard from "@/components/common/BackNavigationGuard";
@@ -52,14 +53,7 @@ export default function AdminDashboardClient({
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    // Periodic safety-net sync every 60s
-    const syncInterval = setInterval(syncData, 60000);
-
-    return () => {
-      clearInterval(syncInterval);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [syncData]);
 
   // Calculate totals
@@ -93,33 +87,17 @@ export default function AdminDashboardClient({
   }, [tournament.id]);
 
   // Every mat reports in the moment a score, a bout or a clock changes or category is assigned.
-  useLiveEvents({ tournamentId: tournament.id }, () => {
+  const refreshFloor = useCallback(() => {
     loadActiveBouts();
     syncData();
-  }, { feed: "staff" });
+  }, [loadActiveBouts, syncData]);
+  const { connected } = useLiveEvents({ tournamentId: tournament.id }, refreshFloor, { feed: "staff" });
+  // The live feed is the fast path; polling only covers a dropped stream.
+  useFallbackPoll(refreshFloor, connected);
 
   useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    const load = async () => {
-      try {
-        const bouts = await getTournamentActiveBouts(tournament.id);
-        if (!cancelled) setActiveBouts(bouts);
-      } catch (err) {
-        console.error("[dashboard] live bout lookup failed:", err);
-      }
-      if (cancelled) return;
-      // The live feed is the fast path; this only has to catch a dropped one.
-      timer = setTimeout(load, document.hidden ? 60000 : 20000);
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [tournament.id]);
+    void loadActiveBouts();
+  }, [loadActiveBouts]);
 
   const [currentTime, setCurrentTime] = useState<number>(() => Date.now());
 

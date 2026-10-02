@@ -4,12 +4,40 @@
  * across all existing UI components without regressions.
  */
 
+import { DEFAULT_BOUT_DURATION_MS } from "@/lib/constants";
+import type { InferSelectModel } from "drizzle-orm";
+import {
+  tournaments,
+  rings,
+  categories,
+  categoryAssignments,
+  moderatorRequests,
+  eventLog,
+  athletes,
+  organiserRequests,
+  stagerRequests,
+  matches,
+  kataScores,
+} from "@/db/schema";
+
+type TournamentRow = InferSelectModel<typeof tournaments>;
+type RingRow = InferSelectModel<typeof rings>;
+type CategoryRow = InferSelectModel<typeof categories>;
+type CategoryAssignmentRow = InferSelectModel<typeof categoryAssignments>;
+type ModeratorRequestRow = InferSelectModel<typeof moderatorRequests>;
+type EventLogRow = InferSelectModel<typeof eventLog>;
+type AthleteRow = InferSelectModel<typeof athletes>;
+type OrganiserRequestRow = InferSelectModel<typeof organiserRequests>;
+type StagerRequestRow = InferSelectModel<typeof stagerRequests>;
+type MatchRow = InferSelectModel<typeof matches>;
+type KataScoreRow = InferSelectModel<typeof kataScores>;
+
 /**
  * Tournament shape for every screen. The organiser code and stager codes are
  * credentials and are left out; the admin settings screen uses
  * `serializeTournamentForAdmin`.
  */
-export function serializeTournament(t: any) {
+export function serializeTournament(t: Record<string, unknown> | null | undefined) {
   if (!t) return null;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { organiserCode, stagerCodes, organiser_code, stager_codes, ...rest } = t;
@@ -34,7 +62,7 @@ export function serializeTournament(t: any) {
 }
 
 /** Admin settings only: includes the organiser and stager access codes. */
-export function serializeTournamentForAdmin(t: any) {
+export function serializeTournamentForAdmin(t: Record<string, unknown> | null | undefined) {
   if (!t) return null;
   return {
     ...serializeTournament(t),
@@ -48,7 +76,7 @@ export function serializeTournamentForAdmin(t: any) {
  * they are never serialized here. Admin screens read them through their own
  * guarded queries.
  */
-export function serializeRing(r: any) {
+export function serializeRing(r: Record<string, unknown> | null | undefined) {
   if (!r) return null;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { accessCode, judgePin, judgePairingKey, access_code, judge_pin, judge_pairing_key, ...rest } = r;
@@ -62,7 +90,7 @@ export function serializeRing(r: any) {
     timer_started_at: r.timerStartedAt ? new Date(r.timerStartedAt).toISOString() : null,
     timer_paused_at: r.timerPausedAt ? new Date(r.timerPausedAt).toISOString() : null,
     timer_accumulated_seconds: r.timerAccumulatedSeconds ?? 0,
-    timer_duration_ms: r.timerDurationMs ?? 180000,
+    timer_duration_ms: r.timerDurationMs ?? DEFAULT_BOUT_DURATION_MS,
     timer_accumulated_ms: r.timerAccumulatedMs ?? 0,
     sides_swapped: r.sidesSwapped ?? false,
     current_match_id: r.currentMatchId ?? null,
@@ -71,7 +99,7 @@ export function serializeRing(r: any) {
   };
 }
 
-export function serializeCategory(c: any) {
+export function serializeCategory(c: Record<string, unknown> | null | undefined) {
   if (!c) return null;
   return {
     ...c,
@@ -110,7 +138,7 @@ export function serializeCategory(c: any) {
   };
 }
 
-export function serializeCategoryAssignment(a: any, category?: any) {
+export function serializeCategoryAssignment(a: Record<string, unknown> | null | undefined, category?: Record<string, unknown> | null) {
   if (!a) return null;
   const serializedCat = category ? serializeCategory(category) : a.categories ? serializeCategory(a.categories) : null;
   return {
@@ -129,7 +157,7 @@ export function serializeCategoryAssignment(a: any, category?: any) {
   };
 }
 
-export function serializeModRequest(mr: any, ring?: any) {
+export function serializeModRequest(mr: Record<string, unknown> | null | undefined, ring?: Record<string, unknown> | null) {
   if (!mr) return null;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { sessionToken, session_token, claimHash, ...rest } = mr;
@@ -147,7 +175,7 @@ export function serializeModRequest(mr: any, ring?: any) {
   };
 }
 
-export function serializeEventLog(el: any) {
+export function serializeEventLog(el: Record<string, unknown> | null | undefined) {
   if (!el) return null;
   return {
     ...el,
@@ -161,7 +189,7 @@ export function serializeEventLog(el: any) {
   };
 }
 
-export function serializeAthlete(a: any, categoryName?: string | null) {
+export function serializeAthlete(a: Record<string, unknown> | null | undefined, categoryName?: string | null) {
   if (!a) return null;
   return {
     ...a,
@@ -183,7 +211,7 @@ export function serializeAthlete(a: any, categoryName?: string | null) {
   };
 }
 
-export function serializeOrganiserRequest(or: any) {
+export function serializeOrganiserRequest(or: Record<string, unknown> | null | undefined) {
   if (!or) return null;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { sessionToken, session_token, claimHash, ...rest } = or;
@@ -201,7 +229,7 @@ export function serializeOrganiserRequest(or: any) {
   };
 }
 
-export function serializeStagerRequest(sr: any) {
+export function serializeStagerRequest(sr: Record<string, unknown> | null | undefined) {
   if (!sr) return null;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { sessionToken, session_token, claimHash, ...rest } = sr;
@@ -219,7 +247,7 @@ export function serializeStagerRequest(sr: any) {
   };
 }
 
-export function serializeMatch(m: any) {
+export function serializeMatch(m: Record<string, unknown> | null | undefined) {
   if (!m) return null;
   return {
     ...m,
@@ -249,7 +277,7 @@ export function serializeMatch(m: any) {
   };
 }
 
-export function serializeKataScore(ks: any) {
+export function serializeKataScore(ks: Record<string, unknown> | null | undefined) {
   if (!ks) return null;
   return {
     ...ks,

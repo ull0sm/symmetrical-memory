@@ -18,7 +18,7 @@ async function run() {
   console.log("🚀 Bootstrapping RingFlow PostgreSQL Schema...");
 
   // 1. Core Drizzle Schema
-  const schemaFile = path.resolve(process.cwd(), "supabase/migrations/0000_pale_the_fallen.sql");
+  const schemaFile = path.resolve(process.cwd(), "db/migrations/0000_pale_the_fallen.sql");
   if (fs.existsSync(schemaFile)) {
     console.log("📦 Applying core schema: 0000_pale_the_fallen.sql");
     const rawSql = fs.readFileSync(schemaFile, "utf-8");
@@ -42,7 +42,7 @@ async function run() {
   // 2. Apply request tables (organiser_requests, stager_requests, clock columns)
   const migration6File = path.resolve(
     process.cwd(),
-    "supabase/migrations/migration6_clock_display_requests.sql"
+    "db/migrations/migration6_clock_display_requests.sql"
   );
   if (fs.existsSync(migration6File)) {
     console.log("📦 Applying migration6: clock, display & request tables...");
@@ -89,7 +89,7 @@ async function run() {
   // 4. Apply Real-Time Notification Triggers (migration 8)
   const migration8File = path.resolve(
     process.cwd(),
-    "supabase/migrations/migration8_realtime_notify.sql"
+    "db/migrations/migration8_realtime_notify.sql"
   );
   if (fs.existsSync(migration8File)) {
     console.log("⚡ Applying Real-Time NOTIFY triggers (migration 8)...");

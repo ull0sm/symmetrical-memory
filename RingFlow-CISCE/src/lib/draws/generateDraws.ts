@@ -19,6 +19,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { syncTournamentCategoryCounts, getActiveAthleteCounts } from "@/lib/categories/syncCounts";
 import { generateKataFlightDraw } from "@/engine/draw-engine/kataFlightDraw";
+import type { KataFlightDrawResult, KataPool, KataGeneratedMatch } from "@/engine/draw-engine/kataFlightDraw";
 import { isKataCategory } from "@/lib/categories/eventType";
 
 /**
@@ -235,9 +236,9 @@ export async function performCategoryDraw(
       });
     }
 
-    let kataFlight: any = null;
-    const allKataMatches: any[] = [];
-    const allKataSlots: any[] = [];
+    let kataFlight: KataFlightDrawResult | null = null;
+    const allKataMatches: typeof matches.$inferInsert[] = [];
+    const allKataSlots: typeof matchSlots.$inferInsert[] = [];
 
     if (isKata && cat.kataFormat === "GROUP_POOLS") {
       kataFlight = generateKataFlightDraw({
@@ -254,10 +255,10 @@ export async function performCategoryDraw(
         scoringMode: (cat.kataScoringMode as 'FLAG' | 'POINTS') || 'POINTS',
         bronzeMedals: (bronzeMedals === 1 ? 1 : bronzeMedals === 0 ? 0 : 2) as 0 | 1 | 2,
       });
-      (graph as any).flightDraw = kataFlight;
+      (graph as DrawGraph & { flightDraw?: KataFlightDrawResult }).flightDraw = kataFlight;
 
-      kataFlight.pools.forEach((pool: any) => {
-        pool.matches.forEach((m: any) => {
+      kataFlight.pools.forEach((pool: KataPool) => {
+        pool.matches.forEach((m: KataGeneratedMatch) => {
           allKataMatches.push({
             id: m.id,
             categoryId,
@@ -294,7 +295,7 @@ export async function performCategoryDraw(
       });
 
       // Add Final flight matches
-      kataFlight.finalFlight.matches.forEach((m: any) => {
+      kataFlight.finalFlight.matches.forEach((m: KataGeneratedMatch) => {
         allKataMatches.push({
           id: m.id,
           categoryId,
@@ -462,9 +463,10 @@ export async function performGenerateAllTournamentDraws(
         skippedCount++;
         if (res.error) errors.push(res.error);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       skippedCount++;
-      errors.push(`Category "${cat.name}": ${err.message}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Category "${cat.name}": ${msg}`);
     }
   }
 
