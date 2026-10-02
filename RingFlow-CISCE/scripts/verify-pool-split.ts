@@ -176,6 +176,14 @@ async function main() {
 
     // A live bout blocks its own pool, and only its pool.
     await setBouts(big.id, "POOL:4", "LIVE", 1);
+    const setCard = (part: string, status: string) =>
+      db.update(categoryAssignments).set({ status }).where(and(eq(categoryAssignments.categoryId, big.id), eq(categoryAssignments.part, part)));
+    // A bout left LIVE on a card that went back to the queue is not running, so it does not block.
+    const staleOk = await performSetRouting(big.id, SPLIT([ringA.id, ringB.id, ringA.id, ringB.id], ringB.id));
+    assert.ok(!("error" in staleOk), "a stale live bout on a queued pool does not block moving it");
+    assert.equal((await card(big.id, "POOL:4")).ringId, ringB.id);
+    await performSetRouting(big.id, SPLIT([ringA.id, ringB.id, ringA.id, ringB.id], ringB.id));
+    await setCard("POOL:4", "running");
     const liveBlocks = await performSetRouting(big.id, SPLIT([ringA.id, ringB.id, ringA.id, ringA.id], ringB.id));
     assert.ok("error" in liveBlocks && /live/i.test(liveBlocks.error) && /Pool 4/.test(liveBlocks.error), "pool 4 cannot move while its bout is live");
     assert.equal((await card(big.id, "POOL:4")).ringId, ringB.id, "and nothing moved");
@@ -183,6 +191,7 @@ async function main() {
     assert.ok(!("error" in otherWhileLive), "other pools still move while one is live");
     assert.ok("error" in (await performSetRouting(big.id, WHOLE(ringA.id))), "and it cannot be merged while a bout is live");
     await setBouts(big.id, "POOL:4", "SCHEDULED", 1);
+    await setCard("POOL:4", "pending");
 
     // A pool on a mat between bouts moves and returns to the queue.
     await db
@@ -228,7 +237,9 @@ async function main() {
 
     // A live bout in a whole category blocks splitting it.
     await setBouts(big.id, null, "LIVE", 1);
+    await db.update(categoryAssignments).set({ status: "running" }).where(eq(categoryAssignments.categoryId, big.id));
     assert.ok("error" in (await performSetRouting(big.id, SPLIT([ringA.id, ringA.id, ringB.id, ringB.id], ringA.id))), "a live bout blocks the split");
+    await db.update(categoryAssignments).set({ status: "pending" }).where(eq(categoryAssignments.categoryId, big.id));
     await db.update(matches).set({ status: "SCHEDULED" }).where(eq(matches.categoryId, big.id));
 
     // ---- a redraw keeps the routing when the pool count is unchanged --------------------------

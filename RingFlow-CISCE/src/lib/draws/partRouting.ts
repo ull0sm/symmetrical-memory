@@ -47,7 +47,10 @@ export async function readRoutingState(executor: DbExecutor, categoryId: string)
 
   const routed: RoutedCard[] = cards.map((card) => {
     const mine = rows.filter((row) => (row.part ?? "ALL") === card.part);
-    const live = mine.filter((row) => row.status === "LIVE");
+    // A bout is only running right now if its card is on a mat. A card returned to the queue can leave a bout
+    // marked LIVE behind; that bout is not in progress and must not stop the card from moving.
+    const onMat = card.status === "running" || card.status === "paused";
+    const live = onMat ? mine.filter((row) => row.status === "LIVE") : [];
     return {
       id: card.id,
       queueOrder: card.queueOrder,
