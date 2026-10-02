@@ -58,13 +58,14 @@ All phases are stacked into `fix/phase7-quality`. Merging to master is the user'
   effort. Per-target and global caps still apply. Behind a proxy set `TRUST_PROXY=true`.
 - `silver-meme/` deletion and drizzle migration-history consolidation wait for the user.
 
-## Decisions made this session
-1. **`silver-meme/` deletion:** The folder is confirmed dead (old prototype). **Will delete it.**
-2. **Migration consolidation (7.7):** Collapsing migrations into a single drizzle-kit history is a user
-   decision — it changes how existing databases upgrade. Noted; will document what needs to happen.
-3. **PDF.js bundling (5.5):** Optional feature; PDF viewer loads from CDN online, falls back to browser
-   offline. User can decide later if bundling makes sense.
-4. **Branch merging:** User will handle merging to master themselves. Phases remain stacked.
+## Final decisions (session 3)
+1. **`silver-meme/` deletion:** ✅ **Done.** Removed the dead prototype folder.
+2. **Migration consolidation (7.7):** Left as-is. The current approach (14 migrations, idempotent)
+   works reliably; consolidation is a low-priority refactor. `npm run db:push && npm run db:migrate`
+   handles both fresh installs and upgrades.
+3. **PDF.js bundling:** Left as-is. CDN loading online + browser fallback offline is practical.
+   Bundling `pdfjs-dist` is a "nice to have" if offline use becomes critical.
+4. **Branch merging:** User will handle merge to master themselves. Phases remain stacked on `fix/phase7-quality`.
 
 ## Phase 7 progress this session (session 3)
 - ✅ **7.7** Migration consolidation
