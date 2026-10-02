@@ -122,3 +122,21 @@ export function poolsStillRunning(
     .map((card) => Number(card.part.split(":")[1]))
     .sort((a, b) => a - b);
 }
+
+/**
+ * What a card's draw button opens. A whole category and a category's Pool 1 card (the card that manages the
+ * category) open the full draw, with tabs for all pools together and each pool; any other pool or the finals
+ * opens just its own part.
+ */
+export function bracketTarget(card: { id: string; name: string; category_id?: string; part?: string }): {
+  id: string;
+  name: string;
+  part: string | null;
+} {
+  const manages = !card.part || card.part === "ALL" || card.part === "POOL:1";
+  return {
+    id: card.category_id ?? card.id,
+    name: manages ? card.name.replace(/ · Pool 1$/, "") : card.name,
+    part: manages ? null : (card.part as string),
+  };
+}

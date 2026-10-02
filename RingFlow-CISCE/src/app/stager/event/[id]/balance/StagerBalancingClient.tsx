@@ -16,7 +16,7 @@ import LogoutConfirmModal from "@/components/ui/LogoutConfirmModal";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { SplitCardBadge } from "@/components/draw/SplitCardBadge";
-import { cardKey, layoutSignature, projectBoard } from "@/lib/draws/boardCards";
+import { bracketTarget, cardKey, layoutSignature, projectBoard } from "@/lib/draws/boardCards";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -388,7 +388,7 @@ export default function StagerBalancingClient({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setBracketCategory({ id: cat.category_id ?? cat.id, name: cat.name, part: cat.part && cat.part !== "ALL" ? cat.part : null });
+                    setBracketCategory(bracketTarget(cat));
                   }}
                   title="View live draw"
                   aria-label={`View live draw for ${cat.name}`}
@@ -528,7 +528,7 @@ export default function StagerBalancingClient({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setBracketCategory({ id: cat.category_id ?? cat.id, name: cat.name, part: cat.part && cat.part !== "ALL" ? cat.part : null });
+                setBracketCategory(bracketTarget(cat));
               }}
               title="View live draw"
               aria-label={`View live draw for ${cat.name}`}
@@ -873,7 +873,7 @@ export default function StagerBalancingClient({
                         <div className="flex gap-2">
                           <button
                             type="button"
-                            onClick={() => setBracketCategory({ id: cat.category_id ?? cat.id, name: cat.name, part: cat.part && cat.part !== "ALL" ? cat.part : null })}
+                            onClick={() => setBracketCategory(bracketTarget(cat))}
                             className="flex min-h-[36px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#0E9C7C] bg-[#E3F6F0] px-2 text-[11px] font-bold text-[#0B7C63] transition-colors hover:bg-[#d3f0e7] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C]"
                           >
                             <span className="material-symbols-outlined text-[15px]">account_tree</span>

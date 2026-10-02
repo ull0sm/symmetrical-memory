@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardKey, layoutSignature, poolsStillRunning, projectBoard } from "./boardCards";
+import { bracketTarget, cardKey, layoutSignature, poolsStillRunning, projectBoard } from "./boardCards";
 
 const category = (id: string, name = id) => ({ id, name, athletes_count: 64, expected_matches: 63 });
 
@@ -74,5 +74,14 @@ describe("poolsStillRunning", () => {
     expect(poolsStillRunning(cards, "c1", (id) => statuses[id])).toEqual([2]);
     statuses["c1::POOL:2"] = "completed";
     expect(poolsStillRunning(cards, "c1", (id) => statuses[id])).toEqual([]);
+  });
+});
+
+describe("bracketTarget", () => {
+  it("opens the full draw from a whole category and from Pool 1, and only its own part from the others", () => {
+    expect(bracketTarget({ id: "c1", name: "Kumite" })).toEqual({ id: "c1", name: "Kumite", part: null });
+    expect(bracketTarget({ id: "c1::POOL:1", category_id: "c1", part: "POOL:1", name: "Kumite · Pool 1" })).toEqual({ id: "c1", name: "Kumite", part: null });
+    expect(bracketTarget({ id: "c1::POOL:3", category_id: "c1", part: "POOL:3", name: "Kumite · Pool 3" })).toEqual({ id: "c1", name: "Kumite · Pool 3", part: "POOL:3" });
+    expect(bracketTarget({ id: "c1::FINALS", category_id: "c1", part: "FINALS", name: "Kumite · Finals" }).part).toBe("FINALS");
   });
 });

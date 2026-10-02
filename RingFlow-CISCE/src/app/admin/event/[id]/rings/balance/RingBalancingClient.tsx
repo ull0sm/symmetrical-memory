@@ -6,7 +6,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea
 import { saveAssignments, getBalancingAssignments } from "@/actions/balancing";
 import { setCategoryRouting } from "@/actions/categoryRouting";
 import { SplitCardBadge } from "@/components/draw/SplitCardBadge";
-import { cardKey, layoutSignature, projectBoard } from "@/lib/draws/boardCards";
+import { bracketTarget, cardKey, layoutSignature, projectBoard } from "@/lib/draws/boardCards";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
@@ -113,7 +113,7 @@ export default function RingBalancingClient({
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        setBracketCategory({ id: cat.category_id ?? cat.id, name: cat.name, part: cat.part && cat.part !== "ALL" ? cat.part : null });
+        setBracketCategory(bracketTarget(cat));
       }}
       title="View live draw"
       aria-label={`View live draw for ${cat.name}`}
