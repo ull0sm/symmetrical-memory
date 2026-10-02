@@ -83,7 +83,8 @@ export default function OrganiserSidebar({ initialCounts }: { initialCounts?: Si
     { tournamentId: id },
     React.useCallback(() => {
       void checkSession();
-    }, [checkSession])
+    }, [checkSession]),
+    { feed: "staff" }
   );
 
   // Active session watcher: periodically verifies organiser token validity

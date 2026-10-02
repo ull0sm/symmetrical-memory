@@ -38,7 +38,7 @@ export class Jar {
 }
 
 /** Call a server action. Returns { status, ok, value, error, raw }. */
-export async function call(actions, name, args, jar = new Jar(), via) {
+export async function call(actions, name, args, jar = new Jar(), via, extraHeaders = {}) {
   const a = actions[name];
   if (!a) return { status: 0, ok: false, error: `ACTION_NOT_COMPILED:${name}` };
   // Post to the action's own page (cookies set by the action only stick there).
@@ -54,6 +54,7 @@ export async function call(actions, name, args, jar = new Jar(), via) {
       Origin: BASE,
       Host: new URL(BASE).host,
       Cookie: jar.header(),
+      ...extraHeaders,
     },
     body: JSON.stringify(args),
   });

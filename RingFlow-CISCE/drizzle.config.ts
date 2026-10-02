@@ -21,11 +21,17 @@ function loadEnv(file: string) {
 loadEnv('.env.local');
 loadEnv('.env');
 
+function requireDatabaseUrl(): string {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL is not set (.env.local, .env, or the command line).');
+  return url;
+}
+
 export default defineConfig({
   schema: './src/db/schema/index.ts',
   out: './supabase/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgres://event_suite:event_suite@127.0.0.1:5432/ringflow',
+    url: requireDatabaseUrl(),
   },
 });

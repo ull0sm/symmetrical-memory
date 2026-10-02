@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { isOfflineMode } from "@/lib/offline";
 
 interface PdfViewerModalProps {
   url: string | null;
@@ -14,9 +15,12 @@ declare global {
   }
 }
 
-// Dynamically load Mozilla PDF.js from cdnjs without bloating project bundle
+// Dynamically load Mozilla PDF.js from cdnjs without bloating project bundle.
+// On an offline venue LAN there is no CDN: fail fast so the viewer falls back
+// to the browser's own PDF viewer (the iframe below) instead of hanging.
 function loadPdfJs(): Promise<any> {
   if (typeof window === "undefined") return Promise.reject("Window is undefined");
+  if (isOfflineMode()) return Promise.reject(new Error("Offline: using the browser's PDF viewer"));
   if (window.pdfjsLib) {
     return Promise.resolve(window.pdfjsLib);
   }

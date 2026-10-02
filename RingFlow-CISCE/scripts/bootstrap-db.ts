@@ -1,25 +1,16 @@
+import "./loadEnv";
 import postgres from "postgres";
 import fs from "fs";
 import path from "path";
 
-// Load .env.local
-const envPath = path.resolve(process.cwd(), ".env.local");
-if (fs.existsSync(envPath)) {
-  for (const line of fs.readFileSync(envPath, "utf-8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
-    if (!process.env[key]) process.env[key] = val;
-  }
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error("DATABASE_URL is not set (.env.local, .env, or the command line).");
+  process.exit(1);
 }
 
-const connectionString =
-  process.env.DATABASE_URL || "postgres://event_suite:event_suite@172.24.3.24:5432/ringflow";
-
-console.log("Connecting to PostgreSQL at:", connectionString);
+// Never print the password.
+console.log("Connecting to PostgreSQL at:", connectionString.replace(/\/\/([^:@/]+):[^@/]*@/, "//$1:***@"));
 
 const sql = postgres(connectionString, { max: 1 });
 

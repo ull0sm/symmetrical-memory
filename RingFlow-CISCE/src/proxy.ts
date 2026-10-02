@@ -1,8 +1,9 @@
 import { type NextRequest } from 'next/server'
 import { gateRequest } from '@/lib/http/requestGate'
+import { withSecurityHeaders } from '@/lib/http/securityHeaders'
 
 export async function proxy(request: NextRequest) {
-  return await gateRequest(request)
+  return withSecurityHeaders(await gateRequest(request), request)
 }
 
 export const config = {

@@ -54,6 +54,7 @@ Apply the Drizzle database schema and seed a full tournament:
 
 ```bash
 npm run db:push
+npm run db:migrate
 npm run db:seed
 ```
 
@@ -157,7 +158,7 @@ This is the core experience. Open two side-by-side browser windows:
 
 RingFlow uses a zero-delay **Server-Sent Events (SSE)** architecture:
 
-* **Endpoint**: `/api/live` connects the browser to an in-memory event bus and PostgreSQL `LISTEN/NOTIFY`.
+* **Endpoints**: `/api/live` (public: scoreboards, spectators, judge phones) and `/api/live/staff` (needs a staff session) connect the browser to an in-memory event bus and PostgreSQL `LISTEN/NOTIFY`.
 * **Zero Polling Overhead**: Changes made by table officials trigger immediate broadcast events to all active scoreboard, admin, and spectator clients.
 * **Resilient Fallback**: If a connection drops temporarily, the client automatically falls back to periodic validation before silently reconnecting.
 
@@ -172,9 +173,9 @@ RingFlow uses a zero-delay **Server-Sent Events (SSE)** architecture:
 | `npm run start` | Run the compiled production application |
 | `npm run lint` | Run ESLint 9 validation |
 | `npm run db:push` | Synchronize the Drizzle schema directly to PostgreSQL |
+| `npm run db:migrate` | Apply the SQL migrations (triggers, audit log, judge sessions); safe to re-run |
 | `npm run db:seed` | Seed realistic demo tournament, rings, categories, and draws |
 | `npm run db:reset` | Cleanly wipe and re-seed the demo database |
-| `npm run test:e2e` | Run end-to-end automated verification script |
 
 ---
 

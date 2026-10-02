@@ -61,7 +61,7 @@ const j1 = new Jar();
 check("wrong PIN refused", denied(await call(A, "requestJudgeSeat", [{ ringId: R2, pin: pin === "1111" ? "2222" : "1111", name: "Wrong", seat: 1 }], j1, JPAGE)));
 check("wrong QR key refused", denied(await call(A, "requestJudgeSeat", [{ ringId: R2, key: "x".repeat(32), name: "Wrong", seat: 1 }], j1, JPAGE)));
 const r1 = await call(A, "requestJudgeSeat", [{ ringId: R2, key: pairingKey, name: "Judge One", seat: 1 }], j1, JPAGE);
-check("QR key pairing creates a pending request", r1.value?.status === "pending");
+check("QR key pairing creates a pending request", r1.value?.status === "pending", JSON.stringify(r1.value ?? r1.raw?.slice(0, 300)));
 check("claim cookie is httpOnly", j1.flags?.judge_claim?.includes("httponly"));
 check("pending judge cannot see the bout", denied(await call(A, "getJudgeBout", [R2], j1, JPAGE)));
 check("pending judge cannot vote", denied(await call(A, "submitJudgeVote", [{ matchId: BOUT, flag: "AKA" }], j1, JPAGE)));

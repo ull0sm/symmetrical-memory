@@ -194,7 +194,10 @@ export async function requestModeratorAccess(
     ip,
   };
 
-  const codeLimits = [{ key: `access-code:moderator:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }];
+  const codeLimits = [
+    { key: `access-code:moderator:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress },
+    { key: `access-code:moderator:all`, ...RATE_LIMITS.accessCodeGlobal },
+  ];
   if (isBlocked(codeLimits)) {
     return { success: false, error: TOO_MANY_ATTEMPTS };
   }

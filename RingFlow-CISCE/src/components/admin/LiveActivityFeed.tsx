@@ -45,7 +45,7 @@ export default function LiveActivityFeed({
     } else {
       refreshLogs();
     }
-  });
+  }, { feed: "staff" });
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-2xs transition-all duration-200 overflow-hidden">

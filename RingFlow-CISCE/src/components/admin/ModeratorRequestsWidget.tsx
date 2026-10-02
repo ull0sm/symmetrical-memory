@@ -46,7 +46,7 @@ export default function ModeratorRequestsWidget({
     }
   }, [tournamentId]);
 
-  useLiveEvents({ tournamentId }, refreshRequests);
+  useLiveEvents({ tournamentId }, refreshRequests, { feed: "staff" });
 
   const handleApprove = async (id: string, ringId: string) => {
     setLoadingId(id);

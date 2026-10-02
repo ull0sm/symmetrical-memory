@@ -2,6 +2,8 @@
 
 This guide details how to run RingFlow in a **100% offline, air-gapped tournament environment** on a local homelab server (Proxmox / Ubuntu VM) connected directly to a TP-Link wireless router, with zero reliance on public internet.
 
+> Hosted and hybrid (LAN + judge tunnel) setups, and every environment variable: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ---
 
 ## 1. Network Topology (Venue LAN)
@@ -53,13 +55,13 @@ Edit `.env.local` to enable offline air-gapped mode:
 # PostgreSQL connection (local to VM)
 DATABASE_URL="postgres://event_suite:event_suite@127.0.0.1:5432/ringflow"
 
-# Offline mode: Bypasses Cloudflare Turnstile CAPTCHA checks on LAN
+# Offline mode: no external calls (Turnstile, CDN PDF viewer)
 OFFLINE_MODE="true"
 TURNSTILE_SECRET_KEY="disabled"
-NEXT_PUBLIC_TURNSTILE_SITE_KEY=""
+NEXT_PUBLIC_TURNSTILE_SITE_KEY="disabled"
 
-# Application Host URL (your server VM's LAN IP)
-NEXT_PUBLIC_APP_URL="http://192.168.0.100:3000"
+# Optional: the address judge phones use (only if it differs from the desk's)
+APP_URL="http://192.168.0.100:3000"
 ```
 
 > [!TIP]
@@ -72,8 +74,9 @@ NEXT_PUBLIC_APP_URL="http://192.168.0.100:3000"
 Initialize the database schema and optionally seed demo data:
 
 ```bash
-# Apply schema to local PostgreSQL
+# Apply schema to local PostgreSQL, then the SQL migrations (triggers, audit log, judge sessions)
 npm run db:push
+npm run db:migrate
 
 # (Optional) Seed realistic championship structure
 npm run db:seed

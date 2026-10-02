@@ -15,7 +15,7 @@ export default function ModeratorQueueClient({ ringId, initialAssignments }: { r
   }, [initialAssignments]);
 
   // A change on this mat re-reads the queue — no waiting on a poll.
-  useLiveEvents({ ringId }, () => router.refresh());
+  useLiveEvents({ ringId }, () => router.refresh(), { feed: "staff" });
 
   const activeAssignment = assignments.find(a => a.status === 'running' || a.status === 'paused');
   const pendingAssignments = assignments.filter(a => a.status === 'pending').sort((a, b) => a.queue_order - b.queue_order);

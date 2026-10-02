@@ -13,7 +13,8 @@ export async function gateRequest(request: NextRequest) {
   
   // ─── Public Tunnel Ingress Isolation (Cloudflare Tunnel / ngrok) ─────────
   // If the request originates from an external tunnel domain, strictly permit
-  // ONLY /judge/*, /api/judge/*, /api/live, and static assets.
+  // ONLY /judge/*, /api/judge/*, the public /api/live feed, and static assets.
+  // The staff feed (/api/live/staff) stays on the venue LAN.
   // Administrative routes (/admin, /moderator, /organiser, /stager) are physically blocked.
   const isTunnel =
     host.startsWith('judge.') ||
@@ -25,7 +26,7 @@ export async function gateRequest(request: NextRequest) {
     const isPublicAllowed =
       pathname.startsWith('/judge') ||
       pathname.startsWith('/api/judge') ||
-      pathname.startsWith('/api/live') ||
+      pathname === '/api/live' ||
       pathname.startsWith('/_next') ||
       pathname === '/favicon.ico' ||
       pathname === '/icon.png' ||

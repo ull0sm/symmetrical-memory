@@ -96,7 +96,7 @@ export default function AdminDashboardClient({
   useLiveEvents({ tournamentId: tournament.id }, () => {
     loadActiveBouts();
     syncData();
-  });
+  }, { feed: "staff" });
 
   useEffect(() => {
     let cancelled = false;

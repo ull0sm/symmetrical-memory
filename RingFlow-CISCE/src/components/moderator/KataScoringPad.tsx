@@ -24,8 +24,6 @@ interface KataScoringPadProps {
   activeMatch: any;
   category: any;
   scores: any[];
-  /** Public base URL for the judge QR link (tunnel / hosted). */
-  tunnelUrl?: string | null;
   onRefresh: () => void;
   onViewDrawTable?: () => void;
 }
@@ -35,7 +33,6 @@ export function KataScoringPad({
   activeMatch,
   category,
   scores,
-  tunnelUrl,
   onRefresh,
   onViewDrawTable,
 }: KataScoringPadProps) {
@@ -165,7 +162,7 @@ export function KataScoringPad({
       loadMatchScores();
       onRefresh();
     }
-  });
+  }, { feed: "staff" });
 
   const isPointsMode =
     category?.kata_scoring_mode === "POINTS" ||
@@ -550,7 +547,6 @@ export function KataScoringPad({
         matchStatus={activeMatch.status}
         voting={voting}
         scores={liveScores}
-        baseUrl={tunnelUrl}
         onChanged={() => {
           loadMatchScores();
           onRefresh();

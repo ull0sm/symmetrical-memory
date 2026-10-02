@@ -1,9 +1,9 @@
 import { liveStreamResponse } from "@/lib/realtime/liveStream";
 
-/** Public change feed: spectators, TV screens, judge phones, waiting rooms. See lib/realtime/liveStream.ts. */
+/** Staff change feed (401 without a staff session for the scope). See lib/realtime/liveStream.ts. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export function GET(request: Request) {
-  return liveStreamResponse(request, "public");
+  return liveStreamResponse(request, "staff");
 }
