@@ -24,7 +24,7 @@ Audit and fix every RBAC role, the half-built features and the hardcoding, follo
 | `fix/phase4-judges` | Phase 4: judge rebuild | ✅ done (4.5 partly) |
 | `fix/phase5-online` | Phase 5: online deployment | ✅ done |
 | `fix/phase6-attendance` | Phase 6: stager attendance | ✅ done |
-| `fix/phase7-quality` | Phase 7: code quality | 7.1✅ 7.2✅ 7.6✅ 7.7✅ 7.8✅ · 7.3-7.5⏳ 7.9⏳ |
+| `fix/phase7-quality` | Phase 7: code quality | 7.1✅ 7.2✅ 7.5✅ 7.6✅ 7.7✅ 7.8✅ · 7.3⏳ 7.4⏳ 7.9✅ |
 
 All phases are stacked into `fix/phase7-quality`. Merging to master is the user's call.
 
@@ -72,17 +72,21 @@ All phases are stacked into `fix/phase7-quality`. Merging to master is the user'
   - Kept 0000 (schema source of truth) and migrations 8+ (supplemental triggers/backfills)
   - Added `db/migrations/README.md` with clear deployment workflow
   - Fresh installs: `db:push` + `db:migrate`; upgrades: same commands (idempotent)
-- ✅ **7.5** (from session 2) Fixed types in critical paths: matches.ts, balancing.ts, categories.ts
-  - Replaced 8 `any` with proper database row types
-  - Reduced `any` count from 286 → 259 (mostly comments and drag-drop libraries remain)
+- ✅ **7.5** Type safety improvements
+  - Session 2: Fixed types in actions (matches.ts, balancing.ts, categories.ts) — replaced 8 `any` with proper database row types
+  - Session 3: Improved critical utility paths
+    - utils.ts, officialImport.ts: Proper input types for normalization helpers
+    - generateDraws.ts: Typed kata flight generation (KataFlightDrawResult, KataPool, KataGeneratedMatch)
+    - drawPdfGenerator.ts, useLiveEvents.ts, poolAdvancement.ts: Proper error handlers and type parameters
+    - serializers.ts: All 12 functions now accept Record<string, unknown> instead of any
+  - Remaining ~110 `any` instances mostly in component files (drag-drop constraints, pending UI tests)
 
-## Remaining work in Phase 7
+## Remaining work
 - **7.3** Design tokens: replace ~1,354 inline hex colours with Tailwind CSS tokens (file by file, when touched).
 - **7.4** Component split: `RingBalancingClient` (2.1k), `BoutScoringPad` (1.3k), etc. Without UI tests,
   risky to split; better as a follow-up change.
-- **7.5** More type fixes: component files and remaining `any` in less critical paths. Most remaining are in
-  comments or library-imposed constraints (drag-drop library).
-- **7.7** ✅ Migration consolidation: archived legacy migrations 2-7 to `legacy/`, kept 0000 (schema) and 8+ (supplemental), added `db/migrations/README.md` with deployment workflow.
+- **7.5** Component-level type improvements: ~110 remaining `any` instances mostly in client components with
+  drag-drop library constraints. Better done after shipping current work or with dedicated UI testing.
 - **4.5** Judge panel: 5-seat UI limitation; untested on real phone over LAN/tunnel.
 
 ## Do NOT
