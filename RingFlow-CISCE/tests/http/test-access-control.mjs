@@ -213,11 +213,23 @@ for (const [name, args] of [
   ["setCategoryDrawProfile", [drawCat, "OFFICIAL"]],
   ["setCategoryDrawOption", [drawCat, 1]],
   ["getCategoryDrawSetup", [drawCat]],
+  ["splitCategoryPools", [drawCat, { poolRingIds: [randomUUID(), randomUUID()], finalsRingId: randomUUID() }]],
+  ["unsplitCategoryPools", [drawCat]],
 ]) {
   check(`${name} is compiled into a page`, Boolean(A[name]));
   check(`anonymous cannot ${name}`, denied(await call(A, name, args, new Jar(), "/")));
   check(`stager cannot ${name}`, denied(await call(A, name, args, st, ST_PAGE)));
 }
+for (const [name, args] of [
+  ["splitCategoryPools", [drawCat, { poolRingIds: [randomUUID(), randomUUID()], finalsRingId: randomUUID() }]],
+  ["unsplitCategoryPools", [drawCat]],
+  ["getCategorySplitInfo", [drawCat]],
+]) {
+  check(`another event's admin cannot ${name}`, denied(await call(A, name, args, adminB, "/")));
+}
+check("anonymous cannot read a category's split", denied(await call(A, "getCategorySplitInfo", [drawCat], new Jar(), "/")));
+const [stillSplitFree] = await sql`select count(*)::int as n from category_assignments where category_id=${drawCat} and part <> 'ALL'`;
+check("the attacks above did not split the category", stillSplitFree.n === 0);
 const [stillDrawn] = await sql`select count(*)::int as n from matches where category_id=${drawCat}`;
 check("the attacks above did not touch the category's bouts", stillDrawn.n > 0);
 
