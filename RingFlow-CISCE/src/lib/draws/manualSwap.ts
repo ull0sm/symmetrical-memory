@@ -79,7 +79,8 @@ export async function performDrawSwap(categoryId: string, slotIdA: string, slotI
     await tx.update(matchSlots).set({ athleteId: second }).where(eq(matchSlots.id, slotIdA));
     await tx.update(matchSlots).set({ athleteId: first }).where(eq(matchSlots.id, slotIdB));
 
-    const version = draw.version + 1;
+    // Never reuse a stored version number, even if the draw row has fallen behind its history.
+    const version = Math.max(draw.version, latest.version) + 1;
     await tx.insert(drawVersions).values({
       drawId: draw.id,
       version,

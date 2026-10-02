@@ -372,6 +372,8 @@ export async function setCategorySeeds(
     after: Object.fromEntries(wanted),
   });
 
+  broadcastLiveEvent({ table: "draws", op: "UPDATE", id: categoryId, tournamentId: cat.tournamentId });
+
   return { success: true, seeded: wanted.size };
 }
 
@@ -587,7 +589,7 @@ export async function flushCategoryDraw(
       .from(matches)
       .where(eq(matches.categoryId, categoryId));
     const matchIds = catMatches.map((m) => m.id);
-    const fought = catMatches.filter((m) => m.status === "CONFIRMED" || m.status === "LIVE").length;
+    const fought = catMatches.filter((m) => m.status === "CONFIRMED" || m.status === "COMPLETED" || m.status === "LIVE").length;
 
     const [draw] = await tx
       .select({ id: draws.id, version: draws.version, checksum: draws.checksum, state: draws.state })
@@ -634,6 +636,8 @@ export async function flushCategoryDraw(
     before: { categoryName: cat.name, ...before },
     reason: reason || null,
   });
+
+  broadcastLiveEvent({ table: "draws", op: "DELETE", id: categoryId, tournamentId: cat.tournamentId });
 
   return { success: true };
 }

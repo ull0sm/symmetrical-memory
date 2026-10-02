@@ -32,7 +32,7 @@ export async function readBoutStats(executor: DbExecutor, categoryIds: readonly 
   const rows = await executor
     .select({
       categoryId: matches.categoryId,
-      confirmed: sql<number>`count(*) filter (where ${matches.status} = 'CONFIRMED')`,
+      confirmed: sql<number>`count(*) filter (where ${matches.status} in ('CONFIRMED', 'COMPLETED'))`,
       live: sql<number>`count(*) filter (where ${matches.status} = 'LIVE')`,
       total: sql<number>`count(*)`,
     })
@@ -226,15 +226,6 @@ export async function performCategoryDraw(
     .filter((p) => p.seed !== null)
     .map((p) => ({ registrationId: p.athleteId, seed: p.seed as number }));
 
-  // Synchronize category table with verified participant count
-  await db
-    .update(categories)
-    .set({
-      athletesCount: participantList.length,
-      expectedMatches: Math.max(0, participantList.length - 1),
-    })
-    .where(eq(categories.id, categoryId));
-
   // 4. Select ruleset
   const isKata = isKataCategory(cat);
   const ruleset = isKata ? WKF_KATA_2026 : WKF_KUMITE_2026;
@@ -289,6 +280,9 @@ export async function performCategoryDraw(
       await tx.select({ id: categories.id }).from(categories).where(eq(categories.id, categoryId)).for("update");
       const refusal = refusalFor(cat.name, await readProtection(tx, categoryId));
       if (refusal) throw new DrawRefusedError(refusal);
+
+      // Roster size is recorded with the draw, so a refused or failed draw leaves the counts alone.
+      await tx.update(categories).set({ athletesCount: participantList.length }).where(eq(categories.id, categoryId));
 
       // Delete existing matches, slots, scores, and events cleanly in reverse FK dependency order
       const catMatches = await tx
