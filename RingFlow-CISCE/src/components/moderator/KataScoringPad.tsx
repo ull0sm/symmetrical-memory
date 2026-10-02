@@ -6,6 +6,7 @@ import {
   getMatchKataScores,
 } from "@/actions/kata";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { JudgePanel } from "@/components/moderator/JudgePanel";
 import { calculateKataScoreDeducing } from "@/lib/kata/scoringEngine";
 import {
   Trophy,
@@ -13,11 +14,8 @@ import {
   Check,
   Plus,
   Minus,
-  RotateCcw,
-  Sparkles,
   ArrowRight,
   Flag,
-  Flame,
   User,
 } from "lucide-react";
 
@@ -26,7 +24,7 @@ interface KataScoringPadProps {
   activeMatch: any;
   category: any;
   scores: any[];
-  judgePin?: string;
+  /** Public base URL for the judge QR link (tunnel / hosted). */
   tunnelUrl?: string | null;
   onRefresh: () => void;
   onViewDrawTable?: () => void;
@@ -37,9 +35,15 @@ export function KataScoringPad({
   activeMatch,
   category,
   scores,
+  tunnelUrl,
   onRefresh,
   onViewDrawTable,
 }: KataScoringPadProps) {
+  const [liveScores, setLiveScores] = useState<any[]>(scores || []);
+  const [voting, setVoting] = useState<"idle" | "open" | "closed">(activeMatch?.kataVoting ?? "idle");
+  useEffect(() => {
+    setVoting(activeMatch?.kataVoting ?? "idle");
+  }, [activeMatch?.id, activeMatch?.kataVoting]);
   const [submittingAction, setSubmittingAction] = useState(false);
 
   // Judge marks for AKA and AO (strictly null initially - ZERO auto-points)
@@ -79,8 +83,14 @@ export function KataScoringPad({
   const akaRefs = useRef<(HTMLInputElement | null)[]>([]);
   const aoRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // Cells the desk has edited since the last save ("AKA:0", "AO:3", "FLAG:2").
+  // Only these are sent, and live refreshes leave them alone while typing.
+  const dirty = useRef<Set<string>>(new Set());
+  const markDirty = (...keys: string[]) => keys.forEach((k) => dirty.current.add(k));
+
   // Synchronize state with match prop
   useEffect(() => {
+    dirty.current.clear();
     if (activeMatch) {
       setAkaKataName(activeMatch.akaKataName || activeMatch.aka_kata_name || "");
       setAoKataName(activeMatch.aoKataName || activeMatch.ao_kata_name || "");
@@ -119,15 +129,19 @@ export function KataScoringPad({
       });
     }
 
-    setAkaJudgeMarks(newAkaMarks);
-    setAoJudgeMarks(newAoMarks);
-    setAkaTexts(newAkaText);
-    setAoTexts(newAoText);
-    setJudgeFlags(newFlags);
+    // Keep whatever the desk is still editing; take the server's value elsewhere.
+    const keep = <T,>(side: string, next: T[]) => (prev: T[]) =>
+      next.map((v, i) => (dirty.current.has(`${side}:${i}`) ? prev[i] : v));
+    setAkaJudgeMarks(keep("AKA", newAkaMarks));
+    setAoJudgeMarks(keep("AO", newAoMarks));
+    setAkaTexts(keep("AKA", newAkaText));
+    setAoTexts(keep("AO", newAoText));
+    setJudgeFlags(keep("FLAG", newFlags));
   }, []);
 
   useEffect(() => {
     syncScoresToState(scores || []);
+    setLiveScores(scores || []);
   }, [scores, syncScoresToState]);
 
   // Direct fetcher for real-time scores
@@ -137,6 +151,8 @@ export function KataScoringPad({
       const res = await getMatchKataScores(activeMatch.id);
       if (res?.success && res.scores) {
         syncScoresToState(res.scores);
+        setLiveScores(res.scores);
+        if (res.voting === "idle" || res.voting === "open" || res.voting === "closed") setVoting(res.voting);
       }
     } catch (err) {
       console.error("Failed to load match scores:", err);
@@ -245,6 +261,7 @@ export function KataScoringPad({
     rawVal: string
   ) => {
     const isAka = side === "AKA";
+    markDirty(`${side}:${seatIndex}`);
     const currentTexts = isAka ? [...akaTexts] : [...aoTexts];
     const currentMarks = isAka ? [...akaJudgeMarks] : [...aoJudgeMarks];
 
@@ -343,6 +360,7 @@ export function KataScoringPad({
     const currentMarks = isAka ? [...akaJudgeMarks] : [...aoJudgeMarks];
     const currentTexts = isAka ? [...akaTexts] : [...aoTexts];
 
+    markDirty(`${side}:${seatIndex}`);
     const currentVal = currentMarks[seatIndex] ?? 7.5;
     const newVal = Math.max(5.0, Math.min(10.0, Number((currentVal + delta).toFixed(1))));
 
@@ -366,6 +384,7 @@ export function KataScoringPad({
     // Find first empty seat, or fill J1
     const targetIdx = currentMarks.findIndex((m) => m === null);
     const idxToFill = targetIdx !== -1 ? targetIdx : 0;
+    markDirty(`${side}:${idxToFill}`);
 
     currentMarks[idxToFill] = presetVal;
     currentTexts[idxToFill] = presetVal.toFixed(1);
@@ -383,6 +402,7 @@ export function KataScoringPad({
   };
 
   const handleClearSide = (side: "AKA" | "AO") => {
+    markDirty(...[0, 1, 2, 3, 4].map((i) => `${side}:${i}`));
     if (side === "AKA") {
       setAkaJudgeMarks([null, null, null, null, null]);
       setAkaTexts(["", "", "", "", ""]);
@@ -395,42 +415,54 @@ export function KataScoringPad({
   };
 
   const handleToggleJudgeFlag = (seatIndex: number, flag: "AKA" | "AO") => {
+    markDirty(`FLAG:${seatIndex}`);
     const updated = [...judgeFlags];
     updated[seatIndex] = updated[seatIndex] === flag ? null : flag;
     setJudgeFlags(updated);
   };
 
-  const handleSaveMarks = async (finalize: boolean = false) => {
+  /** Kata names only (on blur/Enter): never touches the marks. */
+  const handleSaveNames = async () => {
+    try {
+      const res = await submitModeratorManualKataMarks({
+        matchId: activeMatch.id,
+        akaKataName: akaKataName.trim() || undefined,
+        aoKataName: isSoloMatch ? undefined : aoKataName.trim() || undefined,
+      });
+      if (!res.success) alert(res.error || "Failed to save kata names");
+    } catch (err: any) {
+      alert(err.message || "Failed to save kata names");
+    }
+  };
+
+  /**
+   * Save the desk's marks/flags. The server writes only seats that changed and
+   * decides the winner itself; `tiebreak` is the desk's call when the votes tie.
+   */
+  const handleSaveMarks = async (finalize: boolean = false, tiebreak?: "AKA" | "AO") => {
     setSubmittingAction(true);
     try {
-      let resolvedWinnerSide: "AKA" | "AO" | undefined = undefined;
-      if (isSoloMatch) {
-        resolvedWinnerSide = "AKA";
-      } else if (verdict && verdict.winner !== "TIE") {
-        resolvedWinnerSide = verdict.winner;
-      }
-
-      const cleanAkaMarks = akaJudgeMarks.map((m) => (m !== null ? m : 0));
-      const cleanAoMarks = isSoloMatch ? [] : aoJudgeMarks.map((m) => (m !== null ? m : 0));
-
-      const judgeScoresPayload = [0, 1, 2, 3, 4].map((i) => ({
-        seat: i + 1,
-        akaScore: cleanAkaMarks[i] || 0,
-        aoScore: cleanAoMarks[i] || 0,
-      }));
+      const seats = [0, 1, 2, 3, 4]
+        .map((i) => {
+          const edit: { seat: number; aka?: number | null; ao?: number | null; flag?: "AKA" | "AO" | null } = { seat: i + 1 };
+          if (isPointsMode && dirty.current.has(`AKA:${i}`)) edit.aka = akaJudgeMarks[i];
+          if (isPointsMode && !isSoloMatch && dirty.current.has(`AO:${i}`)) edit.ao = aoJudgeMarks[i];
+          if (!isPointsMode && !isSoloMatch && dirty.current.has(`FLAG:${i}`)) edit.flag = judgeFlags[i];
+          return edit;
+        })
+        .filter((e) => Object.keys(e).length > 1);
 
       const res = await submitModeratorManualKataMarks({
         matchId: activeMatch.id,
         akaKataName: akaKataName.trim() || undefined,
         aoKataName: isSoloMatch ? undefined : aoKataName.trim() || undefined,
-        akaJudgeMarks: cleanAkaMarks,
-        aoJudgeMarks: isSoloMatch ? undefined : cleanAoMarks,
-        judgeScores: isPointsMode ? undefined : isSoloMatch ? undefined : judgeScoresPayload,
-        winnerSide: resolvedWinnerSide,
+        seats,
+        winnerSide: tiebreak,
         finalize,
       });
 
       if (res.success) {
+        dirty.current.clear();
         onRefresh();
       } else {
         alert(res.error || "Failed to record score");
@@ -512,6 +544,19 @@ export function KataScoringPad({
         )}
       </div>
 
+      <JudgePanel
+        ringId={ringId}
+        matchId={activeMatch.id}
+        matchStatus={activeMatch.status}
+        voting={voting}
+        scores={liveScores}
+        baseUrl={tunnelUrl}
+        onChanged={() => {
+          loadMatchScores();
+          onRefresh();
+        }}
+      />
+
       {/* ─── Side-by-Side Arena: Red (AKA) on Left, Blue (AO) on Right ─── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* ══════════ LEFT COLUMN: AKA (RED) ══════════ */}
@@ -547,10 +592,10 @@ export function KataScoringPad({
                   type="text"
                   value={akaKataName}
                   onChange={(e) => setAkaKataName(e.target.value)}
-                  onBlur={() => handleSaveMarks(false)}
+                  onBlur={handleSaveNames}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      handleSaveMarks(false);
+                      handleSaveNames();
                       akaRefs.current[0]?.focus();
                     }
                   }}
@@ -781,10 +826,10 @@ export function KataScoringPad({
                   type="text"
                   value={aoKataName}
                   onChange={(e) => setAoKataName(e.target.value)}
-                  onBlur={() => handleSaveMarks(false)}
+                  onBlur={handleSaveNames}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      handleSaveMarks(false);
+                      handleSaveNames();
                       aoRefs.current[0]?.focus();
                     }
                   }}
@@ -1011,6 +1056,27 @@ export function KataScoringPad({
           >
             Save Draft
           </button>
+
+          {verdict?.winner === "TIE" && (
+            <>
+              {(["AKA", "AO"] as const).map((side) => (
+                <button
+                  key={side}
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`The votes are tied. Award the bout to ${side} as the desk's decision? This is recorded in the official log.`))
+                      handleSaveMarks(true, side);
+                  }}
+                  disabled={submittingAction}
+                  className={`flex-1 sm:flex-initial px-3 py-2.5 rounded-xl border text-xs font-bold font-data-mono transition-colors disabled:opacity-50 cursor-pointer ${
+                    side === "AKA" ? "border-red-300 bg-red-50 text-red-900 hover:bg-red-100" : "border-blue-300 bg-blue-50 text-blue-900 hover:bg-blue-100"
+                  }`}
+                >
+                  {side} wins tie
+                </button>
+              ))}
+            </>
+          )}
 
           <button
             type="button"

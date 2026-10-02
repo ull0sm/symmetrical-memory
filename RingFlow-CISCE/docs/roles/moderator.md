@@ -24,10 +24,12 @@ every bout. A tatami runs exactly one category at a time, so one login per tatam
 - Kumite bouts: `setActiveBout`, `updateLiveMatchState` (points, C1/C2 penalties, senshu),
   `confirmBoutResult` (points / hantei / kiken / hansoku / shikaku). The winner advances through the
   draw graph. These are in `matches.ts`.
-- Kata bouts: manual marks/flags (`submitModeratorManualKataMarks`), `finalizeKataBout`,
-  `advanceKataPoolFinalists`, and void/override of a judge vote. These are in `kata.ts`.
+- Kata bouts: open/close judge voting (`openKataVoting`, `closeKataVoting`), void a seat's vote
+  (`voidJudgeVote`), desk marks/flags and finalize (`submitModeratorManualKataMarks`; the server
+  computes the winner and the desk decides only ties). These are in `kata.ts`.
 - Clock: start, pause, reset, adjust, finish, set duration, swap sides (`clock.ts`).
-- Judges: show the QR/PIN, approve or kick judge phones, rotate the tatami PIN. See [judge.md](judge.md).
+- Judges: the **Judge phones** panel in the kata pad shows the QR/PIN, approves or removes phones,
+  rotates the QR/PIN, and ends the panel (`judgePanel.ts`). See [judge.md](judge.md).
 
 ## Cannot
 Touch other tatamis, edit categories, athletes or draws, change ring assignments, or approve other staff.
@@ -42,4 +44,3 @@ Touch other tatamis, edit categories, athletes or draws, change ring assignments
 ## Known gaps (see [PLAN.md](../PLAN.md))
 - Corrections: while its category is on the mat the moderator can re-confirm (correct) a bout, but
   only with a reason (5+ characters). It goes into the audit log under the moderator's name.
-- Phase 4: judge approval panel is not built yet.

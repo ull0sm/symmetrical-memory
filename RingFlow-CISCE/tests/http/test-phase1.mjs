@@ -98,8 +98,10 @@ const bouts = await call(A, "getTournamentActiveBouts", [T1], anon);
 const boutsJson = JSON.stringify(bouts.value ?? "");
 check("public active-bouts has no access code / PIN / device token",
   !boutsJson.includes(ringCode) && !/judgePin|judge_pin|accessCode|judgeDeviceToken/.test(boutsJson));
-const kataState = await call(A, "getRingKataState", [R1], anon);
-check("judge kata state has no PIN", !JSON.stringify(kataState.value ?? "").includes("judgePin"));
+const judgeBout = await call(A, "getJudgeBout", [R1], anon);
+check("judge bout view refused without a judge session", denied(judgeBout));
+const judgeStatus = await call(A, "getJudgeStatus", [R1], anon);
+check("judge status carries no PIN or key", !/judgePin|judge_pin|pairing|\"pin\"/i.test(JSON.stringify(judgeStatus.value ?? "")));
 await sql`update tournaments set show_public_scoreboard=false where id=${T1}`;
 const bout = await call(A, "getRingActiveBout", [R1], anon);
 check("scoreboard data hidden when public TV is off", bout.value === null || bout.value === "$undefined" || bout.value === undefined, JSON.stringify(bout.value)?.slice(0, 60));

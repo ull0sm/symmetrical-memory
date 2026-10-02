@@ -127,15 +127,28 @@ Phase 2 (22) suites re-passed, and the correction dialog exercised in the browse
 ## Phase 4 — Judge system rebuild (kata)
 Spec: [roles/judge.md](roles/judge.md).
 
-- [ ] 4.1 Schema: rework `judge_requests` into `judge_sessions` (ring, seat, name, token_hash,
+- [x] 4.1 Schema: rework `judge_requests` into `judge_sessions` (ring, seat, name, token_hash,
   status, approved_by, expires_at). Add `rings.judge_pairing_key`. Add a voting-open flag to the
   current kata match.
-- [ ] 4.2 Moderator seat panel (QR, PIN, pending requests, approve/kick, rotate) inside `KataScoringPad`,
+- [x] 4.2 Moderator seat panel (QR, PIN, pending requests, approve/kick, rotate) inside `KataScoringPad`,
   matching the existing UI.
-- [ ] 4.3 Judge phone flow: pair, wait, vote, locked. Rebuild `JudgeMobileClient` on top of
+- [x] 4.3 Judge phone flow: pair, wait, vote, locked. Rebuild `JudgeMobileClient` on top of
   `requireJudge` and server-side scoring.
-- [ ] 4.4 Open and close voting, plus void and override (audited). Totals are computed on the server.
+- [x] 4.4 Open and close voting, plus void and override (audited). Totals are computed on the server.
 - [ ] 4.5 Test on a real phone over the LAN and over the tunnel/hosted URL.
+
+**Status (2026-10-02): 4.1–4.4 done; 4.5 partly.** `judge_sessions` replaces `judge_requests` (claim
+cookie → approval → hashed `judge_token`; one approved phone per seat by partial unique index).
+`rings.judge_pairing_key` is the QR secret and rotates with the PIN. `matches.kata_voting` gates
+votes (open/closed). The moderator's **Judge phones** panel (`JudgePanel.tsx` in the kata pad) does
+QR/PIN, approve/reject/remove, rotate, end panel, open/close voting and void. Phones use
+`actions/judge.ts` on top of `requireJudge`. Totals and winners come from `lib/kata/tally.ts`; the desk
+decides only ties (`DESK_DECISION`). The desk grid sends only edited cells, so it can't wipe a phone
+vote, and overwriting a phone vote is audited as `KATA_VOTE_OVERRIDDEN`. Also fixed: the kata-name field
+re-saved the whole grid (and deleted judge flags), manual flags were never sent, legacy flag rows were
+double-counted, and the seed sometimes failed (unordered categories). Migration:
+`migration12_judge_sessions.sql`. Verified by a 58-check suite plus a browser run at phone size.
+Not yet done: a real phone over the LAN/tunnel, and 7-seat panels in the UI.
 
 ---
 

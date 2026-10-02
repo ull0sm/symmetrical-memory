@@ -6,8 +6,10 @@ import { isValidUuid } from "@/lib/utils";
 import { AuthError } from "./errors";
 import {
   getAdminPrincipal,
+  getJudgePrincipal,
   getPrincipals,
   type AdminPrincipal,
+  type JudgePrincipal,
   type ModeratorPrincipal,
   type Principal,
 } from "./principal";
@@ -137,6 +139,15 @@ export async function requireMatchModerator(
     throw new AuthError("Start this category on the tatami before scoring its bouts.", "FORBIDDEN");
   }
   return { moderator, scope };
+}
+
+/** The approved judge phone of this tatami (any seat). */
+export async function requireJudge(ringId: string): Promise<JudgePrincipal> {
+  const judge = await getJudgePrincipal();
+  if (!judge || judge.ringId !== ringId) {
+    throw new AuthError("This phone is not an approved judge on this tatami.", "FORBIDDEN");
+  }
+  return judge;
 }
 
 /** Human-readable actor for logs and audit rows. */

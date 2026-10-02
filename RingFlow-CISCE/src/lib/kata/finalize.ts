@@ -4,7 +4,6 @@ import {
   categoryAssignments,
   draws,
   eventLog,
-  kataScores,
   matches,
   matchSlots,
   rings,
@@ -137,24 +136,4 @@ export async function finalizeKataMatch(params: {
   }
 
   return { success: true, winnerId };
-}
-
-/** Re-total the flag counts / point totals on a match from its judge rows. */
-export async function recomputeKataTallies(matchId: string) {
-  const allScores = await db
-    .select()
-    .from(kataScores)
-    .where(eq(kataScores.matchId, matchId));
-
-  let akaFlags = 0;
-  let aoFlags = 0;
-  for (const s of allScores) {
-    if (s.flagVote === "AKA") akaFlags++;
-    if (s.flagVote === "AO") aoFlags++;
-  }
-  await db
-    .update(matches)
-    .set({ akaFlags, aoFlags })
-    .where(eq(matches.id, matchId));
-  return { akaFlags, aoFlags };
 }

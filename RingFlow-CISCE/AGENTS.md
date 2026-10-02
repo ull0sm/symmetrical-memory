@@ -50,7 +50,7 @@ Local DB: `docker compose up -d db`. Env template: `.env.example`.
 | Organiser | event code + admin approval | **read-only**, one tournament |
 | Stager | stager code + admin approval | one tournament; marks categories calling/ready |
 | Moderator | tatami access code + admin approval | one tatami; runs the queue AND scores bouts |
-| Judge | tatami QR/PIN + moderator approval | one tatami seat; kata votes only (being redesigned) |
+| Judge | tatami QR/PIN + moderator approval | one tatami seat; votes on the open kata bout only |
 | Public / Scoreboard | none | read-only, controlled by the event's public toggles |
 
 ## Non-negotiable rules

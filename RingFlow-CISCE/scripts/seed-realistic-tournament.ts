@@ -21,7 +21,8 @@ import { assembleCategoryDraw } from "../src/lib/draws/assembleDraw";
 import { performGenerateAllTournamentDraws } from "../src/lib/draws/generateDraws";
 import { commitBoutResult } from "../src/lib/bouts/results";
 import { buildAllCategoryDrawPdfs } from "../src/lib/pdf/drawSheetFiles";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
+import { isKataCategory } from "../src/lib/categories/eventType";
 import { hashPassword } from "../src/lib/auth/password";
 import { hashToken } from "../src/lib/auth/tokens";
 
@@ -141,8 +142,15 @@ async function runSeed() {
 
   // 7. Assign Categories to Rings
   console.log("🎯 Assigning populated categories to Rings...");
-  const allCats = await db.select().from(categories).where(eq(categories.tournamentId, tournament.id));
-  const populatedCats = allCats.filter((c) => c.athletesCount >= 2);
+  const allCats = await db
+    .select()
+    .from(categories)
+    .where(eq(categories.tournamentId, tournament.id))
+    .orderBy(asc(categories.name));
+  // Kumite first, so Ring 1 opens on a bracket the simulated bout below can advance.
+  const populatedCats = allCats
+    .filter((c) => c.athletesCount >= 2)
+    .sort((a, b) => Number(isKataCategory(a)) - Number(isKataCategory(b)));
 
   for (let i = 0; i < populatedCats.length; i++) {
     const targetRing = createdRings[i % createdRings.length];

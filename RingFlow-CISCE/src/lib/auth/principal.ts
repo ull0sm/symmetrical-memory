@@ -6,6 +6,7 @@ import { db } from "@/db";
 import {
   admins,
   adminSessions,
+  judgeSessions,
   moderatorRequests,
   organiserRequests,
   rings,
@@ -43,6 +44,19 @@ export type ModeratorPrincipal = {
 };
 
 export type Principal = AdminPrincipal | OrganiserPrincipal | StagerPrincipal | ModeratorPrincipal;
+
+/**
+ * A judge's phone. Deliberately not part of `Principal`: judges are not event
+ * staff and must never pass a staff check. Bound to one tatami seat.
+ */
+export type JudgePrincipal = {
+  role: "judge";
+  sessionId: string;
+  name: string;
+  ringId: string;
+  seat: number;
+  tournamentId: string;
+};
 
 const notExpired = (col: AnyPgColumn) => or(isNull(col), gt(col, new Date()));
 
@@ -146,6 +160,44 @@ export const getPrincipals = cache(async (): Promise<Principal[]> => {
   ]);
 
   return [admin, organiser, stager, moderator].filter((p): p is Principal => p !== null);
+});
+
+/** The approved, unexpired judge session this browser holds, if any. Memoised per request. */
+export const getJudgePrincipal = cache(async (): Promise<JudgePrincipal | null> => {
+  let token: string | undefined;
+  try {
+    token = (await cookies()).get(SESSION_COOKIES.judge)?.value;
+  } catch {
+    return null;
+  }
+  if (!looksLikeToken(token)) return null;
+  const [row] = await db
+    .select({
+      id: judgeSessions.id,
+      name: judgeSessions.judgeName,
+      ringId: judgeSessions.ringId,
+      seat: judgeSessions.seat,
+      tournamentId: rings.tournamentId,
+    })
+    .from(judgeSessions)
+    .innerJoin(rings, eq(rings.id, judgeSessions.ringId))
+    .where(
+      and(
+        eq(judgeSessions.tokenHash, hashToken(token)),
+        eq(judgeSessions.status, "approved"),
+        gt(judgeSessions.expiresAt, new Date())
+      )
+    )
+    .limit(1);
+  if (!row) return null;
+  return {
+    role: "judge",
+    sessionId: row.id,
+    name: row.name,
+    ringId: row.ringId,
+    seat: row.seat,
+    tournamentId: row.tournamentId,
+  };
 });
 
 export async function getAdminPrincipal(): Promise<AdminPrincipal | null> {

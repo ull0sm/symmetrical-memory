@@ -32,7 +32,7 @@ const PUBLIC_TABLES = new Set([
   "draws",
   "kata_scores",
   "tournaments",
-  "judge_requests",
+  "judge_sessions",
 ]);
 
 const REQUEST_TABLES = new Set(["moderator_requests", "stager_requests", "organiser_requests"]);
