@@ -1,3 +1,6 @@
+import { createRng, shuffle } from './seeding';
+import type { DrawWarning } from './types';
+
 export interface KataFlightParticipant {
   id: string;
   name: string;
@@ -50,6 +53,8 @@ export interface KataFlightDrawResult {
   poolSize: number;
   advancePerPool: number;
   bronzeMedals: 0 | 1 | 2;
+  /** The seed this draw was made from; the same seed and roster give the same draw. */
+  randomSeed: number;
   pools: KataPool[];
   finalFlight: {
     flightName: string;
@@ -57,21 +62,97 @@ export interface KataFlightDrawResult {
     matches: KataGeneratedMatch[];
   };
   totalMatches: number;
+  warnings: DrawWarning[];
 }
 
-/**
- * Generates a local/school Group Flight tournament draw for Kata.
- * Splits athletes across balanced groups (Pool A, Pool B, etc.) and schedules
- * paired AKA vs AO preliminary bouts and medal flight bouts (Gold + Bronze).
- */
-export function generateKataFlightDraw(params: {
+export interface KataFlightParams {
   categoryId: string;
   participants: KataFlightParticipant[];
   poolSize?: number;
   advancePerPool?: number;
   scoringMode?: 'FLAG' | 'POINTS';
   bronzeMedals?: 0 | 1 | 2;
-}): KataFlightDrawResult {
+  /** Required: a kata draw must be reproducible from the seed stored with it. */
+  randomSeed: number;
+  /** Keep athletes from one club out of the same pool bout, and spread each club across the pools. Default true. */
+  separateClubs?: boolean;
+}
+
+/** Candidate draws tried when separating clubs; the best (fewest club clashes) wins. */
+const SEPARATION_ATTEMPTS = 24;
+
+/** Club key for separation: case/space-insensitive, and an athlete with no club is their own club. */
+function clubOf(p: KataFlightParticipant): string {
+  const name = (p.school?.trim() || p.dojo?.trim() || '').toLowerCase();
+  return name === '' ? `independent:${p.id}` : name;
+}
+
+function deriveSeed(base: number, attempt: number): number {
+  return (base + Math.imul(attempt, 0x9e3779b1)) >>> 0;
+}
+
+/** Splits athletes into pool buckets, then orders each bucket (neighbours become a bout). */
+function distribute(
+  participants: readonly KataFlightParticipant[],
+  numPools: number,
+  seed: number,
+  spreadClubs: boolean,
+): KataFlightParticipant[][] {
+  const rng = createRng(seed);
+  const shuffled = shuffle(participants, rng);
+  const buckets: KataFlightParticipant[][] = Array.from({ length: numPools }, () => []);
+
+  if (numPools > 1 && spreadClubs) {
+    const clubs = new Map<string, KataFlightParticipant[]>();
+    for (const p of shuffled) {
+      const key = clubOf(p);
+      const list = clubs.get(key) ?? [];
+      list.push(p);
+      clubs.set(key, list);
+    }
+
+    // Biggest clubs first so they are spread across the pools before the small ones fill the gaps.
+    const ordered = Array.from(clubs.values())
+      .map((members) => ({ members, tie: rng() }))
+      .sort((a, b) => b.members.length - a.members.length || a.tie - b.tie);
+
+    let next = Math.floor(rng() * numPools);
+    for (const { members } of ordered) {
+      for (const member of members) {
+        (buckets[next % numPools] as KataFlightParticipant[]).push(member);
+        next += 1;
+      }
+    }
+  } else if (numPools > 1) {
+    shuffled.forEach((p, i) => (buckets[i % numPools] as KataFlightParticipant[]).push(p));
+  } else {
+    buckets[0] = shuffled;
+  }
+
+  return buckets.map((bucket) => shuffle(bucket, rng));
+}
+
+/** Bouts that put two athletes from one club against each other, summed over the pools. */
+function clubClashes(buckets: readonly KataFlightParticipant[][]): number {
+  let clashes = 0;
+  for (const bucket of buckets) {
+    for (let i = 0; i + 1 < bucket.length; i += 2) {
+      if (clubOf(bucket[i] as KataFlightParticipant) === clubOf(bucket[i + 1] as KataFlightParticipant)) clashes += 1;
+    }
+  }
+  return clashes;
+}
+
+/**
+ * Generates a local/school Group Flight tournament draw for Kata.
+ * Splits athletes across balanced groups (Pool A, Pool B, etc.) and schedules
+ * paired AKA vs AO preliminary bouts and medal flight bouts (Gold + Bronze).
+ *
+ * Pure and deterministic: the same participants, options and `randomSeed` always
+ * give the same draw. Round names are load-bearing (pool advancement matches on
+ * "Pool A #2", "Bout 1" and so on), so they are kept exactly as they are.
+ */
+export function generateKataFlightDraw(params: KataFlightParams): KataFlightDrawResult {
   const {
     categoryId,
     participants,
@@ -79,55 +160,53 @@ export function generateKataFlightDraw(params: {
     advancePerPool = 2,
     scoringMode = 'POINTS',
     bronzeMedals = 2,
+    randomSeed,
+    separateClubs = true,
   } = params;
 
   const totalAthletes = participants.length;
-  // Calculate number of pools needed
   // The medal flight pairs Pool A against Pool B, so a category is split into
   // at most two pools; a large category just gets larger pools.
   const numPools = Math.min(2, Math.max(1, Math.ceil(totalAthletes / poolSize)));
   const poolLetters = ['Pool A', 'Pool B', 'Pool C', 'Pool D', 'Pool E', 'Pool F', 'Pool G', 'Pool H'];
 
-  // Fisher-Yates shuffle to ensure every regeneration produces a fresh, fair draw
-  const shuffled = [...participants];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  const warnings: DrawWarning[] = [];
+
+  if (Math.ceil(totalAthletes / numPools) > poolSize) {
+    warnings.push({
+      code: 'POOL_LARGER_THAN_SETTING',
+      message: `${totalAthletes} athletes need pools of ${Math.ceil(totalAthletes / numPools)}, more than the pool size of ${poolSize}: a kata flight is split into two pools at most`,
+    });
   }
 
-  const poolBuckets: KataFlightParticipant[][] = Array.from({ length: numPools }, () => []);
+  // Candidate draws from seeds derived from the stored one; keep the one with the fewest club clashes.
+  const attempts = separateClubs ? SEPARATION_ATTEMPTS : 1;
+  let poolBuckets: KataFlightParticipant[][] = [];
+  let bestClashes = Number.POSITIVE_INFINITY;
 
-  if (numPools > 1) {
-    const clubMap = new Map<string, KataFlightParticipant[]>();
-    shuffled.forEach((p) => {
-      const club = p.school?.trim() || p.dojo?.trim() || `indep_${p.id}`;
-      if (!clubMap.has(club)) clubMap.set(club, []);
-      clubMap.get(club)!.push(p);
-    });
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const candidate = distribute(
+      participants,
+      numPools,
+      attempt === 0 ? randomSeed : deriveSeed(randomSeed, attempt),
+      separateClubs,
+    );
+    const clashes = separateClubs ? clubClashes(candidate) : 0;
 
-    let roundRobinIdx = Math.floor(Math.random() * numPools);
-    // Distribute sorted by club size so larger clubs are distributed across pools first
-    const sortedClubs = Array.from(clubMap.values()).sort((a, b) => {
-      if (b.length !== a.length) return b.length - a.length;
-      return Math.random() - 0.5;
-    });
-    sortedClubs.forEach((clubMembers) => {
-      clubMembers.forEach((member) => {
-        poolBuckets[roundRobinIdx % numPools].push(member);
-        roundRobinIdx++;
-      });
-    });
-  } else {
-    poolBuckets[0] = shuffled;
-  }
-
-  // Shuffle within each pool bucket to randomize pairing
-  poolBuckets.forEach((bucket) => {
-    for (let i = bucket.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [bucket[i], bucket[j]] = [bucket[j], bucket[i]];
+    if (clashes < bestClashes) {
+      bestClashes = clashes;
+      poolBuckets = candidate;
     }
-  });
+
+    if (clashes === 0) break;
+  }
+
+  if (separateClubs && bestClashes > 0) {
+    warnings.push({
+      code: 'SEPARATION_IMPOSSIBLE',
+      message: `${bestClashes} pool bout(s) put athletes from the same club against each other and could not be avoided`,
+    });
+  }
 
   // Build pools from balanced buckets
   const pools: KataPool[] = [];
@@ -138,7 +217,7 @@ export function generateKataFlightDraw(params: {
     const poolId = `${categoryId}-p${p + 1}`;
     const poolAthletes: KataPoolAthlete[] = [];
     const poolMatches: KataGeneratedMatch[] = [];
-    const poolParticipants = poolBuckets[p];
+    const poolParticipants = poolBuckets[p] ?? [];
 
     poolParticipants.forEach((athlete, index) => {
       const orderNo = index + 1;
@@ -154,7 +233,7 @@ export function generateKataFlightDraw(params: {
 
     // Pair athletes within this pool into AKA (Red) vs AO (Blue) bouts
     for (let i = 0; i < poolParticipants.length; i += 2) {
-      const aka = poolParticipants[i];
+      const aka = poolParticipants[i] as KataFlightParticipant;
       const ao = poolParticipants[i + 1] || null;
       const boutNoInPool = Math.floor(i / 2) + 1;
 
@@ -277,6 +356,7 @@ export function generateKataFlightDraw(params: {
     poolSize,
     advancePerPool,
     bronzeMedals,
+    randomSeed,
     pools,
     finalFlight: {
       flightName: 'Final Championship Flight',
@@ -284,5 +364,6 @@ export function generateKataFlightDraw(params: {
       matches: finalMatches,
     },
     totalMatches: globalMatchCounter - 1,
+    warnings,
   };
 }

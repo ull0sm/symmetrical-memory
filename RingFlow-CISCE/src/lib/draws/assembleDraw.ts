@@ -194,7 +194,7 @@ export async function assembleCategoryDraw(
 
   const isKataPools =
     draw.format === "KATA_GROUP_POOLS" ||
-    Boolean((graph as any)?.flightDraw) ||
+    Boolean(graph.flightDraw) ||
     dbMatches.some((m) => m.poolGroup);
 
   // A kata pool flight is not an elimination tree: its stored graph does not
@@ -365,6 +365,6 @@ export async function assembleCategoryDraw(
     athletes: catAthletes,
     podium: !useResults ? null : resolved ? resolved.podium : kataPoolPodium(dbMatches, dbSlots),
     highlightAthleteId: options?.athleteId ?? null,
-    flightDraw: (graph as any)?.flightDraw ?? null,
+    flightDraw: graph.flightDraw ?? null,
   };
 }

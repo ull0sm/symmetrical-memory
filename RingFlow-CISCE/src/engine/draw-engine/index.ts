@@ -1,6 +1,8 @@
 export { canonicalJson, checksumOf } from './canonical';
 export { DrawInputError, issue, type DrawInputIssue, type DrawInputIssueCode } from './errors';
 export { generateDraw } from './generate';
+export { generateKataDraw } from './kataDraw';
+export { generateKataFlightDraw, type KataFlightDrawResult, type KataFlightParams } from './kataFlightDraw';
 export { buildEliminationBracket, type BracketBuild } from './placement';
 export { buildRepechage, REPECHAGE_ROUND_NAME, type RepechageBuild } from './repechage';
 export {

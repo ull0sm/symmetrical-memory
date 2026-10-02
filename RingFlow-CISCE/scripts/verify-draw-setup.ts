@@ -97,6 +97,55 @@ async function main() {
     assert.equal(bad.success, false, "an out-of-range seed is refused with a message");
     assert.match(String((bad as { error?: string }).error), /outside 1\.\.8/);
 
+    // ---- Kata pool flight: same graph, seed and checksum; advancement still works on top of it.
+    const { checksumOf } = await import("../src/engine/draw-engine/canonical");
+    const { advanceKataPoolFinalists } = await import("../src/lib/kata/poolAdvancement");
+
+    const [kataCat] = await db
+      .insert(categories)
+      .values({ tournamentId: tournament.id, name: "Setup Kata", eventType: "kata", kataFormat: "GROUP_POOLS", poolSize: 5 })
+      .returning();
+    await db.insert(athletes).values(
+      Array.from({ length: 10 }, (_, i) => ({
+        tournamentId: tournament.id,
+        categoryId: kataCat.id,
+        name: `Kata ${i + 1}`,
+        dojo: `Club ${i % 4}`,
+      }))
+    );
+
+    const kataDraw = await performCategoryDraw(kataCat.id);
+    assert.equal(kataDraw.success, true, "kata draw succeeds");
+
+    const [kd] = await db.select().from(draws).where(eq(draws.categoryId, kataCat.id));
+    const [kv] = await db.select().from(drawVersions).where(eq(drawVersions.drawId, kd.id));
+    const { checksum: storedChecksum, ...body } = kv.graph as { checksum: string; randomSeed: number | null };
+    assert.equal(typeof body.randomSeed, "number", "the kata draw seed is stored");
+    assert.equal(checksumOf(body), storedChecksum, "the stored kata graph matches its checksum");
+    assert.equal(storedChecksum, kd.checksum, "and the draw row");
+    assert.equal(kd.format, "KATA_GROUP_POOLS");
+
+    const kataMatches = await db.select().from(matches).where(eq(matches.categoryId, kataCat.id));
+    const poolBouts = kataMatches.filter((m) => m.bracketType === "POOL");
+    assert.equal(kataMatches.filter((m) => m.status === "READY").length, 1, "the first bout starts READY");
+    assert.ok(poolBouts.every((m) => m.poolGroup === "Pool A" || m.poolGroup === "Pool B"));
+    const kataCategoryRow = (await db.select().from(categories).where(eq(categories.id, kataCat.id)))[0];
+    assert.equal(kataCategoryRow.expectedMatches, kataMatches.length, "expected bouts match the flight");
+
+    // Fight every pool bout, then check the medal flight fills.
+    for (const [i, m] of poolBouts.entries()) {
+      await db
+        .update(matches)
+        .set({ status: "CONFIRMED", akaScoreTotal: String(8 + (i % 3) * 0.1), aoScoreTotal: "7.0", winnerSide: "AKA" })
+        .where(eq(matches.id, m.id));
+    }
+    const advanced = await advanceKataPoolFinalists(kataCat.id);
+    assert.equal(advanced.success, true, "pool advancement runs on the new draw");
+
+    const finalMatch = (await db.select().from(matches).where(eq(matches.categoryId, kataCat.id))).find((m) => m.bracketType === "MAIN");
+    const finalSlots = await db.select().from(matchSlots).where(eq(matchSlots.matchId, finalMatch!.id));
+    assert.equal(finalSlots.filter((sl) => sl.athleteId).length, 2, "the gold bout gets its two finalists");
+
     console.log("draw setup: all checks passed");
   } finally {
     await db.delete(tournaments).where(eq(tournaments.id, tournament.id));
