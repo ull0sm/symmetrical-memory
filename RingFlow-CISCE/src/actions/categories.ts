@@ -3,13 +3,15 @@
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { categories } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, type InferSelectModel } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
 import { CategoryInput } from "./tournament";
 import { syncTournamentCategoryCounts } from "@/lib/categories/syncCounts";
 import { inferEventType, isEventType } from "@/lib/categories/eventType";
 import { categoryInputSchema, parseInput } from "@/lib/validation";
+
+type CategoryRow = InferSelectModel<typeof categories>;
 
 export async function addCategory(tournamentId: string, rawInput: CategoryInput) {
   const admin = await requireTournamentAdmin(tournamentId);
@@ -93,7 +95,7 @@ export async function updateCategory(
 ) {
   const admin = await requireTournamentAdmin(tournamentId);
 
-  const patch: Record<string, any> = {};
+  const patch: Partial<CategoryRow> = {};
   if (updates.name !== undefined) {
     const nextName = updates.name.trim().slice(0, 200);
     if (!nextName) throw new Error("Category name is required");
@@ -159,7 +161,7 @@ export async function updateCategoryKataSettings(
 ) {
   const admin = await requireTournamentAdmin(tournamentId);
 
-  const patch: Record<string, any> = {};
+  const patch: Partial<CategoryRow> = {};
   if (settings.kataFormat !== undefined) {
     if (settings.kataFormat !== "BRACKET" && settings.kataFormat !== "GROUP_POOLS") {
       throw new Error("Kata format must be BRACKET or GROUP_POOLS");
