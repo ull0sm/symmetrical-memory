@@ -11,6 +11,7 @@ import {
   eventLog as eventLogTable,
 } from "@/db/schema";
 import { eq, inArray, desc, asc, and } from "drizzle-orm";
+import { healPartSizes } from "@/lib/draws/partRouting";
 import { serializeRing, serializeCategory, serializeCategoryAssignment } from "@/lib/serializers";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +57,7 @@ export default async function StagerBalancePage({
   const completedTimes: Record<string, string> = {};
 
   if (ringIds.length > 0) {
+    await healPartSizes(ringIds, { recompute: true });
     const [rawAssignments, finishLogs] = await Promise.all([
       db
         .select()
@@ -75,7 +77,7 @@ export default async function StagerBalancePage({
         ),
     ]);
 
-    assignments = rawAssignments.map(serializeCategoryAssignment);
+    assignments = rawAssignments.map((row) => serializeCategoryAssignment(row));
 
     finishLogs.forEach((log) => {
       if (log.categoryId && log.createdAt) {
@@ -89,8 +91,8 @@ export default async function StagerBalancePage({
       tournamentId={tournamentId}
       tournamentName={tournament.name}
       stagerName={stagerInfo.name || "Stager"}
-      initialCategories={catRows.map(serializeCategory)}
-      initialRings={ringRows.map(serializeRing)}
+      initialCategories={catRows.map((row) => serializeCategory(row))}
+      initialRings={ringRows.map((row) => serializeRing(row))}
       initialAssignments={assignments}
       completedTimes={completedTimes}
     />

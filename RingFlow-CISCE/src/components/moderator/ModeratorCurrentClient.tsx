@@ -109,7 +109,11 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
         setSelectedMatchId(data.currentMatch.id);
       }
       if (data?.category?.id) {
-        const d = await getCategoryDraw(data.category.id);
+        // A split category's tatami sees only its own pool (or the finals), never the whole tree.
+        const assignedPart = data.assignment?.part;
+        const d = await getCategoryDraw(data.category.id, {
+          part: assignedPart && assignedPart !== "ALL" ? assignedPart : null,
+        });
         setDrawData(d);
       }
     } catch (err) {
@@ -1135,6 +1139,8 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
           isOpen={showBracketModal}
           onClose={() => setShowBracketModal(false)}
           onSelectMatch={(m) => handleSelectBout(m.matchId)}
+          part={activeAssignment.part && activeAssignment.part !== "ALL" ? activeAssignment.part : null}
+          lockPart
         />
       )}
     </div>

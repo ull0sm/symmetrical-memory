@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -19,9 +23,15 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@event-suite/rules-engine": ["./src/engine/rules-engine"],
-      "@event-suite/draw-engine": ["./src/engine/draw-engine"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@event-suite/rules-engine": [
+        "./src/engine/rules-engine"
+      ],
+      "@event-suite/draw-engine": [
+        "./src/engine/draw-engine"
+      ]
     }
   },
   "include": [
@@ -30,7 +40,13 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "**/*.mts",
+    ".next-test/types/**/*.ts",
+    ".next-test/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "**/*.test.ts", "**/*.spec.ts"]
+  "exclude": [
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
 }

@@ -21,7 +21,7 @@ For anyone changing the code. For what the product does, read
    as credentials, judge PINs, pairing keys, access codes, device tokens. The live feed carries ids
    and status only. Use the functions in `src/lib/serializers.ts` for client-bound data.
 4. **The organiser is read only.** Do not add an organiser write path.
-5. **A tatami runs one category at a time and has one approved moderator.** Approving a new
+5. **A tatami runs one category (or one part of a split category) at a time and has one approved moderator.** Approving a new
    moderator revokes the old session. A seat on a judge panel belongs to one phone (partial unique
    index on `judge_sessions`).
 6. **Official actions are audited** with `audit()` (scores, results, corrections, draws, approvals,
@@ -37,13 +37,14 @@ For anyone changing the code. For what the product does, read
 
 | I want to change | Look in |
 |---|---|
-| Any server behavior | `src/actions/<area>.ts` (one file per area: `admin`, `athletes`, `attendance`, `audit`, `auth`, `balancing`, `categories`, `categoryDefinitions`, `categoryDocs`, `clock`, `drawPdfs`, `draws`, `judge`, `judgePanel`, `kata`, `matches`, `moderator`, `officialImport`, `organiser`, `public`, `resultsExport`, `rings`, `settings`, `stager`, `tournament`, `turnstile`) |
+| Any server behavior | `src/actions/<area>.ts` (one file per area: `admin`, `athletes`, `attendance`, `audit`, `auth`, `balancing`, `categories`, `categoryDefinitions`, `categoryRouting`, `categoryDocs`, `clock`, `drawPdfs`, `draws`, `judge`, `judgePanel`, `kata`, `matches`, `moderator`, `officialImport`, `organiser`, `public`, `resultsExport`, `rings`, `settings`, `stager`, `tournament`, `turnstile`) |
 | Who can call what | `src/lib/auth/` ([roles/README.md](RingFlow-CISCE/docs/roles/README.md)) |
 | Database tables | `src/db/schema/index.ts`, plus `db/migrations/` for triggers and constraints |
 | Allowed status values | `src/lib/statuses.ts` (then the schema check and a migration) |
 | Shared tunables (session lifetimes, judge seats, polling, bout length) | `src/lib/constants/index.ts` |
 | Kumite result and bracket advancement | `src/actions/matches.ts`, `src/lib/bouts/results.ts`, `src/engine/draw-engine/resolution.ts` |
 | Kata voting, totals, pool advancement | `src/actions/kata.ts`, `src/lib/kata/` |
+| Where a category runs (whole, or pools on different tatamis; parts, finals waiting) | `src/actions/categoryRouting.ts`, `src/lib/draws/partRouting.ts` (apply), `src/lib/draws/routingPlan.ts` (rules), `src/engine/draw-engine/parts.ts` |
 | Draw generation | `src/actions/draws.ts`, `src/lib/draws/`, `src/engine/draw-engine/` |
 | Rules (durations, scoring, penalties) | `src/engine/rules-engine/rulesets/` |
 | Match clock | `src/actions/clock.ts`, `src/lib/matchClock.ts`, `src/lib/ringClockStore.ts`, `src/hooks/useMatchClock.ts` |
@@ -108,12 +109,8 @@ Fresh installs and upgrades use the same two commands. See [db/migrations/README
 - **Use a disposable database for the suites.** They create tournaments and hammer logins. Never
   point them, or the seed scripts, at a database with real event data. `run-suite.sh` refuses port
   5432.
-- Static checks: `npm run lint`, `npx tsc --noEmit`. The type check currently reports errors that
-  also stop `npm run build`; they are listed in [docs/ARCHITECTURE.md](RingFlow-CISCE/docs/ARCHITECTURE.md). Do not
-  add new ones.
-
-## Conventions
-
+- Static checks: `npm run lint`, `npx tsc --noEmit`. The type check is clean and `npm run build`
+  depends on it, so keep it that way.
 - TypeScript throughout; no new `any`. Use Drizzle's inferred row types.
 - Database columns are `snake_case`; Drizzle exports are camelCase.
 - Use `isHttpsRequest()` (`src/lib/auth/cookies.ts`), not `NODE_ENV`, to decide cookie security, so

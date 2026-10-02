@@ -1,5 +1,6 @@
 "use server";
 
+import { assignmentCoversMatch } from "@/lib/draws/partFilter";
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
@@ -289,11 +290,10 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
     });
   }
 
-  const allMatches = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.categoryId, cat.id))
-    .orderBy(matches.matchNo);
+  // A split category's tatami sees only its own part (a pool, or the finals).
+  const allMatches = (
+    await db.select().from(matches).where(eq(matches.categoryId, cat.id)).orderBy(matches.matchNo)
+  ).filter((m) => assignmentCoversMatch(assignment.part, m.part));
 
   const allSlots =
     allMatches.length > 0
@@ -704,7 +704,9 @@ export async function getTournamentActiveBouts(tournamentId: string) {
     if (!cat) continue;
 
     const hasDraw = drawSet.has(cat.id);
-    const catMatches = matchRows.filter((m) => m.categoryId === cat.id);
+    const catMatches = matchRows.filter(
+      (m) => m.categoryId === cat.id && assignmentCoversMatch(assignment.part, m.part)
+    );
     const catMatchIds = new Set(catMatches.map((m) => m.id));
     const catSlots = slotRows.filter((s) => catMatchIds.has(s.matchId));
 

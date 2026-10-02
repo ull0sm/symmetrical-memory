@@ -17,12 +17,12 @@ export interface OrganiserRequest {
   id: string;
   tournament_id: string;
   access_code_used: string;
-  status: "pending" | "approved" | "rejected" | "revoked";
+  status: "pending" | "approved" | "rejected" | "revoked" | "expired";
   session_token?: string | null;
   device_info?: any;
   organiser_name?: string | null;
-  created_at: string;
-  expires_at: string;
+  created_at: string | null;
+  expires_at: string | null;
 }
 
 interface Tournament {
@@ -36,6 +36,8 @@ interface Tournament {
   show_public_draws?: boolean;
   show_public_scoreboard?: boolean;
   default_bronze_medals?: number | null;
+  draw_profile?: "OFFICIAL" | "LOCAL" | null;
+  draw_separation?: "CLUB" | "OFF" | null;
   tunnel_url?: string | null;
   tunnelUrl?: string | null;
 }
@@ -57,6 +59,8 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
     show_public_draws: tournament.show_public_draws === true,
     show_public_scoreboard: tournament.show_public_scoreboard === true,
     default_bronze_medals: (tournament.default_bronze_medals ?? 2) as 0 | 1 | 2 | 3,
+    draw_profile: (tournament.draw_profile ?? "LOCAL") as "OFFICIAL" | "LOCAL",
+    draw_separation: (tournament.draw_separation ?? "CLUB") as "CLUB" | "OFF",
     tunnel_url: tournament.tunnel_url || tournament.tunnelUrl || "",
   });
   
@@ -89,6 +93,8 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
       show_public_draws: tournament.show_public_draws === true,
       show_public_scoreboard: tournament.show_public_scoreboard === true,
       default_bronze_medals: (tournament.default_bronze_medals ?? 2) as 0 | 1 | 2 | 3,
+      draw_profile: (tournament.draw_profile ?? "LOCAL") as "OFFICIAL" | "LOCAL",
+      draw_separation: (tournament.draw_separation ?? "CLUB") as "CLUB" | "OFF",
       tunnel_url: tournament.tunnel_url || tournament.tunnelUrl || "",
     });
   }, [tournament]);
@@ -338,6 +344,53 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                     }`}
                   />
                 </button>
+              </div>
+
+              {/* Draw profile: official WKF procedure or local tweaks */}
+              <div className="pt-6 border-t border-outline-variant/60">
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[18px] text-secondary">account_tree</span>
+                  <div className="flex-1">
+                    <label className="font-label-caps text-[11px] font-bold text-primary">DRAW PROFILE</label>
+                    <p className="text-body-xs text-on-surface-variant max-w-xl mt-1">
+                      Official events follow WKF procedure strictly. Local / unofficial events use WKF as a base and let you tweak
+                      it. A single category can override this from its draw panel.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {[
+                    { value: "OFFICIAL", title: "Official (WKF)", desc: "Repechage with two bronzes and club-mates kept apart. Bronze and separation settings below are ignored." },
+                    { value: "LOCAL", title: "Local / Unofficial rules", desc: "WKF rules as a base; you choose the bronze format and whether clubs are kept apart." },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={form.draw_profile === option.value}
+                      onClick={() => setForm((f) => ({ ...f, draw_profile: option.value as "OFFICIAL" | "LOCAL" }))}
+                      className={`min-h-[60px] rounded-xl border p-3 text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 ${
+                        form.draw_profile === option.value
+                          ? "border-[#0E9C7C] bg-[#E3F6F0] text-[#0B7C63]"
+                          : "border-outline-variant bg-white text-on-surface-variant hover:bg-surface-container-low"
+                      }`}
+                    >
+                      <div className="font-bold text-xs text-primary">{option.title}</div>
+                      <div className="text-[11px] text-on-surface-variant mt-0.5 leading-snug">{option.desc}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {form.draw_profile === "LOCAL" && (
+                  <label className="mt-3 flex items-center gap-2 text-xs text-on-surface-variant cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.draw_separation === "CLUB"}
+                      onChange={(e) => setForm((f) => ({ ...f, draw_separation: e.target.checked ? "CLUB" : "OFF" }))}
+                    />
+                    Keep athletes from the same club apart for as long as the bracket allows
+                  </label>
+                )}
               </div>
 
               {/* Bronze medal default for every draw in this event */}

@@ -4,7 +4,7 @@ import { DrawInputError, type DrawInputIssue } from './errors';
 import { buildEliminationBracket } from './placement';
 import { buildRepechage, REPECHAGE_ROUND_NAME } from './repechage';
 import { orderParticipants } from './seeding';
-import { applySeparation } from './separation';
+import { applySeparation, separationPenalty } from './separation';
 import { byeCount, nextPowerOfTwo, totalRounds } from './sizing';
 import type { DrawGraph, DrawInput, DrawWarning, Participant } from './types';
 import { collectInputIssues } from './validation';
@@ -24,8 +24,71 @@ export function generateDraw(input: DrawInput, ruleset: Ruleset): DrawGraph {
     throw new DrawInputError(issues);
   }
 
+  const baseSeed = input.seeding.randomSeed;
+  const canVary = input.separation !== undefined && baseSeed !== undefined && input.seeding.mode !== 'NONE';
+
+  if (!canVary || baseSeed === undefined) {
+    return buildOnce(input, ruleset, baseSeed);
+  }
+
+  // Random draws are tried from a few seeds derived from the stored one, and the
+  // one that keeps group-mates apart longest wins. The attempts are a pure
+  // function of the stored seed, so the draw is still reproducible from it.
+  let best: { graph: DrawGraph; penalty: number } | null = null;
+
+  for (let attempt = 0; attempt < SEPARATION_ATTEMPTS; attempt += 1) {
+    const candidate = buildOnce(input, ruleset, attempt === 0 ? baseSeed : deriveSeed(baseSeed, attempt), baseSeed);
+    const penalty = penaltyOf(candidate, input);
+
+    if (best === null || penalty < best.penalty) {
+      best = { graph: candidate, penalty };
+    }
+
+    if (penalty === 0) break;
+  }
+
+  return (best as { graph: DrawGraph }).graph;
+}
+
+/** Candidate draws tried per generation when separating groups. */
+const SEPARATION_ATTEMPTS = 24;
+
+function deriveSeed(base: number, attempt: number): number {
+  return (base + Math.imul(attempt, 0x9e3779b1)) >>> 0;
+}
+
+function penaltyOf(graph: DrawGraph, input: DrawInput): number {
+  if (input.separation === undefined) return 0;
+
+  const participantByRegistration = new Map(
+    input.participants.map((participant) => [participant.registrationId, participant]),
+  );
+
+  return separationPenalty(
+    graph.slots,
+    graph.matches.filter((match) => match.bracketType === 'MAIN'),
+    participantByRegistration,
+    input.separation,
+    totalRounds(graph.tournamentSize),
+  );
+}
+
+/**
+ * One complete draw. `orderingSeed` drives the shuffle; `reportedSeed` is the
+ * seed stored on the graph (the caller's own, even when an attempt derived another).
+ */
+function buildOnce(
+  input: DrawInput,
+  ruleset: Ruleset,
+  orderingSeed: number | undefined,
+  reportedSeed: number | undefined = orderingSeed,
+): DrawGraph {
+  const issues: DrawInputIssue[] = [];
+  const seeding =
+    orderingSeed === undefined ? input.seeding : { ...input.seeding, randomSeed: orderingSeed };
+
   const warnings: DrawWarning[] = [];
-  const ordered = orderParticipants(input.participants, input.seeding, issues, warnings);
+  const ordered = orderParticipants(input.participants, seeding, issues, warnings);
 
   if (issues.length > 0) {
     throw new DrawInputError(issues);
@@ -101,7 +164,7 @@ export function generateDraw(input: DrawInput, ruleset: Ruleset): DrawGraph {
     tournamentSize: size,
     byeCount: byes,
     bronzeMedals,
-    randomSeed: input.seeding.mode === 'RANDOM_SEEDED' ? (input.seeding.randomSeed ?? null) : null,
+    randomSeed: input.seeding.mode === 'NONE' ? null : (reportedSeed ?? null),
     rounds,
     matches,
     slots,

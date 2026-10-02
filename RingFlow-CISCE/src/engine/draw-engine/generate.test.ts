@@ -299,3 +299,74 @@ describe('generateDraw — separation', () => {
     expect(new Set(placed)).toEqual(new Set(participants.map((p) => p.registrationId)));
   });
 });
+
+describe('generateDraw — keeping club-mates apart', () => {
+  const sep = { by: 'CLUB', rule: 'FIRST_ROUND' } as const;
+  const random = (randomSeed: number) => ({ mode: 'RANDOM_SEEDED', randomSeed }) as const;
+
+  /** Round in which two registrations would first share a match. */
+  function meetingRound(graph: DrawGraph, a: string, b: string): number {
+    const pairs = firstRoundPairs(graph);
+    const indexOf = (id: string) => pairs.findIndex((pair) => pair.registrations.includes(id));
+    const roundsTotal = Math.log2(graph.tournamentSize);
+    let round = 0;
+    while (indexOf(a) >> round !== indexOf(b) >> round && round < roundsTotal) round += 1;
+    return round;
+  }
+
+  it('puts two club-mates in opposite halves whenever the bracket allows it', () => {
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const participants = entrants(16).map((p, i) => (i < 2 ? { ...p, clubId: 'same' } : p));
+      const graph = draw(participants, { seeding: random(seed), separation: sep });
+
+      // Opposite halves means they can only meet in the final (round 3 of 4).
+      expect(meetingRound(graph, 'p1', 'p2')).toBe(3);
+    }
+  });
+
+  it('treats club names that differ only by case and spacing as one club', () => {
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const participants = entrants(8).map((p, i) =>
+        i === 0 ? { ...p, clubId: 'Shito Ryu' } : i === 1 ? { ...p, clubId: '  shito ryu ' } : p,
+      );
+      const graph = draw(participants, { seeding: random(seed), separation: sep });
+
+      expect(meetingRound(graph, 'p1', 'p2')).toBe(2);
+    }
+  });
+
+  it('does not treat entrants with no club as one club', () => {
+    const participants = entrants(8).map((p) => ({ ...p, clubId: '' }));
+    const graph = draw(participants, { seeding: random(7), separation: sep });
+
+    expect(graph.warnings.map((w) => w.code)).not.toContain('SEPARATION_IMPOSSIBLE');
+    // Same draw as with no separation asked for: nobody was moved on account of "" being shared.
+    expect(graph.checksum).toBe(draw(participants, { seeding: random(7) }).checksum);
+  });
+
+  it('is reproducible from the stored seed and reports that seed', () => {
+    const participants = entrants(12).map((p, i) => (i % 3 === 0 ? { ...p, clubId: 'big' } : p));
+    const first = draw(participants, { seeding: random(2024), separation: sep });
+    const second = draw(participants, { seeding: random(2024), separation: sep });
+
+    expect(second.checksum).toBe(first.checksum);
+    expect(first.randomSeed).toBe(2024);
+  });
+
+  it('draws unseeded entrants at random around explicit seeds, reproducibly', () => {
+    const seeds = [
+      { registrationId: 'p5', seed: 1 },
+      { registrationId: 'p6', seed: 2 },
+    ];
+    const a = draw(entrants(8), { seeding: { mode: 'MANUAL', seeds, randomSeed: 11 } });
+    const b = draw(entrants(8), { seeding: { mode: 'MANUAL', seeds, randomSeed: 11 } });
+    const c = draw(entrants(8), { seeding: { mode: 'MANUAL', seeds, randomSeed: 12 } });
+
+    expect(b.checksum).toBe(a.checksum);
+    expect(c.checksum).not.toBe(a.checksum);
+    // The seeded pair keep the top positions: seed 1 faces the last seed, seed 2 sits in the other half.
+    const pairs = firstRoundPairs(a);
+    expect(pairs[0]?.registrations).toContain('p5');
+    expect(pairs[2]?.registrations).toContain('p6');
+  });
+});

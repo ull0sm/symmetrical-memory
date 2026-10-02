@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // The HTTP test suites run their own dev server beside your normal one; two servers cannot
+  // share a build folder, so they set NEXT_DIST_DIR (see tests/http/README.md).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   env: {
     NEXT_PUBLIC_OFFLINE_MODE:
       process.env.NEXT_PUBLIC_OFFLINE_MODE ||

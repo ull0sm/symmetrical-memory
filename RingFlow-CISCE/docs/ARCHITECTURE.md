@@ -96,8 +96,13 @@ Notes:
 - An athlete reaches a category in two ways: `category_entries` (official import) and
   `athletes.category_id` (manual add or move). `src/lib/roster/categoryAthletes.ts` merges both and
   is used for counts, draws and attendance.
-- A category is on at most one tatami (`category_assignments.category_id` is unique), and a tatami
-  has at most one category running or paused.
+- A category normally has one assignment (`part = 'ALL'`) on one tatami. When the admin splits its
+  pools across tatamis it has one per part instead: `POOL:n` for each pool and `FINALS` for the
+  semi-finals, final, repechage, bronze and kata medal flight. `(category_id, part)` is unique and a
+  partial unique index keeps one primary row (`ALL` or `FINALS`) per category. Each bout carries the
+  same `matches.part`, so a bout's tatami is found through its own part (`scopeForMatch`), and a
+  tatami scores only its own part. The finals card cannot start until every pool card is completed.
+  A tatami still has at most one category part running or paused.
 - A match ID is text, for example `<categoryId>-m1`.
 - `audit_log` rejects UPDATE through a trigger; rows only disappear when their tournament is deleted.
 
@@ -144,10 +149,6 @@ policy, a permissions policy, and HSTS on HTTPS only so plain-HTTP LAN installs 
 
 ## Known limitations
 
-- **Type check fails.** `npx tsc --noEmit` currently reports about 75 errors, mostly nullable
-  database fields in page components and loosely typed serializer output in
-  `src/lib/serializers.ts`. They are type-level only; the unit tests pass. Because `next build`
-  type-checks, the production build fails until they are fixed.
 - **Single process.** Login rate limits are in memory per process, so run one app instance.
   Scaling out needs a shared store for them.
 - **No offline-to-online sync.** An event runs on one database, either the venue server or the

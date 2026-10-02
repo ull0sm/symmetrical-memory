@@ -6,7 +6,7 @@ export const BASE = process.env.BASE || "http://127.0.0.1:3100";
 export const APP = process.env.APP_DIR;
 
 export function loadActions() {
-  const file = path.join(APP, ".next/dev/server/server-reference-manifest.json");
+  const file = path.join(APP, process.env.NEXT_DIST_DIR || ".next", "dev/server/server-reference-manifest.json");
   const m = JSON.parse(fs.readFileSync(file, "utf8"));
   const out = {};
   for (const [id, entry] of Object.entries(m.node || {})) {

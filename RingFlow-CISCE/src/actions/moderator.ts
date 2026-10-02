@@ -1,5 +1,6 @@
 "use server";
 
+import { poolsFinalsWaitFor } from "@/lib/draws/partRouting";
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
@@ -387,6 +388,14 @@ export async function startCategory(assignmentId: string, ringId: string) {
     throw new Error("This category is already completed. Return it to the queue first.");
   }
 
+  // A split category's finals wait for every pool: the bouts they feed from are on other tatamis.
+  if (assignment.part === "FINALS") {
+    const waiting = await poolsFinalsWaitFor(assignment.categoryId);
+    if (waiting.length > 0) {
+      throw new Error(`The finals wait for ${waiting.length === 1 ? "pool" : "pools"} ${waiting.join(", ")} to finish.`);
+    }
+  }
+
   // A tatami runs exactly one category at a time.
   const [other] = await db
     .select({ id: categoryAssignments.id })
@@ -455,7 +464,8 @@ export async function adjustMatchCount(assignmentId: string, ringId: string, del
     .where(eq(categories.id, assignment.categoryId))
     .limit(1);
 
-  const maxMatches = cat?.expectedMatches ?? Number.MAX_SAFE_INTEGER;
+  // A pool counts against its own bouts, not the whole category's.
+  const maxMatches = assignment.partMatches ?? cat?.expectedMatches ?? Number.MAX_SAFE_INTEGER;
   const newCount = Math.min(maxMatches, Math.max(0, (assignment.matchesCompleted || 0) + step));
 
   await db
@@ -611,6 +621,17 @@ export async function logRingEvent(
 export async function returnCategoryToQueue(assignmentId: string, ringId: string) {
   const moderator = await requireRingModerator(ringId);
   const assignment = await loadAssignmentOnRing(assignmentId, ringId);
+
+  // Reopening a pool while its finals have started would put results above bouts that are no longer decided.
+  if (assignment.part.startsWith("POOL:")) {
+    const [finals] = await db
+      .select({ status: categoryAssignments.status })
+      .from(categoryAssignments)
+      .where(and(eq(categoryAssignments.categoryId, assignment.categoryId), eq(categoryAssignments.part, "FINALS")));
+    if (finals && finals.status !== "pending") {
+      throw new Error("The finals of this category have started, so a pool cannot be reopened.");
+    }
+  }
 
   await db
     .update(categoryAssignments)

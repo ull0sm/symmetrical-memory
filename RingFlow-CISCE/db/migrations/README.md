@@ -16,6 +16,7 @@ This folder contains the RingFlow database schema and migrations for PostgreSQL 
 - These add triggers, backfills, data fixes, and constraints that Drizzle cannot express (e.g. audit-log immutability, status CHECKs).
 - Each migration is **idempotent** — running them multiple times is safe.
 - Applied in numeric order; all are required for a working RingFlow instance.
+- After the SQL files, `npm run db:migrate` also recomputes the size of every pool and finals card from its category's draw (categories split before sizes were stored).
 
 ## Deployment Workflow
 

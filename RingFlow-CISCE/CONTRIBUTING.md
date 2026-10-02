@@ -54,8 +54,7 @@ audit, realtime, offline-first, database changes) are in [AGENTS.md](../AGENTS.m
 ## Before you open a pull request
 
 - `npm run lint` and `npm test` pass.
-- `npx tsc --noEmit` reports no new errors (see the known errors in
-  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+- `npx tsc --noEmit` reports no errors.
 - If you touched authorization, scoring or sessions, run the matching suite in
   [tests/http](tests/http/README.md).
 - Docs that describe what you changed are updated in the same pull request (see "Keeping the docs

@@ -8,6 +8,7 @@ import {
   matchSlots,
   rings,
 } from "@/db/schema";
+import { assignmentPartOfMatch } from "@/lib/draws/partFilter";
 import { commitBoutResult } from "@/lib/bouts/results";
 import { advanceKataPoolFinalists } from "@/lib/kata/poolAdvancement";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
@@ -84,6 +85,8 @@ export async function finalizeKataMatch(params: {
       and(
         eq(matches.categoryId, match.categoryId),
         eq(matches.status, "CONFIRMED"),
+        // A split category counts per part: each tatami counts its own bouts.
+        match.part ? eq(matches.part, match.part) : undefined,
       ),
     );
 
@@ -95,7 +98,12 @@ export async function finalizeKataMatch(params: {
     })
     .from(categoryAssignments)
     .innerJoin(rings, eq(rings.id, categoryAssignments.ringId))
-    .where(eq(categoryAssignments.categoryId, match.categoryId))
+    .where(
+      and(
+        eq(categoryAssignments.categoryId, match.categoryId),
+        eq(categoryAssignments.part, assignmentPartOfMatch(match.part)),
+      ),
+    )
     .limit(1);
 
   if (assignment) {

@@ -22,6 +22,10 @@ tatami when a category is ready.
 | Search athletes by name or chest number | header search | `searchTournamentAthletes` |
 | Mark athletes present, absent or withdrawn (optional) | attendance icon on a category card, or **Attendance** in search | `getCategoryAttendance`, `setAthleteAttendance` |
 
+A category whose pools run on different tatamis appears as a card per pool and for the finals, each on its own
+tatami: athletes are called to the tatami they will fight on, and **calling** and **ready** are set per card. The
+finals card shows which pools it is still waiting for.
+
 The calling and ready status is shown to the moderator and the admin as a status indicator
 (`StagerStatusIndicator`).
 

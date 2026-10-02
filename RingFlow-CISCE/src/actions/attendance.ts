@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { categoryAssignments, categoryAttendance } from "@/db/schema";
@@ -85,7 +85,7 @@ export async function setAthleteAttendance(input: z.input<typeof setSchema>) {
   const [assignment] = await db
     .select({ ringId: categoryAssignments.ringId })
     .from(categoryAssignments)
-    .where(eq(categoryAssignments.categoryId, params.categoryId))
+    .where(and(eq(categoryAssignments.categoryId, params.categoryId), inArray(categoryAssignments.part, ["ALL", "FINALS"])))
     .limit(1);
   // Staff feed only: category_attendance is not a public table.
   broadcastLiveEvent({

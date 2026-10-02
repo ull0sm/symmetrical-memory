@@ -29,7 +29,7 @@ export default async function OrganiserTournamentSelectionPage() {
     .where(eq(tournamentsTable.adminId, admin.adminId))
     .orderBy(desc(tournamentsTable.createdAt));
 
-  const tournamentList = rows.map(serializeTournament);
+  const tournamentList = rows.map((row) => serializeTournament(row));
 
   return (
     <div className="min-h-screen bg-background flex flex-col w-full">

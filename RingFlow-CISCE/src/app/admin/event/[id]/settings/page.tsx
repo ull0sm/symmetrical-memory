@@ -37,7 +37,7 @@ export default async function AdminSettings({ params }: { params: Promise<{ id: 
       <AdminHeader title="Settings" eventName={tournament.name} />
       <SettingsClient 
         tournament={serializeTournamentForAdmin(tournament)} 
-        initialOrganiserRequests={requestRows.map(serializeOrganiserRequest)} 
+        initialOrganiserRequests={requestRows.map((row) => serializeOrganiserRequest(row))} 
       />
     </>
   );

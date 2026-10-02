@@ -1,4 +1,5 @@
 import type { CompetitionFormat } from '@event-suite/rules-engine';
+import type { KataFlightDrawResult } from './kataFlightDraw';
 
 /** Bracket formats the engine can produce (blueprint §5). */
 export type DrawFormat = CompetitionFormat;
@@ -10,9 +11,10 @@ export type SlotPosition = 1 | 2;
  * How a match slot gets filled.
  *
  * `REPECHAGE` slots are deliberately unresolved at generation time: their
- * entrants depend on who reaches the final (blueprint §5.3).
+ * entrants depend on who reaches the final (blueprint §5.3). `ENTRY` is a kata
+ * pool entrant: the athlete is fixed at generation, like `ATHLETE`.
  */
-export type SlotType = 'ATHLETE' | 'WINNER_OF' | 'LOSER_OF' | 'BYE' | 'REPECHAGE';
+export type SlotType = 'ATHLETE' | 'ENTRY' | 'WINNER_OF' | 'LOSER_OF' | 'BYE' | 'REPECHAGE';
 
 export type BracketType = 'MAIN' | 'REPECHAGE' | 'BRONZE' | 'POOL';
 
@@ -111,6 +113,12 @@ export interface MatchNode {
   bracketType: BracketType;
   poolId: string | null;
   slotIds: readonly [string, string];
+  /** Kata pool flights only: the pool this bout belongs to ("Pool A", "Final Flight"). */
+  poolGroup?: string | null;
+  /** Kata only: how the bout is scored. */
+  kataScoringMode?: 'FLAG' | 'POINTS' | null;
+  /** Status a bout is created with when it differs from SCHEDULED (the first kata bout starts READY). */
+  startStatus?: 'READY';
 }
 
 export interface Round {
@@ -131,7 +139,8 @@ export type DrawWarningCode =
   | 'TWO_ENTRANTS'
   | 'SEPARATION_IMPOSSIBLE'
   | 'MISSING_SEED'
-  | 'SEED_OUT_OF_RANGE';
+  | 'SEED_OUT_OF_RANGE'
+  | 'POOL_LARGER_THAN_SETTING';
 
 export interface DrawWarning {
   code: DrawWarningCode;
@@ -153,6 +162,8 @@ export interface DrawGraph {
   matches: readonly MatchNode[];
   slots: readonly SlotNode[];
   pools: readonly Pool[];
+  /** Kata pool flights only: the pool and medal-flight structure the screens render. */
+  flightDraw?: KataFlightDrawResult;
   warnings: readonly DrawWarning[];
   /** SHA-256 over the canonical form of this graph, for change detection. */
   checksum: string;

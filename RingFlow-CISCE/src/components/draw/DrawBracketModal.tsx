@@ -24,6 +24,13 @@ interface Props {
   allowPdf?: boolean;
   /** Admin only: confirmed kumite bouts get a "Correct result" button (reason required). */
   allowCorrections?: boolean;
+  /**
+   * Open on one pool ('POOL:n') or the finals ('FINALS') of a draw with pools, instead of the whole
+   * draw. A moderator is shown only the parts that run on their own tatami whatever is asked here.
+   */
+  part?: string | null;
+  /** The tatami's own view: no switching to other pools or the whole draw. */
+  lockPart?: boolean;
 }
 
 export function DrawBracketModal({
@@ -37,6 +44,8 @@ export function DrawBracketModal({
   subtitle,
   allowPdf = true,
   allowCorrections = false,
+  part = null,
+  lockPart = false,
 }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -45,6 +54,8 @@ export function DrawBracketModal({
   const [isTogglingLock, setIsTogglingLock] = useState(false);
   const [correcting, setCorrecting] = useState<BracketMatchView | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [activePart, setActivePart] = useState<string | null>(part);
+  useEffect(() => setActivePart(part), [part]);
   const isKata =
     categoryName?.toLowerCase().includes("kata") ||
     drawData?.categoryName?.toLowerCase()?.includes("kata") ||
@@ -59,7 +70,7 @@ export function DrawBracketModal({
     let mounted = true;
     setLoading(true);
 
-    const request = athleteId ? getAthleteDraw(athleteId) : getCategoryDraw(categoryId);
+    const request = athleteId ? getAthleteDraw(athleteId) : getCategoryDraw(categoryId, { part: activePart });
 
     request
       .then((data) => {
@@ -69,9 +80,8 @@ export function DrawBracketModal({
             categoryName?.toLowerCase().includes("kata") ||
             (data && "categoryName" in data && typeof data.categoryName === "string" && data.categoryName.toLowerCase().includes("kata")) ||
             (data && "draw" in data && data.draw?.format === "KATA_GROUP_POOLS");
-          if (isCategoryKata) {
-            setViewMode("tables");
-          }
+          // A kata finals view is the medal bouts themselves, not pool tables.
+          setViewMode(isCategoryKata && activePart !== "FINALS" ? "tables" : "tree");
           setLoading(false);
         }
       })
@@ -83,7 +93,7 @@ export function DrawBracketModal({
     return () => {
       mounted = false;
     };
-  }, [categoryId, isOpen, athleteId, reloadKey]);
+  }, [categoryId, isOpen, athleteId, reloadKey, activePart]);
 
   const handleDownloadPdf = async () => {
     try {
@@ -138,6 +148,9 @@ export function DrawBracketModal({
     }
   };
 
+  const shownPart = drawData?.part ? (drawData.partSummary ?? []).find((p: { part: string }) => p.part === drawData.part) ?? null : null;
+  const hasParts = (drawData?.partSummary?.length ?? 0) > 0;
+
   if (!isOpen) return null;
 
   return (
@@ -170,7 +183,9 @@ export function DrawBracketModal({
                 {subtitle ||
                   (athleteId
                     ? "Showing this athlete's path, highlighted in the bracket"
-                    : "Live bracket with bout results")}
+                    : shownPart
+                      ? `${shownPart.label}${shownPart.part === "FINALS" ? "" : ` · ${shownPart.athletes} athletes`}`
+                      : "Live bracket with bout results")}
               </p>
             </div>
           </div>
@@ -236,6 +251,39 @@ export function DrawBracketModal({
           </div>
         </div>
 
+        {/* Which pool: the whole draw, a pool, or the finals. A tatami's own view is fixed to its part. */}
+        {hasParts && !athleteId && !drawData?.locked && (
+          <div className="flex items-center gap-1.5 overflow-x-auto px-6 py-2 bg-[#F5F3EC] border-b border-[#E1DDCF] text-xs">
+            {!lockPart && (
+              <button
+                type="button"
+                onClick={() => setActivePart(null)}
+                className={`px-2.5 py-1 rounded-md font-semibold whitespace-nowrap transition-colors ${
+                  !drawData?.part ? "bg-white text-[#1B1815] shadow-xs font-bold" : "text-[#68645A] hover:text-[#1B1815]"
+                }`}
+              >
+                Whole draw
+              </button>
+            )}
+            {(drawData.partSummary as { part: string; label: string; athletes: number }[])
+              .filter((p) => !lockPart || p.part === drawData.part)
+              .map((p) => (
+                <button
+                  key={p.part}
+                  type="button"
+                  disabled={lockPart}
+                  onClick={() => setActivePart(p.part)}
+                  className={`px-2.5 py-1 rounded-md font-semibold whitespace-nowrap transition-colors ${
+                    drawData.part === p.part ? "bg-white text-[#1B1815] shadow-xs font-bold" : "text-[#68645A] hover:text-[#1B1815]"
+                  } ${lockPart ? "cursor-default" : ""}`}
+                >
+                  {p.label}
+                  {p.part !== "FINALS" && <span className="ml-1 font-data-mono text-[10px] opacity-70">{p.athletes}</span>}
+                </button>
+              ))}
+          </div>
+        )}
+
         {/* Modal Body */}
         <div className="flex-1 p-4 overflow-hidden">
           {loading ? (
@@ -277,7 +325,7 @@ export function DrawBracketModal({
             <DrawBracket
               matches={drawData.matches}
               categoryName={categoryName || drawData.categoryName || "Draw"}
-              tournamentSize={drawData.draw?.tournamentSize}
+              tournamentSize={shownPart && shownPart.part !== "FINALS" ? shownPart.athletes : drawData.draw?.tournamentSize}
               bronzeMedals={drawData.bronzeMedals ?? 2}
               podium={drawData.podium ?? null}
               highlightAthleteId={drawData.highlightAthleteId ?? athleteId ?? null}

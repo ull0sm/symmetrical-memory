@@ -112,10 +112,10 @@ export default async function AdminDashboard({ params }: { params: Promise<{ id:
     <AdminDashboardClient 
       tournament={serializeTournament(tournamentRow)}
       categoryCount={categoryCount}
-      initialRings={ringRows.map(serializeRing)}
+      initialRings={ringRows.map((row) => serializeRing(row))}
       initialAssignments={assignments}
       initialModRequests={modRequests}
-      initialLogs={logRows.map(serializeEventLog)}
+      initialLogs={logRows.map((row) => serializeEventLog(row))}
       initialActiveBouts={initialActiveBouts}
     />
   );

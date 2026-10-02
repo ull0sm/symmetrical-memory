@@ -12,6 +12,14 @@ authorization, sessions and the flows that need a database.
 | `test-judge-panel.mjs` | Judge pairing and approval, seat ownership, the voting window, void and override, server totals |
 | `test-live-feeds.mjs` | Public and staff live feeds, security headers, HSTS, tunnel isolation |
 | `test-attendance.mjs` | Attendance permissions, the desk hint, staff-only visibility |
+| `test-pool-split.mjs` | Splitting a category's pools across tatamis: who may split, which tatami may score which bout, finals waiting for pools, the balancing board leaving pools alone |
+
+## Database checks (no server needed)
+`npm run test:db` runs the draw guard, setup, manual-swap and kata-flow checks straight against the database.
+They write a throwaway tournament and refuse to run unless `DATABASE_URL` points at the isolated test database on port 55432:
+```bash
+DATABASE_URL=postgres://event_suite:event_suite@127.0.0.1:55432/ringflow npm run test:db
+```
 
 ## Running
 1. Start a **throwaway** Postgres. The suites seed data and hammer the logins:
@@ -23,6 +31,11 @@ authorization, sessions and the flows that need a database.
 2. Start the dev server against it on port 3100:
    ```bash
    DATABASE_URL=postgres://event_suite:event_suite@127.0.0.1:55432/ringflow OFFLINE_MODE=true npx next dev -p 3100
+   ```
+   If your normal dev server is already running, give this one its own build folder (two servers
+   cannot share `.next`) and pass the same value to the suites:
+   ```bash
+   export NEXT_DIST_DIR=.next-test
    ```
 3. Run one or more suites. Each run seeds a fresh tournament first:
    ```bash

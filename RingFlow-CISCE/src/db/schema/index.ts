@@ -76,6 +76,10 @@ export const tournaments = pgTable('tournaments', {
   showPublicScoreboard: boolean('show_public_scoreboard').notNull().default(false),
   // 0 = no bronze bout, 1 = single bronze, 2 = repechage with two bronzes (WKF).
   defaultBronzeMedals: integer('default_bronze_medals').notNull().default(2),
+  // 'OFFICIAL' follows WKF procedure strictly; 'LOCAL' uses WKF as a base the organiser may tweak.
+  drawProfile: text('draw_profile').notNull().default('LOCAL'),
+  // Local events only: keep club-mates apart ('CLUB') or draw without regard to club ('OFF').
+  drawSeparation: text('draw_separation').notNull().default('CLUB'),
   tunnelUrl: text('tunnel_url'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
@@ -85,6 +89,8 @@ export const tournaments = pgTable('tournaments', {
     .defaultNow(),
 }, () => [
   statusCheck('tournaments_status_check'),
+  statusCheck('tournaments_draw_profile_check'),
+  statusCheck('tournaments_draw_separation_check'),
 ]);
 
 export const rings = pgTable(
@@ -144,6 +150,8 @@ export const categories = pgTable('categories', {
   docUrl: text('doc_url'),
   // Null means "inherit the tournament's default".
   bronzeMedals: integer('bronze_medals'),
+  // Null means "inherit the tournament's draw profile".
+  drawProfile: text('draw_profile'),
   eventType: text('event_type').notNull().default('kumite'), // 'kumite' | 'kata' | 'team_kumite' | 'team_kata'
   kataFormat: text('kata_format').notNull().default('GROUP_POOLS'), // 'BRACKET' | 'GROUP_POOLS'
   kataScoringMode: text('kata_scoring_mode').notNull().default('FLAG'), // 'FLAG' | 'POINTS'
@@ -155,6 +163,7 @@ export const categories = pgTable('categories', {
 }, () => [
   statusCheck('categories_event_type_check'),
   statusCheck('categories_kata_scoring_mode_check'),
+  statusCheck('categories_draw_profile_check'),
 ]);
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
@@ -214,6 +223,13 @@ export const categoryAssignments = pgTable(
       .notNull()
       .references(() => categories.id, { onDelete: 'cascade' }),
     queueOrder: integer('queue_order').notNull(),
+    // Which part of the category this tatami runs: 'ALL' (the whole category), or once the
+    // admin splits its pools across tatamis, 'POOL:n' for a pool and 'FINALS' for the rest.
+    part: text('part').notNull().default('ALL'),
+    // Size of a part of a split category (null for a whole category): athletes drawn into it and
+    // the bouts it actually runs. Written when the category is split.
+    partAthletes: integer('part_athletes'),
+    partMatches: integer('part_matches'),
     status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'paused' | 'completed'
     matchesCompleted: integer('matches_completed').notNull().default(0),
     completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
@@ -229,7 +245,12 @@ export const categoryAssignments = pgTable(
   },
   (table) => [
     unique().on(table.ringId, table.queueOrder),
-    unique().on(table.categoryId),
+    unique().on(table.categoryId, table.part),
+    // At most one row per category is its primary one ('ALL', or 'FINALS' once split).
+    uniqueIndex('category_assignments_primary_unique')
+      .on(table.categoryId)
+      .where(sql`part IN ('ALL', 'FINALS')`),
+    check('category_assignments_part_check', sql.raw(`part ~ '^(ALL|FINALS|POOL:[1-9][0-9]*)$'`)),
     statusCheck('category_assignments_status_check'),
     statusCheck('category_assignments_stager_status_check'),
   ]
@@ -554,6 +575,8 @@ export const matches = pgTable(
     // Judge phones may vote only while 'open'; 'closed' locks the votes.
     kataVoting: text('kata_voting').notNull().default('idle'), // 'idle' | 'open' | 'closed'
     poolGroup: text('pool_group'), // e.g. 'Pool A', 'Pool B', 'Final Flight'
+    // Set only while the category is split across tatamis: 'POOL:n' or 'FINALS'. Null = whole category.
+    part: text('part'),
     akaKataName: text('aka_kata_name'),
     aoKataName: text('ao_kata_name'),
     akaFlags: integer('aka_flags').notNull().default(0),
@@ -563,6 +586,7 @@ export const matches = pgTable(
   },
   (table) => [
     unique().on(table.categoryId, table.matchNo),
+    check('matches_part_check', sql.raw(`part IS NULL OR part ~ '^(FINALS|POOL:[1-9][0-9]*)$'`)),
     statusCheck('matches_status_check'),
     statusCheck('matches_bracket_type_check'),
     statusCheck('matches_winner_side_check'),
