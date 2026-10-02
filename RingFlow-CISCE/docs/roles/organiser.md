@@ -23,4 +23,5 @@ Anything that writes: settings, categories, athletes, draws, assignments, approv
 pausing, or scoring.
 
 ## Known gaps (see [PLAN.md](../PLAN.md))
-- Results export is allowed server-side but there is no export button on the organiser screens yet.
+- None known after Phase 3. The Official Record page (`/organiser/event/[id]/record`) has the
+  read-only audit log and the CSV/PDF results export.

@@ -28,6 +28,8 @@ interface Props {
   bronzeMedals?: number;
   /** When true, omits the top header so the parent modal header can be unified */
   hideHeader?: boolean;
+  /** Admin only: offers "Correct result" on confirmed bouts. */
+  onCorrectMatch?: (match: BracketMatchView) => void;
 }
 
 /** The recorded score line for one side of a bout. */
@@ -84,6 +86,7 @@ export function DrawBracket({
   podium,
   bronzeMedals = 2,
   hideHeader = false,
+  onCorrectMatch,
 }: Props) {
   const [zoom, setZoom] = useState(1);
   const [selectedMatch, setSelectedMatch] = useState<BracketMatchView | null>(null);
@@ -310,6 +313,22 @@ export function DrawBracket({
         {isDecided && match.decisionMethod && match.decisionMethod !== "POINTS" && (
           <div className="rounded-b-xl border-t border-[#E1DDCF] bg-[#FAF9F5] px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-[#68645A]">
             {match.decisionMethod.replace(/_/g, " ").toLowerCase()}
+          </div>
+        )}
+
+        {onCorrectMatch && !onSelectMatch && isDecided && match.winnerId && match.aka.id && match.ao.id && (
+          <div className="flex justify-end rounded-b-xl border-t border-[var(--line)] bg-[var(--canvas)] p-1.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCorrectMatch(match);
+              }}
+              className="flex min-h-[32px] cursor-pointer items-center gap-1 rounded px-2.5 py-1 text-[10px] font-bold text-[var(--ink-700)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              <span className="material-symbols-outlined text-[13px]">edit_note</span>
+              Correct result
+            </button>
           </div>
         )}
 

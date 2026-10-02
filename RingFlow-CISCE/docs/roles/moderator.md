@@ -40,6 +40,6 @@ Touch other tatamis, edit categories, athletes or draws, change ring assignments
 - Every score change, result, override, and queue change is audited with the moderator's name and session.
 
 ## Known gaps (see [PLAN.md](../PLAN.md))
-- Corrections: the moderator can still re-confirm (correct) a bout while its category is on the
-  mat; it is recorded with the moderator's name. Phase 3 adds a mandatory reason and the audit log.
+- Corrections: while its category is on the mat the moderator can re-confirm (correct) a bout, but
+  only with a reason (5+ characters). It goes into the audit log under the moderator's name.
 - Phase 4: judge approval panel is not built yet.
