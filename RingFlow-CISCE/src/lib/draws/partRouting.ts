@@ -13,7 +13,7 @@ import {
   type RouteCard,
   type Routing,
 } from "@/lib/draws/routingPlan";
-import { and, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, like, ne, sql } from "drizzle-orm";
 
 export type { Routing } from "@/lib/draws/routingPlan";
 
@@ -77,35 +77,30 @@ export async function readRoutingState(executor: DbExecutor, categoryId: string)
 }
 
 /**
- * Fills in the size of any pool or finals card that has none (a category split before sizes were stored), from
- * the category's current draw, so screens never fall back to the whole category's numbers for a part.
+ * Makes the stored size of every pool and finals card on these tatamis match the category's current draw.
+ *
+ * A card with no size (a category split before sizes were stored) always gets one. With `recompute`, a size
+ * that is there but differs from the draw is corrected too, so a card never keeps a stale or borrowed count;
+ * the balancing pages do this on load, the live refresh only fills gaps.
  */
-export async function healPartSizes(ringIds: readonly string[]): Promise<void> {
+export async function healPartSizes(ringIds: readonly string[], options: { recompute?: boolean } = {}): Promise<void> {
   if (ringIds.length === 0) return;
-  const missing = await db
+  const split = await db
     .select()
     .from(categoryAssignments)
-    .where(
-      and(
-        inArray(categoryAssignments.ringId, [...ringIds]),
-        ne(categoryAssignments.part, "ALL"),
-        or(isNull(categoryAssignments.partAthletes), isNull(categoryAssignments.partMatches))
-      )
-    );
-  for (const categoryId of new Set(missing.map((row) => row.categoryId))) {
+    .where(and(inArray(categoryAssignments.ringId, [...ringIds]), ne(categoryAssignments.part, "ALL")));
+  const needing = split.filter((row) => options.recompute || row.partAthletes === null || row.partMatches === null);
+  for (const categoryId of new Set(needing.map((row) => row.categoryId))) {
     const graph = await latestGraph(db, categoryId);
     const parts = graph ? computeDrawParts(graph) : null;
     if (!graph || !parts) continue;
     const roster = rosterByPart(graph, parts);
     const totals = foughtBoutCountByPart(graph, parts.byMatch);
-    for (const row of missing.filter((m) => m.categoryId === categoryId)) {
-      await db
-        .update(categoryAssignments)
-        .set({
-          partAthletes: row.part === "FINALS" ? parts.poolCount : (roster.get(row.part as DrawPart)?.length ?? 0),
-          partMatches: totals.get(row.part) ?? 0,
-        })
-        .where(eq(categoryAssignments.id, row.id));
+    for (const row of needing.filter((m) => m.categoryId === categoryId)) {
+      const partAthletes = row.part === "FINALS" ? parts.poolCount : (roster.get(row.part as DrawPart)?.length ?? 0);
+      const partMatches = totals.get(row.part) ?? 0;
+      if (row.partAthletes === partAthletes && row.partMatches === partMatches) continue;
+      await db.update(categoryAssignments).set({ partAthletes, partMatches }).where(eq(categoryAssignments.id, row.id));
     }
   }
 }

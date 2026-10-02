@@ -50,7 +50,7 @@ export default async function RingBalancingPage({ params }: { params: Promise<{ 
   const completedTimes: Record<string, string> = {};
 
   if (ringIds.length > 0) {
-    await healPartSizes(ringIds);
+    await healPartSizes(ringIds, { recompute: true });
     const [rawAssignments, finishLogs] = await Promise.all([
       db
         .select()

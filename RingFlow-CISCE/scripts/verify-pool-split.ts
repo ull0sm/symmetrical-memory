@@ -131,6 +131,17 @@ async function main() {
       "missing part sizes are filled in from the draw"
     );
 
+    // A size that is there but wrong (borrowed from the whole category) is corrected when asked to recompute.
+    await db.update(categoryAssignments).set({ partAthletes: 64, partMatches: 63 }).where(eq(categoryAssignments.categoryId, big.id));
+    await healPartSizes([ringA.id, ringB.id]);
+    assert.equal((await card(big.id, "POOL:1")).partAthletes, 64, "the live refresh only fills gaps");
+    await healPartSizes([ringA.id, ringB.id], { recompute: true });
+    assert.deepEqual(
+      (await cardsOf(big.id)).filter((c) => c.part.startsWith("POOL")).map((c) => [c.partAthletes, c.partMatches]),
+      [[16, 15], [16, 15], [16, 15], [16, 15]],
+      "a recompute replaces wrong sizes with the draw's"
+    );
+
     // Who is in each pool, and the one-pool view of the draw.
     const pools = await loadCategoryPools(big.id);
     assert.equal(pools?.length, 4);
