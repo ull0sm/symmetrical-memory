@@ -53,7 +53,10 @@ export async function requestOrganiserAccess(
     }
   }
 
-  const codeLimits = [{ key: `access-code:organiser:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }];
+  const codeLimits = [
+    { key: `access-code:organiser:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress },
+    { key: `access-code:organiser:all`, ...RATE_LIMITS.accessCodeGlobal },
+  ];
   if (isBlocked(codeLimits)) {
     return { success: false, error: TOO_MANY_ATTEMPTS };
   }

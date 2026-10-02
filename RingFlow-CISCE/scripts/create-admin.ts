@@ -1,27 +1,10 @@
+import "./loadEnv";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { hashPassword } from "../src/lib/auth/password";
 import { eq } from "drizzle-orm";
 
-function loadEnvFile(filePath: string) {
-  if (!fs.existsSync(filePath)) return;
-
-  for (const line of fs.readFileSync(filePath, "utf-8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex === -1) continue;
-
-    const key = trimmed.slice(0, eqIndex).trim();
-    const value = trimmed.slice(eqIndex + 1).trim().replace(/^['"]|['"]$/g, "");
-    if (!process.env[key]) process.env[key] = value;
-  }
-}
-
-loadEnvFile(path.resolve(process.cwd(), ".env.local"));
-loadEnvFile(path.resolve(process.cwd(), ".env"));
 
 function getArg(name: string) {
   const prefix = `--${name}=`;

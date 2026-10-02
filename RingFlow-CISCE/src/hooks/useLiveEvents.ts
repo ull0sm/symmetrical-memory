@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Subscribe to the server's change feed (`/api/live`).
+ * Subscribe to the server's change feed (`/api/live`, or `/api/live/staff` for
+ * staff screens; see lib/realtime/liveStream.ts).
  *
  * `onChange` fires at most once per debounce window, so a burst of writes (a
  * score save followed by a ring update) costs one refetch rather than five.
@@ -21,8 +22,14 @@ export interface LiveScope {
 export function useLiveEvents(
   scope: LiveScope,
   onChange: (event?: any) => void,
-  options?: { enabled?: boolean; debounceMs?: number }
+  options?: {
+    enabled?: boolean;
+    debounceMs?: number;
+    /** "staff" for admin/organiser/stager/moderator screens (needs a session); public otherwise. */
+    feed?: "public" | "staff";
+  }
 ): { connected: boolean } {
+  const feed = options?.feed ?? "public";
   const enabled = options?.enabled ?? true;
   const debounceMs = options?.debounceMs ?? 0;
 
@@ -43,7 +50,7 @@ export function useLiveEvents(
     else if (scope.tournamentId) params.set("tournamentId", scope.tournamentId);
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const source = new EventSource(`/api/live?${params.toString()}`);
+    const source = new EventSource(`${feed === "staff" ? "/api/live/staff" : "/api/live"}?${params.toString()}`);
 
     const fire = (e?: MessageEvent) => {
       let eventPayload: any = null;
@@ -81,7 +88,7 @@ export function useLiveEvents(
       setConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, enabled, hasScope, debounceMs]);
+  }, [key, enabled, hasScope, debounceMs, feed]);
 
   return { connected };
 }

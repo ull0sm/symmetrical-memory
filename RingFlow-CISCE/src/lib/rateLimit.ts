@@ -52,12 +52,23 @@ export function recordFailure(limits: Limit[]): void {
   }
 }
 
-/** Best-effort client address. Behind a proxy this is the forwarded address. */
+/**
+ * Best-effort client address. Next fills X-Forwarded-For with the socket
+ * address only when the request has none, so on a direct (LAN) install a client
+ * can send its own and pick its bucket: per-address limits are a convenience
+ * there, and every secret also has a per-target or global cap. Behind a reverse
+ * proxy set TRUST_PROXY=true: the proxy appends the real address, so the last
+ * entry is the one to trust.
+ */
 export async function clientAddress(): Promise<string> {
   try {
     const h = await headers();
     const forwarded = h.get("x-forwarded-for");
-    if (forwarded) return forwarded.split(",")[0].trim().slice(0, 64);
+    if (forwarded) {
+      const hops = forwarded.split(",").map((s) => s.trim()).filter(Boolean);
+      const pick = process.env.TRUST_PROXY === "true" ? hops[hops.length - 1] : hops[0];
+      if (pick) return pick.slice(0, 64);
+    }
     return (h.get("x-real-ip") || "direct").slice(0, 64);
   } catch {
     return "direct";
@@ -70,6 +81,12 @@ export const RATE_LIMITS = {
   adminLoginPerEmail: { limit: 8, windowMs: 10 * 60_000 },
   /** Wrong access codes (moderator / stager / organiser) per address. */
   accessCodePerAddress: { limit: 15, windowMs: 10 * 60_000 },
+  /**
+   * Wrong access codes per role, all addresses together: the cap that holds
+   * even when addresses are forged. A guess that hits still needs an admin's
+   * approval; at this rate a 6-digit code space stays out of reach.
+   */
+  accessCodeGlobal: { limit: 200, windowMs: 10 * 60_000 },
   /** Wrong judge PINs per tatami (all devices) and per address. */
   judgePinPerRing: { limit: 30, windowMs: 10 * 60_000 },
   judgePinPerAddress: { limit: 10, windowMs: 10 * 60_000 },

@@ -1,3 +1,4 @@
+import "./loadEnv";
 import { db } from "../src/db";
 import {
   admins,

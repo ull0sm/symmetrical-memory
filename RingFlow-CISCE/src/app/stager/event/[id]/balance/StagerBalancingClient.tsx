@@ -215,7 +215,7 @@ export default function StagerBalancingClient({
     }
   }, [initialRings]);
 
-  useLiveEvents({ tournamentId }, refreshAssignments);
+  useLiveEvents({ tournamentId }, refreshAssignments, { feed: "staff" });
 
   useEffect(() => {
     const poll = setInterval(refreshAssignments, 15000);

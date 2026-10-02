@@ -100,7 +100,7 @@ docker run -d \
   --name ringflow-app \
   -p 3000:3000 \
   -e DATABASE_URL="postgres://event_suite:event_suite@<DB_HOST>:5432/ringflow" \
-  -e NEXT_PUBLIC_SUPABASE_URL="http://<SERVER_HOST>:3000" \
+  -e APP_URL="https://<PUBLIC_HOST>" \n  -e TRUST_PROXY="true" \
   ringflow:latest
 ```
 

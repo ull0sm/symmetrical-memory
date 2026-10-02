@@ -165,7 +165,7 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
   useLiveEvents({ ringId }, () => {
     loadBoutData();
     refreshAssignments();
-  });
+  }, { feed: "staff" });
 
   useEffect(() => {
     // Adaptive cadence: a running clock re-anchors every second, otherwise the
@@ -627,7 +627,6 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
                         activeMatch={boutData.currentMatch}
                         category={activeAssignment.categories}
                         scores={boutData.currentMatch.kataScores || []}
-                        tunnelUrl={boutData.tournament?.tunnelUrl || boutData.tournament?.tunnel_url}
                         onRefresh={() => {
                           loadBoutData();
                           refreshAssignments();

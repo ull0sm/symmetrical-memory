@@ -11,7 +11,9 @@ work is tracked in [docs/PLAN.md](docs/PLAN.md).
 
 ## Stack
 Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind v4 · Drizzle ORM ·
-PostgreSQL 16 · SSE (`/api/live`) fed by Postgres `LISTEN/NOTIFY` and an in-memory bus · pdf-lib · xlsx · zod.
+PostgreSQL 16 · SSE (`/api/live` public, `/api/live/staff` staff-only) fed by Postgres `LISTEN/NOTIFY` and an
+in-memory bus · pdf-lib · xlsx · zod. The environment is validated at boot (`src/lib/env.ts`); deployment modes
+are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 There is no external auth provider (Supabase was removed). Sessions are random tokens in httpOnly
 cookies; Postgres stores only their sha256 (`admin_sessions`, `*_requests.session_token_hash`).
 
@@ -21,6 +23,7 @@ npm run dev            # dev server on 0.0.0.0:3000
 npm run build          # production build + typecheck (the real CI gate)
 npm run lint           # eslint
 npm run db:push        # apply src/db/schema to the DB (drizzle-kit)
+npm run db:migrate     # apply the SQL migrations 8+ (triggers etc.); idempotent
 npm run db:seed        # realistic demo tournament
 npm run db:reset       # wipe + clean seed
 npm run db:create-admin -- --email=a@b.c --password=... --name="..."
@@ -75,7 +78,7 @@ Local DB: `docker compose up -d db`. Env template: `.env.example`.
 - Server actions return `{ success, error? }` for expected failures and throw only on auth failures.
 - Validate action inputs with zod. Don't use `any` in new code, and don't write empty `catch {}`.
 - After a write, call `broadcastLiveEvent(...)` (scoped by ringId/tournamentId) and `revalidatePath(...)`.
-  Screens subscribe with `useLiveEvents(scope, refetch)`. Polling is only a slow fallback.
+  Screens subscribe with `useLiveEvents(scope, refetch)`; staff screens pass `{ feed: "staff" }`. Polling is only a slow fallback.
 - Styling: Tailwind with the tokens in `src/app/globals.css`. New UI must match the existing design
   language (see `frontend-design/DESIGN.md`). Don't add new inline hex colours.
 - Statuses are text columns. Valid values are listed in comments in `schema/index.ts`. Keep them consistent.

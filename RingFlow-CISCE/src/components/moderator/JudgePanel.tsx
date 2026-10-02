@@ -18,6 +18,8 @@ type PanelSession = {
 type Panel = {
   pin: string;
   pairingKey: string;
+  /** Where phones reach the server (tunnel URL or APP_URL); null = this page's origin. */
+  baseUrl: string | null;
   seats: number;
   sessions: PanelSession[];
 };
@@ -37,8 +39,6 @@ interface Props {
   matchStatus?: string | null;
   voting: "idle" | "open" | "closed";
   scores: ScoreRow[];
-  /** Public base URL for the QR link (tunnel / hosted); defaults to this page's origin. */
-  baseUrl?: string | null;
   onChanged: () => void;
 }
 
@@ -52,7 +52,7 @@ const smallBtn =
  * approve / reject / kick per seat, open and close voting on the bout, void a
  * seat's vote. Small events can ignore it and enter marks at the desk.
  */
-export function JudgePanel({ ringId, matchId, matchStatus, voting, scores, baseUrl, onChanged }: Props) {
+export function JudgePanel({ ringId, matchId, matchStatus, voting, scores, onChanged }: Props) {
   const [panel, setPanel] = useState<Panel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -63,7 +63,7 @@ export function JudgePanel({ ringId, matchId, matchStatus, voting, scores, baseU
     try {
       const res = await getJudgePanel(ringId);
       if (res.success) {
-        setPanel({ pin: res.pin, pairingKey: res.pairingKey, seats: res.seats, sessions: res.sessions });
+        setPanel({ pin: res.pin, pairingKey: res.pairingKey, baseUrl: res.baseUrl, seats: res.seats, sessions: res.sessions });
         setError(null);
       } else {
         setError(res.error);
@@ -81,13 +81,13 @@ export function JudgePanel({ ringId, matchId, matchStatus, voting, scores, baseU
 
   useLiveEvents({ ringId }, (event) => {
     if (event?.table === "judge_sessions" || event?.table === "rings") load();
-  });
+  }, { feed: "staff" });
 
   const pairingUrl = useMemo(() => {
     if (!panel) return null;
-    const origin = (baseUrl || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/+$/, "");
+    const origin = panel.baseUrl || (typeof window !== "undefined" ? window.location.origin : "");
     return `${origin}/judge/ring/${ringId}?k=${encodeURIComponent(panel.pairingKey)}`;
-  }, [panel, baseUrl, ringId]);
+  }, [panel, ringId]);
 
   useEffect(() => {
     if (!pairingUrl) return;

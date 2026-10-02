@@ -120,7 +120,7 @@ export default function RingsClient({
     }
   }, [tournamentId]);
 
-  useLiveEvents({ tournamentId }, refreshRingsData);
+  useLiveEvents({ tournamentId }, refreshRingsData, { feed: "staff" });
 
   useEffect(() => {
     const poll = setInterval(refreshRingsData, 15000);

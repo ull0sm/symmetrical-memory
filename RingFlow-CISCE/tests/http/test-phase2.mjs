@@ -57,17 +57,19 @@ const plaintextLeft = await sql`
 check("no plaintext staff session tokens in the database", Number(plaintextLeft[0].n) === 0, `${plaintextLeft[0].n} left`);
 
 // ── Rate limits ────────────────────────────────────────────────────────────
+// Guessing loops come from their own address so they don't throttle the other suites.
+const GUESSER = { "X-Forwarded-For": `198.51.100.${Math.floor(Math.random() * 250) + 1}` };
 const victim = `ratelimit-${Date.now()}@test.local`;
 let blocked = false;
 for (let i = 0; i < 10; i++) {
-  const r = await call(A, "signInWithAdminPassword", [{ email: victim, password: "wrong" + i }], new Jar());
+  const r = await call(A, "signInWithAdminPassword", [{ email: victim, password: "wrong" + i }], new Jar(), undefined, GUESSER);
   if (/Too many attempts/.test(r.value?.error || "")) { blocked = true; break; }
 }
 check("repeated wrong passwords for one email get throttled", blocked);
 
 let pinBlocked = false;
 for (let i = 0; i < 35; i++) {
-  const r = await call(A, "requestJudgeSeat", [{ ringId: R1, pin: String(1000 + i), name: "x", seat: 1 }], new Jar());
+  const r = await call(A, "requestJudgeSeat", [{ ringId: R1, pin: String(1000 + i), name: "x", seat: 1 }], new Jar(), undefined, GUESSER);
   if (/Too many attempts/.test(r.value?.error || "")) { pinBlocked = true; break; }
 }
 check("judge PIN guessing on a tatami gets throttled", pinBlocked);

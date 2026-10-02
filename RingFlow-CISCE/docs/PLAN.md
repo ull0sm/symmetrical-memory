@@ -155,15 +155,28 @@ Not yet done: a real phone over the LAN/tunnel, and 7-seat panels in the UI.
 ## Phase 5 — Online-ready deployment
 Goal: the same build runs on a venue LAN (offline) and on a hosted server (online).
 
-- [ ] 5.1 Validate the environment with zod at boot (`DATABASE_URL`, `OFFLINE_MODE`, `APP_URL`,
+- [x] 5.1 Validate the environment with zod at boot (`DATABASE_URL`, `OFFLINE_MODE`, `APP_URL`,
   Turnstile keys optional). Fail fast with clear messages.
-- [ ] 5.2 Single `APP_URL` setting, used for QR codes, links and cookie security (replaces
+- [x] 5.2 Single `APP_URL` setting, used for QR codes, links and cookie security (replaces
   `NEXT_PUBLIC_SUPABASE_URL` and `tunnelUrl` guessing).
-- [ ] 5.3 Security headers: CSP, `X-Frame-Options` (the scoreboard may need framing, so make it
+- [x] 5.3 Security headers: CSP, `X-Frame-Options` (the scoreboard may need framing, so make it
   configurable), and HSTS when on HTTPS.
-- [ ] 5.4 Split the SSE stream into public (tournament-scoped, minimal) and staff (requires a session) feeds.
-- [ ] 5.5 Document both deployment modes in `OFFLINE_VENUE_GUIDE.md`, plus a hosted guide.
-- [ ] 5.6 (Later) Offline ↔ online sync is out of scope for now. Note it as a future decision.
+- [x] 5.4 Split the SSE stream into public (tournament-scoped, minimal) and staff (requires a session) feeds.
+- [x] 5.5 Document both deployment modes in `OFFLINE_VENUE_GUIDE.md`, plus a hosted guide.
+- [x] 5.6 (Later) Offline ↔ online sync is out of scope for now. Note it as a future decision.
+
+**Status (2026-10-02): done.** `src/lib/env.ts` validates the environment with zod; `src/instrumentation.ts`
+runs it at boot. `DATABASE_URL` has no silent default any more: the DB module, drizzle config and
+scripts all refuse to guess, and scripts load `.env` files via `scripts/loadEnv.ts`. `APP_URL` (or an
+event's tunnel URL) sets the judge QR base, resolved server-side in `getJudgePanel`. Cookie
+`Secure` stays per request, so LAN HTTP and hosted HTTPS both work. Security headers are set per
+request in the proxy (`lib/http/securityHeaders.ts`): CSP, frame-ancestors (`FRAME_ANCESTORS` for
+`/scoreboard` and `/public`), and HSTS on HTTPS only. Live feeds are split: `/api/live` (public) and
+`/api/live/staff` (401 without a staff session; tunnel hosts can't reach it). Also: `npm run db:migrate`
+applies SQL migrations 8+; a global cap on failed access codes, because `X-Forwarded-For` can be forged
+on a direct install (`TRUST_PROXY=true` behind a proxy); the PDF viewer skips its CDN when offline;
+`bootstrap-db` no longer prints the DB password. Docs: `docs/DEPLOYMENT.md`, `OFFLINE_VENUE_GUIDE.md`.
+Verified by a 20-check suite plus phases 1–4.
 
 ---
 

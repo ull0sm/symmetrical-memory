@@ -3,10 +3,11 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/db";
-import { judgeSessions, rings } from "@/db/schema";
+import { judgeSessions, rings, tournaments } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { describePrincipal, requireRingOperator, tournamentIdForRing } from "@/lib/auth";
 import { JUDGE_PANEL_SEATS, JUDGE_SESSION_TTL_MS } from "@/lib/constants";
+import { appUrl } from "@/lib/env";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { isValidUuid } from "@/lib/utils";
 
@@ -32,8 +33,9 @@ async function loadSession(sessionId: string) {
 export async function getJudgePanel(ringId: string) {
   await requireRingOperator(ringId);
   const [ring] = await db
-    .select({ name: rings.name, pin: rings.judgePin, key: rings.judgePairingKey })
+    .select({ name: rings.name, pin: rings.judgePin, key: rings.judgePairingKey, tunnelUrl: tournaments.tunnelUrl })
     .from(rings)
+    .innerJoin(tournaments, eq(tournaments.id, rings.tournamentId))
     .where(eq(rings.id, ringId))
     .limit(1);
   if (!ring) return { success: false as const, error: "Tatami not found" };
@@ -58,6 +60,8 @@ export async function getJudgePanel(ringId: string) {
     ringName: ring.name,
     pin: ring.pin,
     pairingKey: ring.key,
+    // Where phones reach this server: the event's tunnel URL, else APP_URL; null = the desk's own origin.
+    baseUrl: (ring.tunnelUrl?.trim() || appUrl() || null)?.replace(/\/+$/, "") ?? null,
     seats: JUDGE_PANEL_SEATS,
     sessions: rows
       .filter((r) => r.status === "pending" || (r.expiresAt && r.expiresAt > now))

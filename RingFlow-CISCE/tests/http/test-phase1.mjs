@@ -231,7 +231,7 @@ const mod2 = new Jar();
 const r2 = await call(A, "requestModeratorAccess", [ringCode, "Second Shift", {}, "offline-bypass"], mod2);
 const unscoped = collect(`${BASE}/api/live`, 2500);
 const publicT = collect(`${BASE}/api/live?tournamentId=${T1}`, 2500);
-const staffT = collect(`${BASE}/api/live?tournamentId=${T1}`, 2500, admin);
+const staffT = collect(`${BASE}/api/live/staff?tournamentId=${T1}`, 2500, admin);
 await new Promise((r) => setTimeout(r, 600));
 await call(A, "approveModeratorRequest", [r2.value.requestId, R1, T1], admin);
 await call(A, "updateCategoryStagerStatus", [assignment.category_id, T1, "ready"], st);

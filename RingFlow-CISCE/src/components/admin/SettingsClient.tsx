@@ -102,7 +102,7 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
   }, [tournament.id]);
 
   // Live real-time SSE listener
-  useLiveEvents({ tournamentId: tournament.id }, refreshRequests);
+  useLiveEvents({ tournamentId: tournament.id }, refreshRequests, { feed: "staff" });
 
   // Polling fallback
   useEffect(() => {
