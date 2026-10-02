@@ -49,7 +49,7 @@ function OrganiserLoginContent() {
     // 2. If already logged in and not explicitly revoked, auto-forward to dashboard
     if (searchParams.get("reason") !== "revoked") {
       validateOrganiserSessionAction().then((res) => {
-        if (res.valid && res.tournamentId) {
+        if (res.valid && "tournamentId" in res && res.tournamentId) {
           router.replace(`/organiser/event/${res.tournamentId}/dashboard`);
         }
       }).catch(() => {});

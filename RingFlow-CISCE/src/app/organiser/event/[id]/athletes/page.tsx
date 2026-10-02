@@ -2,7 +2,7 @@ import React, { Suspense } from "react";
 import OrganiserHeader from "@/components/layout/OrganiserHeader";
 import { redirect } from "next/navigation";
 import AthletesClient from "@/components/admin/AthletesClient";
-import { ensureOrganiserHasAccessToTournament } from "@/actions/organiser";
+import { getTournamentStaff } from "@/lib/auth/guards";
 import { db } from "@/db";
 import { tournaments as tournamentsTable, athletes as athletesTable, categories as categoriesTable } from "@/db/schema";
 import { eq, desc, asc } from "drizzle-orm";
@@ -11,9 +11,8 @@ import { serializeAthlete } from "@/lib/serializers";
 export default async function OrganiserAthletesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
 
-  try {
-    await ensureOrganiserHasAccessToTournament(tournamentId);
-  } catch {
+  // Organisers of this event, or its own admin previewing the organiser view.
+  if (!(await getTournamentStaff(tournamentId, ["organiser", "admin"]))) {
     redirect("/");
   }
 

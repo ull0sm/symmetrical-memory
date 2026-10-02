@@ -128,7 +128,7 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
         setOrganiserCode(res.organiser_code);
         setShowOrganiserCode(true);
       } else {
-        alert(res?.error || "Failed to regenerate code.");
+        alert("Failed to regenerate code.");
       }
       router.refresh();
     } catch (err: any) {
@@ -191,10 +191,14 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
     setIsSaving(true);
     setSaveSuccessMessage(null);
     try {
-      await updateTournamentSettings(tournament.id, {
+      const res = await updateTournamentSettings(tournament.id, {
         ...form,
         default_bronze_medals: Number(form.default_bronze_medals) as 0 | 1 | 2 | 3,
       });
+      if (!res.success) {
+        alert(res.error || "Failed to save settings.");
+        return;
+      }
       setSaveSuccessMessage("Settings saved successfully.");
       router.refresh();
       setTimeout(() => setSaveSuccessMessage(null), 4000);

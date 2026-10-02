@@ -1,6 +1,6 @@
 import React from "react";
 import { redirect } from "next/navigation";
-import { ensureStagerHasAccessToTournament } from "@/actions/stager";
+import { getTournamentStaff } from "@/lib/auth/guards";
 import StagerBalancingClient from "./StagerBalancingClient";
 import { db } from "@/db";
 import {
@@ -13,7 +13,7 @@ import {
 import { eq, inArray, desc, asc, and } from "drizzle-orm";
 import { serializeRing, serializeCategory, serializeCategoryAssignment } from "@/lib/serializers";
 
-export const revalidate = 10;
+export const dynamic = "force-dynamic";
 
 export default async function StagerBalancePage({
   params,
@@ -22,10 +22,9 @@ export default async function StagerBalancePage({
 }) {
   const { id: tournamentId } = await params;
 
-  let stagerInfo: any;
-  try {
-    stagerInfo = await ensureStagerHasAccessToTournament(tournamentId);
-  } catch {
+  // Stagers of this event, or its own admin checking the call area.
+  const stagerInfo = await getTournamentStaff(tournamentId, ["stager", "admin"]);
+  if (!stagerInfo) {
     redirect("/login/stager");
   }
 

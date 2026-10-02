@@ -41,8 +41,8 @@ export function KataPoolTableDraw({
   const [akaKataName, setAkaKataName] = useState<string>("");
   const [aoKataNum, setAoKataNum] = useState<number | "">("");
   const [aoKataName, setAoKataName] = useState<string>("");
-  const [akaScoreInput, setAkaScoreInput] = useState<string>("7.5");
-  const [aoScoreInput, setAoScoreInput] = useState<string>("7.0");
+  const [akaScoreInput, setAkaScoreInput] = useState<string>("");
+  const [aoScoreInput, setAoScoreInput] = useState<string>("");
   const [selectedWinner, setSelectedWinner] = useState<"AKA" | "AO">("AKA");
   const [isSubmittingMarks, setIsSubmittingMarks] = useState(false);
   const [expandedPools, setExpandedPools] = useState<Record<string, boolean>>({
@@ -140,7 +140,7 @@ export function KataPoolTableDraw({
       const isAo = m.ao?.id === ath.id || m.ao?.displayName === ath.name;
       if (!isAka && !isAo) return;
 
-      if (m.status === "COMPLETED" || m.winnerSide) {
+      if (m.status === "CONFIRMED" || m.status === "COMPLETED") {
         const isWinner =
           (isAka && (m.winnerSide === "AKA" || m.winner_side === "AKA")) ||
           (isAo && (m.winnerSide === "AO" || m.winner_side === "AO")) ||
@@ -176,7 +176,7 @@ export function KataPoolTableDraw({
   };
 
   const hasPoolACompleted = poolAMatches.some(
-    (m) => m.status === "COMPLETED" || Boolean(m.winnerSide)
+    (m) => m.status === "CONFIRMED" || m.status === "COMPLETED"
   );
   const poolAComputed = poolAAthletes
     .map((a, i) => calculateAthleteStats(a, poolAMatches, i + 1))
@@ -191,7 +191,7 @@ export function KataPoolTableDraw({
     }));
 
   const hasPoolBCompleted = poolBMatches.some(
-    (m) => m.status === "COMPLETED" || Boolean(m.winnerSide)
+    (m) => m.status === "CONFIRMED" || m.status === "COMPLETED"
   );
   const poolBComputed = poolBAthletes
     .map((a, i) => calculateAthleteStats(a, poolBMatches, i + 1))
@@ -260,8 +260,9 @@ export function KataPoolTableDraw({
         akaKataName: akaKataName || undefined,
         aoKataNumber: typeof aoKataNum === "number" ? aoKataNum : undefined,
         aoKataName: aoKataName || undefined,
-        akaScore: parseFloat(akaScoreInput) || 7.5,
-        aoScore: parseFloat(aoScoreInput) || 7.0,
+        // A blank box means "no score entered" — never a made-up default.
+        akaScore: akaScoreInput.trim() ? parseFloat(akaScoreInput) : undefined,
+        aoScore: aoScoreInput.trim() ? parseFloat(aoScoreInput) : undefined,
         winnerSide: selectedWinner,
         finalize,
       });
@@ -438,7 +439,7 @@ export function KataPoolTableDraw({
                       {pool.matches.map((m: any) => {
                         const akaAth = m.akaAthlete || m.aka || athletesById.get(m.akaAthleteId) || athletesById.get(m.aka?.id);
                         const aoAth = m.aoAthlete || m.ao || athletesById.get(m.aoAthleteId) || athletesById.get(m.ao?.id);
-                        const isCompleted = m.status === "COMPLETED";
+                        const isCompleted = m.status === "CONFIRMED" || m.status === "COMPLETED";
 
                         return (
                           <div
@@ -545,10 +546,7 @@ export function KataPoolTableDraw({
                       Boolean(m.roundName?.toLowerCase().includes("final")) ||
                       m.bracketType === "MAIN");
 
-                  const isFinished =
-                    m.status === "COMPLETED" ||
-                    m.status === "CONFIRMED" ||
-                    Boolean(m.winnerSide);
+                  const isFinished = m.status === "COMPLETED" || m.status === "CONFIRMED";
                   const isLive = m.status === "LIVE";
 
                   const akaScoreVal = parseFloat(

@@ -47,25 +47,15 @@ Create a new branch from `main` using the appropriate prefix:
 
 ## Architectural Principles
 
-Before writing any database or state modifications, make sure you understand the core design principles of RingFlow:
+Read [AGENTS.md](AGENTS.md) (rules and layout), [PRD.md](PRD.md) (product) and
+[docs/roles/](docs/roles/README.md) (who may do what) before changing behaviour.
 
-### 1. Coarse-Grained Tracking
-RingFlow is designed to be a lightweight, operationally-focused floor management control center.
-* **Do NOT** implement complex scoring mechanisms, referee controls, or bracket trees.
-* Track coarse-grained progress (e.g., match count completions, ring status, and active pauses).
-
-### 2. Event-Sourced State
-All core progress events (starting a category, incrementing matches completed, pausing/resuming, finishing a category) are modeled as immutable, timestamped events:
-* **Rule**: Write actions should append events to the `public.event_log` table.
-* **Rule**: Read actions and dashboard metrics (completion percentages, ETAs, active status) should be calculated dynamically by parsing/summarizing the event logs rather than mutating a single static state field.
-* This keeps the history and the current state mathematically synchronized.
-
-### 3. Database Migrations
-We use Supabase for database management and real-time subscription infrastructure. All schema modifications must be scripted as SQL files.
-* **Location**: Place all new SQL migration scripts inside [supabase/migrations/](file:///d:/Programming/RingFlowDevelopment/docs/RingFlow/supabase/migrations).
-* **Format**: Name migration files using a timestamped prefix followed by a snake_case description: `YYYYMMDDHHMMSS_description.sql`.
-* **Idempotency**: Ensure migration scripts are repeatable (e.g., use `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, etc.).
-* **Realtime Enablement**: If you add new tables that require real-time updates on dashboards, explicitly add them to the `supabase_realtime` publication in a migration script:
-  ```sql
-  ALTER PUBLICATION supabase_realtime ADD TABLE public.your_table_name;
-  ```
+1. **Every exported server action authorizes itself.** It checks role, tenancy (the admin owns the
+   tournament), and scope (the moderator owns the tatami). UI guards are not security.
+2. **Audit official actions.** Writes that change scores, results, draws, approvals or the queue
+   record who did what (see [docs/PLAN.md](docs/PLAN.md) Phase 3).
+3. **Realtime:** after a write, call `broadcastLiveEvent` with ids only (never tokens or PINs).
+   Screens refetch through `useLiveEvents`.
+4. **Database changes:** edit `src/db/schema/index.ts`, then add an idempotent SQL file in
+   `supabase/migrations/` (`migrationN_description.sql`). If a new table must drive live screens,
+   add its trigger to the `ringflow_events` NOTIFY function (see `migration8_realtime_notify.sql`).

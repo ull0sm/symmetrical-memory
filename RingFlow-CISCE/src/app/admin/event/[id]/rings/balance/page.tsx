@@ -1,6 +1,6 @@
 import React from "react";
 import { redirect } from "next/navigation";
-import { ensureAdminOwnsTournament } from "@/actions/admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 import RingBalancingClient from "./RingBalancingClient";
 import { db } from "@/db";
 import {
@@ -16,7 +16,7 @@ import { serializeRing, serializeCategory, serializeCategoryAssignment } from "@
 export default async function RingBalancingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
   try {
-    await ensureAdminOwnsTournament(tournamentId);
+    await requireTournamentAdmin(tournamentId);
   } catch {
     redirect("/admin");
   }

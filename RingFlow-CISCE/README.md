@@ -58,10 +58,12 @@ RingFlow is a modern, real-time tournament operations and scoring platform purpo
 
 ## User Roles & Operational Workflows
 
+> Authoritative role rules: [docs/roles/](docs/roles/README.md). Known gaps: [docs/PLAN.md](docs/PLAN.md).
+
 | Persona | Access Route | Authentication / Access Model | Primary Capabilities |
 | :--- | :--- | :--- | :--- |
 | **Tournament Director (Admin)** | `/admin` | Email + Password (`admin@ringflow.org`) | Full tournament oversight, create/edit rings and categories, monitor live tatami statuses, approve moderator/stager access requests, balance categories across rings, configure audit settings. |
-| **Tournament Organiser** | `/organiser` | Code-based request (`ORG001`) with Admin approval | Configure category definitions (CISCE & custom weight/age presets), import multi-event athlete rosters (Kumite & Kata), generate brackets, download bulk PDF draw packages, export official Excel results. |
+| **Tournament Organiser** | `/organiser` | Event organiser code + admin approval | **Read-only** observer of one event: live overview, roster, categories, ring balance, brackets, and results. |
 | **Staging Marshall** | `/stager` | Code-based request (`STAGE01`) with Admin approval | Marshalling area view to call up competitors, inspect category bout sequences, verify athlete presence, and ready divisions for tatami assignment. |
 | **Tatami Table Official (Moderator)** | `/moderator/ring/[ringId]/current` | Ring Access Code (`RING01`…) with Admin approval | Control active bout: Yuko/Waza-ari/Ippon points, Senshu advantage, C1/C2 penalties, start/stop match timer, swap display sides, record bout outcome, advance to next match. |
 | **Arena TV Scoreboard** | `/scoreboard/[ringId]` | Direct URL / Mat-side display | Fullscreen spectator and athlete-facing display showing live scores, names, schools, match timer, penalty markers, and winner cards. |

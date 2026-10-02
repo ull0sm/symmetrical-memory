@@ -1,0 +1,19 @@
+PASS  setup: a bout with an AO athlete is on the mat
+PASS  anonymous cannot read attendance
+PASS  stager reads the category's athletes
+PASS  organiser cannot read attendance (not in the role matrix)
+PASS  organiser cannot mark attendance (read-only)
+PASS  moderator cannot mark attendance
+PASS  anonymous cannot mark attendance
+PASS  cannot mark an athlete from another category
+PASS  stager marks AO absent
+PASS  mark records who set it
+PASS  marking is audited
+PASS  admin may mark attendance
+PASS  moderator's bout data carries the hint
+PASS  a withdrawn mark blocks nothing (bout still ready)
+PASS  public scoreboard data has no attendance
+PASS  tapping again clears the mark
+PASS  nothing is blocked: the bout is still ready to score
+
+17/17 passed

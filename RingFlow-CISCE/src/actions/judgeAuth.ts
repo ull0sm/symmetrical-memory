@@ -5,6 +5,21 @@ import { rings, judgeRequests } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { revalidatePath } from "next/cache";
+import { requireRingOperator } from "@/lib/auth/guards";
+
+/** Judge requests as the moderator desk sees them: no device tokens. */
+function publicJudgeRequest(r: typeof judgeRequests.$inferSelect) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { deviceToken, ...rest } = r;
+  return rest;
+}
+
+async function loadJudgeRequestForOperator(requestId: string) {
+  const [current] = await db.select().from(judgeRequests).where(eq(judgeRequests.id, requestId)).limit(1);
+  if (!current) return null;
+  await requireRingOperator(current.ringId);
+  return current;
+}
 
 /**
  * Judge phone requests access to a Tatami.
@@ -153,22 +168,20 @@ export async function checkJudgeAccessStatus(ringId: string, deviceToken: string
  * Moderator gets all pending and active judge devices for their Tatami.
  */
 export async function getRingJudgeRequests(ringId: string) {
-  return db
+  await requireRingOperator(ringId);
+  const rows = await db
     .select()
     .from(judgeRequests)
     .where(eq(judgeRequests.ringId, ringId))
     .orderBy(judgeRequests.seatNumber);
+  return rows.map(publicJudgeRequest);
 }
 
 /**
  * Moderator approves a judge device and assigns their seat.
  */
 export async function approveJudgeRequest(requestId: string, assignedSeat?: number) {
-  const [current] = await db
-    .select()
-    .from(judgeRequests)
-    .where(eq(judgeRequests.id, requestId))
-    .limit(1);
+  const current = await loadJudgeRequestForOperator(requestId);
 
   if (!current) {
     return { success: false, error: "Request not found" };
@@ -190,10 +203,7 @@ export async function approveJudgeRequest(requestId: string, assignedSeat?: numb
     id: requestId,
     ringId: current.ringId,
     status: "approved",
-    data: {
-      deviceToken: current.deviceToken,
-      seatNumber: updated.seatNumber,
-    },
+    data: { seatNumber: updated.seatNumber },
   });
 
   try {
@@ -201,18 +211,14 @@ export async function approveJudgeRequest(requestId: string, assignedSeat?: numb
     revalidatePath(`/judge/ring/${current.ringId}`);
   } catch {}
 
-  return { success: true, request: updated };
+  return { success: true, request: publicJudgeRequest(updated) };
 }
 
 /**
  * Moderator rejects a judge request.
  */
 export async function rejectJudgeRequest(requestId: string) {
-  const [current] = await db
-    .select()
-    .from(judgeRequests)
-    .where(eq(judgeRequests.id, requestId))
-    .limit(1);
+  const current = await loadJudgeRequestForOperator(requestId);
 
   if (!current) {
     return { success: false, error: "Request not found" };
@@ -232,9 +238,7 @@ export async function rejectJudgeRequest(requestId: string) {
     id: requestId,
     ringId: current.ringId,
     status: "rejected",
-    data: {
-      deviceToken: current.deviceToken,
-    },
+
   });
 
   return { success: true };

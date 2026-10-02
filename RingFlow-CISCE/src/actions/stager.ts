@@ -1,44 +1,39 @@
 "use server";
 
-import { createClient } from "@/utils/supabase/server";
 import { db } from "@/db";
-import { tournaments, stagerRequests, categoryAssignments, rings, admins } from "@/db/schema";
-import { eq, and, or, inArray, desc } from "drizzle-orm";
+import { tournaments, stagerRequests, categoryAssignments, rings } from "@/db/schema";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { cookies, headers } from "next/headers";
-import { ensureAdminOwnsTournament } from "./admin";
+import { headers } from "next/headers";
 import { normalizeAccessCode, generateUnambiguousCode, isValidUuid } from "@/lib/utils";
 import { serializeStagerRequest } from "@/lib/serializers";
 import { isOfflineMode } from "@/lib/offline";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { broadcastLiveEvent } from "@/lib/realtime/bus";
+import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from "@/lib/auth/cookies";
+import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
+import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { getStagerPrincipal } from "@/lib/auth/principal";
 
 export type StagerCode = {
   code: string;
   label: string;
 };
 
-// ─── Public: Request stager access ────────────────────────────────────────────
+const STAGER_SESSION_SECONDS = 48 * 60 * 60;
 
-/**
- * Stager submits their access code + name to request tournament access.
- * Validates code against the stager_codes JSONB array on the tournament.
- */
+// ─── Public: request access ─────────────────────────────────────────────────
+
+/** A stager asks for access with one of the tournament's stager codes. */
 export async function requestStagerAccess(
   accessCode: string,
   stagerName: string,
-  deviceInfo?: any,
+  deviceInfo?: Record<string, unknown>,
   turnstileToken?: string
 ) {
   const secretKey = process.env.TURNSTILE_SECRET_KEY;
-  const isTurnstileRequired = Boolean(
-    secretKey && secretKey !== "disabled" && !isOfflineMode()
-  );
+  const isTurnstileRequired = Boolean(secretKey && secretKey !== "disabled" && !isOfflineMode());
   if (isTurnstileRequired) {
-    if (!turnstileToken) {
-      return { success: false, error: "Security check is required." };
-    }
-
+    if (!turnstileToken) return { success: false, error: "Security check is required." };
     const { verifyTurnstileToken } = await import("./turnstile");
     const verification = await verifyTurnstileToken(turnstileToken);
     if (!verification.success) {
@@ -46,46 +41,28 @@ export async function requestStagerAccess(
     }
   }
 
-  const cleanCode = (accessCode || "").trim().toUpperCase();
+  const cleanCode = (accessCode || "").trim().toUpperCase().slice(0, 20);
   if (cleanCode.length < 6) {
     return { success: false, error: "Please enter a valid 6-character access code." };
   }
 
   const cleanName = (stagerName || "").trim().slice(0, 100);
-  if (!cleanName) {
-    return { success: false, error: "Please enter your name." };
-  }
+  if (!cleanName) return { success: false, error: "Please enter your name." };
 
-  // Resolve IP from headers
-  const headersList = await headers();
-  const forwardedFor = headersList.get("x-forwarded-for");
-  let ip = "Unknown";
-  if (forwardedFor) {
-    ip = forwardedFor.split(",")[0].trim();
-  } else {
-    ip = headersList.get("x-real-ip") || "Unknown";
-  }
-
+  const h = await headers();
+  const forwardedFor = h.get("x-forwarded-for");
+  const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : h.get("x-real-ip") || "Unknown";
   const finalDeviceInfo = {
-    ...deviceInfo,
-    ip: deviceInfo?.ip && deviceInfo.ip !== "Unknown" ? deviceInfo.ip : ip,
+    userAgent: typeof deviceInfo?.userAgent === "string" ? deviceInfo.userAgent.slice(0, 300) : undefined,
+    deviceId: typeof deviceInfo?.deviceId === "string" ? deviceInfo.deviceId.slice(0, 100) : undefined,
+    ip,
   };
 
-  // Find a tournament that has this code in its stager_codes JSONB array.
   const activeTournaments = await db
-    .select({
-      id: tournaments.id,
-      name: tournaments.name,
-      stagerCodes: tournaments.stagerCodes,
-    })
+    .select({ id: tournaments.id, name: tournaments.name, stagerCodes: tournaments.stagerCodes })
     .from(tournaments)
     .where(inArray(tournaments.status, ["draft", "active"]));
 
-  if (!activeTournaments || activeTournaments.length === 0) {
-    return { success: false, error: "No active tournament found for this code." };
-  }
-
-  // Match code against each tournament's stager_codes array
   const normInput = normalizeAccessCode(cleanCode);
   let matchedTournament: { id: string; name: string } | null = null;
   let canonicalCode = cleanCode;
@@ -104,36 +81,10 @@ export async function requestStagerAccess(
     return { success: false, error: "Invalid stager access code. Please check with the tournament director." };
   }
 
-  // Check if this code already has an active (approved) session
-  const existingActiveList = await db
-    .select({
-      id: stagerRequests.id,
-      status: stagerRequests.status,
-      accessCodeUsed: stagerRequests.accessCodeUsed,
-      expiresAt: stagerRequests.expiresAt,
-    })
-    .from(stagerRequests)
-    .where(
-      and(
-        eq(stagerRequests.tournamentId, matchedTournament.id),
-        eq(stagerRequests.status, "approved")
-      )
-    );
+  const claimHash = await issueClaim("stager");
 
-  const hasActiveSession = existingActiveList.some((r) => {
-    const isNotExpired = !r.expiresAt || new Date(r.expiresAt).getTime() > Date.now();
-    return isNotExpired && normalizeAccessCode(r.accessCodeUsed) === normInput;
-  });
-
-  if (hasActiveSession) {
-    return {
-      success: false,
-      error:
-        "This stager code already has an approved session. Ask the admin to revoke that stager (Event → Access → Stagers), or use a different code.",
-    };
-  }
-
-  // Insert stager request using the tournament's canonical code format
+  // A code already in use is not an error: approving this request will end
+  // the previous holder's session (shift change on the same code).
   const [newRequest] = await db
     .insert(stagerRequests)
     .values({
@@ -142,7 +93,8 @@ export async function requestStagerAccess(
       status: "pending",
       stagerName: cleanName,
       deviceInfo: finalDeviceInfo,
-      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000), // 48 hours
+      claimHash,
+      expiresAt: new Date(Date.now() + STAGER_SESSION_SECONDS * 1000),
     })
     .returning({ id: stagerRequests.id });
 
@@ -150,14 +102,22 @@ export async function requestStagerAccess(
     return { success: false, error: "Failed to submit access request. Please try again." };
   }
 
+  broadcastLiveEvent({
+    table: "stager_requests",
+    op: "INSERT",
+    id: newRequest.id,
+    tournamentId: matchedTournament.id,
+    status: "pending",
+  });
   revalidatePath(`/admin/event/${matchedTournament.id}/rings`);
 
   return { success: true, requestId: newRequest.id, tournamentName: matchedTournament.name };
 }
 
-// ─── Public: Poll request status (waiting room) ────────────────────────────
-
+/** Waiting-room poll; only the requesting browser receives the session cookie. */
 export async function checkStagerStatus(requestId: string) {
+  if (!isValidUuid(requestId)) return { status: "not_found" as const };
+
   const [request] = await db
     .select({
       status: stagerRequests.status,
@@ -165,118 +125,115 @@ export async function checkStagerStatus(requestId: string) {
       tournamentId: stagerRequests.tournamentId,
       expiresAt: stagerRequests.expiresAt,
       stagerName: stagerRequests.stagerName,
+      claimHash: stagerRequests.claimHash,
     })
     .from(stagerRequests)
     .where(eq(stagerRequests.id, requestId))
     .limit(1);
 
-  if (!request) return { status: "not_found" };
+  if (!request) return { status: "not_found" as const };
+  if (request.expiresAt && request.expiresAt.getTime() < Date.now()) return { status: "expired" as const };
 
-  if (request.expiresAt && new Date(request.expiresAt).getTime() < Date.now()) {
-    return { status: "expired" };
+  const ownsRequest = await holdsClaim("stager", request.claimHash);
+
+  if (request.status === "approved" && request.sessionToken && ownsRequest) {
+    const secondsLeft = Math.max(60, Math.floor((request.expiresAt.getTime() - Date.now()) / 1000));
+    await setSessionCookie(SESSION_COOKIES.stager, request.sessionToken, secondsLeft);
+    await clearCookies(claimCookieName("stager"), ...LEGACY_COOKIES);
+    return { status: "approved" as const, tournamentId: request.tournamentId, stagerName: request.stagerName };
   }
 
-  if (request.status === "approved" && request.sessionToken) {
-    const cookieStore = await cookies();
-    cookieStore.set("stager_token", request.sessionToken, {
-      path: "/",
-      maxAge: 604800, // 7 days
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-    if (request.stagerName) {
-      cookieStore.set("stager_name", encodeURIComponent(request.stagerName), {
-        path: "/",
-        maxAge: 604800, // 7 days
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-      });
-    }
-  }
-
-  return {
-    status: request.status,
-    sessionToken: request.sessionToken,
-    tournamentId: request.tournamentId,
-    stagerName: request.stagerName,
-  };
+  if (request.status === "approved") return { status: "approved_elsewhere" as const };
+  return { status: request.status as "pending" | "rejected" | "revoked" | "expired" };
 }
 
-// ─── Admin: Approve / Reject / Revoke ─────────────────────────────────────
+// ─── Admin: approve / reject / revoke ──────────────────────────────────────
 
-export async function approveStagerRequest(requestId: string, tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
-
-  // Find the request to get its access_code_used
-  const [targetReq] = await db
-    .select({ accessCodeUsed: stagerRequests.accessCodeUsed })
+async function loadRequestInTournament(requestId: string, tournamentId: string) {
+  if (!isValidUuid(requestId)) throw new Error("Request not found");
+  const [request] = await db
+    .select({ id: stagerRequests.id, status: stagerRequests.status, accessCodeUsed: stagerRequests.accessCodeUsed })
     .from(stagerRequests)
     .where(and(eq(stagerRequests.id, requestId), eq(stagerRequests.tournamentId, tournamentId)))
     .limit(1);
+  if (!request) throw new Error("Request not found in this tournament");
+  return request;
+}
 
-  // Revoke any existing approved sessions using this code (or equivalent normalized code)
-  if (targetReq?.accessCodeUsed) {
-    const activeSessions = await db
+export async function approveStagerRequest(requestId: string, tournamentId: string) {
+  await requireTournamentAdmin(tournamentId);
+  const target = await loadRequestInTournament(requestId, tournamentId);
+  if (target.status !== "pending") throw new Error(`Request is already ${target.status}`);
+
+  await db.transaction(async (tx) => {
+    // One live session per code: approving ends the previous holder's session.
+    const activeSessions = await tx
       .select({ id: stagerRequests.id, accessCodeUsed: stagerRequests.accessCodeUsed })
       .from(stagerRequests)
       .where(and(eq(stagerRequests.tournamentId, tournamentId), eq(stagerRequests.status, "approved")));
 
-    const targetNorm = normalizeAccessCode(targetReq.accessCodeUsed);
+    const targetNorm = normalizeAccessCode(target.accessCodeUsed);
     const toRevokeIds = activeSessions
       .filter((s) => normalizeAccessCode(s.accessCodeUsed) === targetNorm && s.id !== requestId)
       .map((s) => s.id);
 
     if (toRevokeIds.length > 0) {
-      await db
+      await tx
         .update(stagerRequests)
         .set({ status: "revoked", sessionToken: null })
         .where(inArray(stagerRequests.id, toRevokeIds));
     }
-  }
 
-  const sessionToken = crypto.randomUUID();
+    await tx
+      .update(stagerRequests)
+      .set({
+        status: "approved",
+        sessionToken: crypto.randomUUID(),
+        expiresAt: new Date(Date.now() + STAGER_SESSION_SECONDS * 1000),
+      })
+      .where(eq(stagerRequests.id, requestId));
+  });
 
-  await db
-    .update(stagerRequests)
-    .set({ status: "approved", sessionToken })
-    .where(and(eq(stagerRequests.id, requestId), eq(stagerRequests.tournamentId, tournamentId)));
-
+  broadcastLiveEvent({ table: "stager_requests", op: "UPDATE", id: requestId, tournamentId, status: "approved" });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true };
 }
 
 export async function rejectStagerRequest(requestId: string, tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
+  await loadRequestInTournament(requestId, tournamentId);
 
   await db
     .update(stagerRequests)
-    .set({ status: "rejected" })
-    .where(and(eq(stagerRequests.id, requestId), eq(stagerRequests.tournamentId, tournamentId)));
+    .set({ status: "rejected", sessionToken: null })
+    .where(eq(stagerRequests.id, requestId));
 
+  broadcastLiveEvent({ table: "stager_requests", op: "UPDATE", id: requestId, tournamentId, status: "rejected" });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true };
 }
 
 export async function revokeStagerSession(requestId: string, tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
+  await loadRequestInTournament(requestId, tournamentId);
 
   await db
     .update(stagerRequests)
     .set({ status: "revoked", sessionToken: null })
-    .where(and(eq(stagerRequests.id, requestId), eq(stagerRequests.tournamentId, tournamentId)));
+    .where(eq(stagerRequests.id, requestId));
 
+  broadcastLiveEvent({ table: "stager_requests", op: "UPDATE", id: requestId, tournamentId, status: "revoked" });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true };
 }
 
-// ─── Admin: Generate stager codes ─────────────────────────────────────────
+// ─── Admin: stager codes ───────────────────────────────────────────────────
 
-/**
- * Generates N new unique 6-char stager codes and APPENDS them to stager_codes.
- */
+/** Generates N new unique 6-char stager codes and appends them to stager_codes. */
 export async function generateStagerCodes(tournamentId: string, count: number) {
-  await ensureAdminOwnsTournament(tournamentId);
-  if (count < 1 || count > 50) {
+  await requireTournamentAdmin(tournamentId);
+  const n = Math.floor(Number(count));
+  if (!Number.isFinite(n) || n < 1 || n > 50) {
     throw new Error("Count must be between 1 and 50.");
   }
 
@@ -287,41 +244,38 @@ export async function generateStagerCodes(tournamentId: string, count: number) {
     .limit(1);
 
   const existing: StagerCode[] = Array.isArray(t?.stagerCodes) ? (t.stagerCodes as StagerCode[]) : [];
-  const usedCodes = new Set(existing.map((c) => normalizeAccessCode(c.code)));
+  // Codes are matched across every tournament, so avoid every code in use anywhere.
+  const everyEvent = await db.select({ stagerCodes: tournaments.stagerCodes }).from(tournaments);
+  const usedCodes = new Set(
+    everyEvent.flatMap((row) =>
+      Array.isArray(row.stagerCodes) ? (row.stagerCodes as StagerCode[]).map((c) => normalizeAccessCode(c.code)) : []
+    )
+  );
 
   const newCodes: StagerCode[] = [];
   let attempts = 0;
   const startIndex = existing.length + 1;
 
-  while (newCodes.length < count && attempts < 1000) {
+  while (newCodes.length < n && attempts < 1000) {
     attempts++;
     const candidate = generateUnambiguousCode(6);
     const normCandidate = normalizeAccessCode(candidate);
     if (!usedCodes.has(normCandidate)) {
       usedCodes.add(normCandidate);
-      newCodes.push({
-        code: candidate,
-        label: `Stager ${startIndex + newCodes.length}`,
-      });
+      newCodes.push({ code: candidate, label: `Stager ${startIndex + newCodes.length}` });
     }
   }
 
   const merged = [...existing, ...newCodes];
-
-  await db
-    .update(tournaments)
-    .set({ stagerCodes: merged })
-    .where(eq(tournaments.id, tournamentId));
+  await db.update(tournaments).set({ stagerCodes: merged }).where(eq(tournaments.id, tournamentId));
 
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true, stager_codes: merged };
 }
 
-/**
- * Remove a single stager code by its code value.
- */
+/** Remove a stager code. Sessions opened with it are revoked too. */
 export async function removeStagerCode(tournamentId: string, code: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const [t] = await db
     .select({ stagerCodes: tournaments.stagerCodes })
@@ -329,20 +283,30 @@ export async function removeStagerCode(tournamentId: string, code: string) {
     .where(eq(tournaments.id, tournamentId))
     .limit(1);
 
+  const target = normalizeAccessCode(code);
   const existing: StagerCode[] = Array.isArray(t?.stagerCodes) ? (t.stagerCodes as StagerCode[]) : [];
-  const updated = existing.filter((c) => c.code.toUpperCase() !== code.toUpperCase());
+  const updated = existing.filter((c) => normalizeAccessCode(c.code) !== target);
 
-  await db
-    .update(tournaments)
-    .set({ stagerCodes: updated })
-    .where(eq(tournaments.id, tournamentId));
+  await db.update(tournaments).set({ stagerCodes: updated }).where(eq(tournaments.id, tournamentId));
+
+  const holders = await db
+    .select({ id: stagerRequests.id, accessCodeUsed: stagerRequests.accessCodeUsed })
+    .from(stagerRequests)
+    .where(and(eq(stagerRequests.tournamentId, tournamentId), inArray(stagerRequests.status, ["approved", "pending"])));
+  const holderIds = holders.filter((h) => normalizeAccessCode(h.accessCodeUsed) === target).map((h) => h.id);
+  if (holderIds.length > 0) {
+    await db
+      .update(stagerRequests)
+      .set({ status: "revoked", sessionToken: null })
+      .where(inArray(stagerRequests.id, holderIds));
+  }
 
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true, stager_codes: updated };
 }
 
 export async function getStagerRequests(tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const rows = await db
     .select()
@@ -355,6 +319,8 @@ export async function getStagerRequests(tournamentId: string) {
 }
 
 export async function getStagerCodes(tournamentId: string) {
+  await requireTournamentAdmin(tournamentId);
+
   const [t] = await db
     .select({ stagerCodes: tournaments.stagerCodes })
     .from(tournaments)
@@ -364,198 +330,80 @@ export async function getStagerCodes(tournamentId: string) {
   return (Array.isArray(t?.stagerCodes) ? (t.stagerCodes as StagerCode[]) : []) as StagerCode[];
 }
 
-// ─── Stager Auth Helpers ───────────────────────────────────────────────────
+// ─── Stager session ────────────────────────────────────────────────────────
 
-export async function ensureStagerHasAccessToTournament(tournamentId: string) {
-  const cookieStore = await cookies();
-  const stagerToken = cookieStore.get("stager_token")?.value;
-
-  if (stagerToken && isValidUuid(stagerToken)) {
-    const [request] = await db
-      .select({
-        id: stagerRequests.id,
-        tournamentId: stagerRequests.tournamentId,
-        status: stagerRequests.status,
-        stagerName: stagerRequests.stagerName,
-        sessionToken: stagerRequests.sessionToken,
-        expiresAt: stagerRequests.expiresAt,
-        tournamentName: tournaments.name,
-      })
-      .from(stagerRequests)
-      .leftJoin(tournaments, eq(stagerRequests.tournamentId, tournaments.id))
-      .where(
-        and(
-          or(
-            eq(stagerRequests.sessionToken, stagerToken),
-            eq(stagerRequests.id, stagerToken)
-          ),
-          eq(stagerRequests.status, "approved"),
-          eq(stagerRequests.tournamentId, tournamentId)
-        )
-      )
-      .limit(1);
-
-    if (request && (!request.expiresAt || new Date(request.expiresAt).getTime() >= Date.now())) {
-      const cookieName = cookieStore.get("stager_name")?.value;
-      const finalName = request.stagerName || (cookieName ? decodeURIComponent(cookieName) : "Stager");
-      return {
-        role: "stager",
-        id: request.id,
-        name: finalName,
-        tournamentId: request.tournamentId,
-        tournament: { id: request.tournamentId, name: request.tournamentName },
-      };
-    }
-  }
-
-  // Fallback: Allow authenticated admin who owns the tournament
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (user) {
-    const [admin] = await db
-      .select({ id: admins.id, email: admins.email })
-      .from(admins)
-      .where(eq(admins.id, user.id))
-      .limit(1);
-
-    if (admin) {
-      const [t] = await db
-        .select({ id: tournaments.id, name: tournaments.name })
-        .from(tournaments)
-        .where(and(eq(tournaments.id, tournamentId), eq(tournaments.adminId, admin.id)))
-        .limit(1);
-
-      if (t) {
-        const cookieName = cookieStore.get("stager_name")?.value;
-        const resolvedName = cookieName
-          ? decodeURIComponent(cookieName)
-          : user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split("@")[0] || "Admin";
-
-        return { role: "admin", id: admin.id, name: resolvedName, tournament: t };
-      }
-    }
-  }
-
-  if (!stagerToken) {
-    throw new Error("Not authenticated: Missing stager session");
-  }
-
-  throw new Error("Unauthorized: Invalid or expired stager session");
-}
-
-export async function ensureStager() {
-  const cookieStore = await cookies();
-  const stagerToken = cookieStore.get("stager_token")?.value;
-
-  if (stagerToken && isValidUuid(stagerToken)) {
-    const [request] = await db
-      .select({
-        id: stagerRequests.id,
-        tournamentId: stagerRequests.tournamentId,
-        status: stagerRequests.status,
-        stagerName: stagerRequests.stagerName,
-        expiresAt: stagerRequests.expiresAt,
-      })
-      .from(stagerRequests)
-      .where(
-        and(
-          or(
-            eq(stagerRequests.sessionToken, stagerToken),
-            eq(stagerRequests.id, stagerToken)
-          ),
-          eq(stagerRequests.status, "approved")
-        )
-      )
-      .limit(1);
-
-    if (request && (!request.expiresAt || new Date(request.expiresAt).getTime() >= Date.now())) {
-      return {
-        id: request.id,
-        name: request.stagerName,
-        role: "stager",
-        tournamentId: request.tournamentId,
-      };
-    }
-  }
-
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (user) {
-    const [admin] = await db
-      .select({ id: admins.id })
-      .from(admins)
-      .where(eq(admins.id, user.id))
-      .limit(1);
-
-    if (admin) {
-      const cookieName = cookieStore.get("stager_name")?.value;
-      const adminName = cookieName
-        ? decodeURIComponent(cookieName)
-        : user.user_metadata?.full_name || user.user_metadata?.name || "Administrator";
-      return { id: admin.id, name: adminName, role: "admin" };
-    }
-  }
-
-  throw new Error("Not authenticated");
+/** For the stager login page: where to send a browser that already has a session. */
+export async function getCurrentStagerSession() {
+  const stager = await getStagerPrincipal();
+  if (!stager) return null;
+  return { tournamentId: stager.tournamentId, name: stager.name };
 }
 
 export async function logoutStager() {
-  const cookieStore = await cookies();
-  cookieStore.delete("stager_token");
-  cookieStore.delete("stager_name");
+  const stager = await getStagerPrincipal();
+  if (stager) {
+    await db
+      .update(stagerRequests)
+      .set({ status: "expired", sessionToken: null })
+      .where(eq(stagerRequests.id, stager.requestId));
+  }
+  await clearCookies(SESSION_COOKIES.stager, ...LEGACY_COOKIES);
   return { success: true };
 }
 
-// ─── Stager Board Action: Update category status ───────────────────────────
+// ─── Stager board ──────────────────────────────────────────────────────────
 
+/** Mark a category calling / ready (or clear it). Stagers and the event's admin. */
 export async function updateCategoryStagerStatus(
   categoryId: string,
   tournamentId: string,
-  newStatus: "calling" | "ready" | null,
-  stagerName?: string
+  newStatus: "calling" | "ready" | null
 ): Promise<{ success: boolean; error?: string }> {
+  let actor;
   try {
-    let stagerInfo: Awaited<ReturnType<typeof ensureStagerHasAccessToTournament>>;
-    try {
-      stagerInfo = await ensureStagerHasAccessToTournament(tournamentId);
-    } catch (err: any) {
-      return { success: false, error: err?.message || "Unauthorized: Invalid or expired stager session." };
-    }
-
-    const effectiveName = stagerName && stagerName !== "Stager"
-      ? stagerName
-      : (stagerInfo.name || "Stager");
-
-    // Verify the category belongs to a ring in this tournament
-    const [assignment] = await db
-      .select({
-        categoryId: categoryAssignments.categoryId,
-        ringId: categoryAssignments.ringId,
-        tournamentId: rings.tournamentId,
-      })
-      .from(categoryAssignments)
-      .innerJoin(rings, eq(categoryAssignments.ringId, rings.id))
-      .where(eq(categoryAssignments.categoryId, categoryId))
-      .limit(1);
-
-    if (!assignment) {
-      return { success: false, error: "Category is not assigned to any ring yet." };
-    }
-    if (assignment.tournamentId !== tournamentId) {
-      return { success: false, error: "Unauthorized: Category does not belong to this tournament." };
-    }
-
-    await db
-      .update(categoryAssignments)
-      .set({
-        stagerStatus: newStatus,
-        stagerName: newStatus ? effectiveName : null,
-        stagerActionAt: newStatus ? new Date() : null,
-      })
-      .where(eq(categoryAssignments.categoryId, categoryId));
-
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err?.message || "Unexpected error updating stager status" };
+    actor = await requireTournamentStaff(tournamentId, ["stager", "admin"]);
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Unauthorized" };
   }
+
+  if (newStatus !== null && newStatus !== "calling" && newStatus !== "ready") {
+    return { success: false, error: "Invalid status" };
+  }
+  if (!isValidUuid(categoryId)) return { success: false, error: "Category not found" };
+
+  const [assignment] = await db
+    .select({
+      id: categoryAssignments.id,
+      ringId: categoryAssignments.ringId,
+      tournamentId: rings.tournamentId,
+    })
+    .from(categoryAssignments)
+    .innerJoin(rings, eq(categoryAssignments.ringId, rings.id))
+    .where(eq(categoryAssignments.categoryId, categoryId))
+    .limit(1);
+
+  if (!assignment) return { success: false, error: "Category is not assigned to any ring yet." };
+  if (assignment.tournamentId !== tournamentId) {
+    return { success: false, error: "Unauthorized: Category does not belong to this tournament." };
+  }
+
+  await db
+    .update(categoryAssignments)
+    .set({
+      stagerStatus: newStatus,
+      stagerName: newStatus ? actor.name : null,
+      stagerActionAt: newStatus ? new Date() : null,
+    })
+    .where(eq(categoryAssignments.categoryId, categoryId));
+
+  broadcastLiveEvent({
+    table: "category_assignments",
+    op: "UPDATE",
+    id: assignment.id,
+    ringId: assignment.ringId,
+    tournamentId,
+    categoryId,
+  });
+
+  return { success: true };
 }

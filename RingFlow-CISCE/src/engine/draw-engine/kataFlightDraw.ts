@@ -83,7 +83,9 @@ export function generateKataFlightDraw(params: {
 
   const totalAthletes = participants.length;
   // Calculate number of pools needed
-  const numPools = Math.max(1, Math.ceil(totalAthletes / poolSize));
+  // The medal flight pairs Pool A against Pool B, so a category is split into
+  // at most two pools; a large category just gets larger pools.
+  const numPools = Math.min(2, Math.max(1, Math.ceil(totalAthletes / poolSize)));
   const poolLetters = ['Pool A', 'Pool B', 'Pool C', 'Pool D', 'Pool E', 'Pool F', 'Pool G', 'Pool H'];
 
   // Fisher-Yates shuffle to ensure every regeneration produces a fresh, fair draw

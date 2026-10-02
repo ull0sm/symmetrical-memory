@@ -1,72 +1,21 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { checkOrganiserStatus } from "@/actions/organiser";
-import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useAccessRequestStatus } from "@/hooks/useAccessRequestStatus";
 
 export default function OrganiserWaitingRoom() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
-  const [status, setStatus] = useState("pending");
 
-  const checkAndAdvance = () =>
-    checkOrganiserStatus(id)
-      .then((res) => {
-        if (res.organiserName) {
-          localStorage.setItem("ringflow_organiser_name", res.organiserName);
-        }
-        if (res.status === "approved" && res.tournamentId) {
-          handleApproved(res.tournamentId, res.sessionToken || undefined);
-        } else if (res.status === "rejected") {
-          setStatus("rejected");
-        }
-      })
-      .catch(() => {});
-
-  // Approval lands here instantly via SSE
-  useLiveEvents({ requestId: id }, () => {
-    void checkAndAdvance();
-  });
-
-  const handleApproved = (tournamentId: string, token?: string) => {
-    checkOrganiserStatus(id).catch(() => {});
-
-    const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
-    const secureFlag = isHttps ? "; Secure" : "";
-    if (token) {
-      document.cookie = `org_token=${token}; path=/; max-age=604800; SameSite=Lax${secureFlag}`;
-    } else {
-      document.cookie = `org_token=${id}; path=/; max-age=604800; SameSite=Lax${secureFlag}`;
+  // The server sets the httpOnly session cookie when it reports "approved".
+  const { state, message } = useAccessRequestStatus(id, checkOrganiserStatus, (res) => {
+    if (typeof res.organiserName === "string") {
+      localStorage.setItem("ringflow_organiser_name", res.organiserName);
     }
-
-    setStatus("approved");
-    setTimeout(() => {
-      window.location.replace(`/organiser/event/${tournamentId}/dashboard`);
-    }, 800);
-  };
-
-  useEffect(() => {
-    const checkStatus = () => {
-      checkOrganiserStatus(id).then((res) => {
-        if (res.organiserName) {
-          localStorage.setItem("ringflow_organiser_name", res.organiserName);
-        }
-        if (res.status === "approved" && res.tournamentId) {
-          handleApproved(res.tournamentId, res.sessionToken || undefined);
-        } else if (res.status === "rejected") {
-          setStatus("rejected");
-        }
-      });
-    };
-
-    checkStatus();
-    const pollInterval = setInterval(checkStatus, 5000);
-
-    return () => {
-      clearInterval(pollInterval);
-    };
-  }, [id]);
+    setTimeout(() => window.location.replace(`/organiser/event/${res.tournamentId}/dashboard`), 800);
+  });
 
   return (
     <div className="bg-surface text-on-surface min-h-screen flex flex-col font-body-md overflow-hidden relative">
@@ -84,7 +33,7 @@ export default function OrganiserWaitingRoom() {
 
       <main className="flex-grow flex items-center justify-center px-4 relative z-10">
         <div className="w-full max-w-md text-center flex flex-col items-center">
-          {status === "pending" && (
+          {state === "pending" && (
             <>
               {/* Smooth Circular SVG Loading Spinner (No squarish or clipping artifacts) */}
               <div className="w-24 h-24 mb-10 relative flex justify-center items-center">
@@ -132,7 +81,7 @@ export default function OrganiserWaitingRoom() {
             </>
           )}
 
-          {status === "approved" && (
+          {state === "approved" && (
             <>
               <div className="w-24 h-24 mb-10 rounded-full bg-green-100 flex items-center justify-center shadow-lg transform transition-transform scale-110">
                 <span
@@ -149,7 +98,7 @@ export default function OrganiserWaitingRoom() {
             </>
           )}
 
-          {status === "rejected" && (
+          {state === "rejected" && (
             <>
               <div className="w-24 h-24 mb-10 rounded-full bg-error-container flex items-center justify-center shadow-lg">
                 <span
@@ -163,7 +112,7 @@ export default function OrganiserWaitingRoom() {
                 Access Declined
               </h1>
               <p className="text-body-lg text-on-error-container mb-10">
-                The tournament administrator declined your access request.
+                {message}
               </p>
               <button
                 onClick={() => router.push("/login/organiser")}

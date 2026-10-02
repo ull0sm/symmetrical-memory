@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import { requestStagerAccess, ensureStager } from "@/actions/stager";
+import { requestStagerAccess, getCurrentStagerSession } from "@/actions/stager";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { RingFlowLogo } from "@/components/ui/ringflow-logo";
 import { v4 as uuidv4 } from "uuid";
@@ -45,7 +45,7 @@ function StagerLoginContent() {
     if (savedName) setStagerName(savedName);
 
     // 2. Auto-forward if session already active
-    ensureStager().then((res) => {
+    getCurrentStagerSession().then((res) => {
       if (res?.tournamentId) {
         router.replace(`/stager/event/${res.tournamentId}/balance`);
       }
@@ -100,9 +100,6 @@ function StagerLoginContent() {
       if (result.success && result.requestId) {
         if (typeof window !== "undefined") {
           localStorage.setItem("ringflow_stager_name", stagerName.trim());
-          const isHttps = window.location.protocol === "https:";
-          const secureFlag = isHttps ? "; Secure" : "";
-          document.cookie = `stager_name=${encodeURIComponent(stagerName.trim())}; path=/; max-age=172800; SameSite=Lax${secureFlag}`;
         }
         router.push(`/stager/waiting/${result.requestId}`);
       } else {

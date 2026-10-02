@@ -11,14 +11,15 @@ import {
   categoryAssignments,
   moderatorRequests,
 } from "../src/db/schema";
-import { saveCategoryDefinitions } from "../src/actions/categoryDefinitions";
+// Scripts run without a browser session, so they call the cores the guarded actions wrap.
+import { writeCategoryDefinitions } from "../src/lib/roster/categoryDefinitions";
 import { OFFICIAL_PRESETS } from "../src/lib/constants/categoryPresets";
-import { importOfficialRoster } from "../src/actions/officialImport";
-import { getCategoryDraw } from "../src/actions/draws";
+import { importOfficialRosterCore } from "../src/lib/roster/officialImport";
+import { assembleCategoryDraw } from "../src/lib/draws/assembleDraw";
 // The guarded server action checks the caller's admin session; a seed script has
 // no request context, so it uses the same core the action wraps.
 import { performGenerateAllTournamentDraws } from "../src/lib/draws/generateDraws";
-import { confirmBoutResult } from "../src/actions/matches";
+import { commitBoutResult } from "../src/lib/bouts/results";
 import { buildAllCategoryDrawPdfs } from "../src/lib/pdf/drawSheetFiles";
 import { eq } from "drizzle-orm";
 import { hashPassword } from "../src/lib/auth/password";
@@ -89,7 +90,7 @@ async function runSeed() {
 
   // 4. Configure Official Category Definitions
   console.log("⚙️ Configuring Official Category Definitions from CISCE preset...");
-  await saveCategoryDefinitions(tournament.id, OFFICIAL_PRESETS.CISCE_OFFICIAL);
+  await writeCategoryDefinitions(tournament.id, OFFICIAL_PRESETS.CISCE_OFFICIAL);
   console.log(`✅ Configured ${OFFICIAL_PRESETS.CISCE_OFFICIAL.length} official category definitions.`);
 
   // 5. Import Multi-Event Athletes with Weight, Kata, and Kumite
@@ -122,7 +123,7 @@ async function runSeed() {
     { name: "Meera Bannerjee", school: "Mahadevi Birla World Academy", chestNumber: "208", age: 13, sex: "F", weight: 33.0, kata: false, kumite: true },
   ];
 
-  const importReport = await importOfficialRoster(tournament.id, sampleAthletes);
+  const importReport = await importOfficialRosterCore(tournament.id, sampleAthletes);
   console.log(`✅ Import finished:
      - Total athletes: ${importReport.totalAthletes}
      - Kumite entries created: ${importReport.kumiteEntriesCreated}
@@ -169,14 +170,14 @@ async function runSeed() {
 
   // 9. Simulate Running a Bout & Advancing the Bracket
   const activeCat = populatedCats[0];
-  const drawData = await getCategoryDraw(activeCat.id);
+  const drawData = await assembleCategoryDraw(activeCat.id);
   if (drawData && drawData.matches.length > 0) {
     const firstMatch = drawData.matches[0];
     console.log(`🥊 Simulating Bout #${firstMatch.matchNo} in category "${activeCat.name}":
        AKA: ${firstMatch.aka.displayName} vs AO: ${firstMatch.ao.displayName}`);
 
     if (firstMatch.aka.id) {
-      await confirmBoutResult(firstMatch.matchId, firstMatch.aka.id, {
+      await commitBoutResult(firstMatch.matchId, firstMatch.aka.id, {
         side: "AKA",
         akaPoints: 3,
         aoPoints: 1,

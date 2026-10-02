@@ -1,9 +1,7 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { db } from "@/db";
 import {
-  admins,
   tournaments,
   rings,
   categoryAssignments,
@@ -13,7 +11,11 @@ import {
   moderatorRequests,
 } from "@/db/schema";
 import { eq, and, inArray, desc, asc, sql } from "drizzle-orm";
-import { startRingTimer, pauseRingTimer, setAllRingTimers } from "./rings";
+import { elapsedMs as elapsedFor, normalizeClock } from "@/lib/matchClock";
+import { persistRingClock, readRingClockRow } from "@/lib/ringClockStore";
+import { broadcastLiveEvent } from "@/lib/realtime/bus";
+import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { tournamentIdForRing } from "@/lib/auth/scope";
 import {
   serializeRing,
   serializeCategory,
@@ -22,109 +24,30 @@ import {
   serializeModRequest,
 } from "@/lib/serializers";
 
-/**
- * Ensures the currently authenticated user exists in the public.admins table.
- * Throws if not authenticated or not a registered admin.
- * Returns the admin's UUID.
- */
-export async function ensureAdmin() {
-  let sessionAdminId: string | undefined;
-  try {
-    const cookieStore = await cookies();
-    sessionAdminId =
-      cookieStore.get("admin_session")?.value ||
-      cookieStore.get("admin_dev_id")?.value;
-  } catch {}
-
-  if (sessionAdminId) {
-    const admin = await db
-      .select({ id: admins.id })
-      .from(admins)
-      .where(eq(admins.id, sessionAdminId))
-      .limit(1);
-
-    if (admin && admin.length > 0) {
-      return admin[0].id;
-    }
-  }
-
-  // In non-production environments, fallback to the seeded director admin
-  if (process.env.NODE_ENV !== "production") {
-    const defaultAdmin = await db
-      .select({ id: admins.id })
-      .from(admins)
-      .limit(1);
-    if (defaultAdmin && defaultAdmin.length > 0) return defaultAdmin[0].id;
-  }
-
-  throw new Error("Not authenticated");
-}
-
-export async function loginAsDevAdmin(adminId?: string) {
-  let targetId: string = adminId || "";
-  if (!targetId) {
-    const [firstAdmin] = await db
-      .select({ id: admins.id })
-      .from(admins)
-      .orderBy(asc(admins.createdAt))
-      .limit(1);
-    targetId = firstAdmin?.id || "00000000-0000-0000-0000-000000000001";
-  }
-
-  const cookieStore = await cookies();
-  cookieStore.set("admin_dev_id", targetId, {
-    path: "/",
-    maxAge: 86400 * 7,
-    sameSite: "lax",
+/** Pause a running clock in place; used when the floor is halted. */
+async function haltRingClock(ringId: string) {
+  const row = await readRingClockRow(ringId);
+  if (!row) return;
+  const clock = normalizeClock(row);
+  if (clock.status !== "running") return;
+  await persistRingClock(ringId, {
+    status: "paused",
+    durationMs: clock.durationMs,
+    accumulatedMs: elapsedFor(clock, Date.now()),
+    startedAt: null,
   });
-  return { success: true, adminId: targetId };
-}
-
-export async function logoutDevAdmin() {
-  const cookieStore = await cookies();
-  cookieStore.delete("admin_dev_id");
-  return { success: true };
 }
 
 /**
- * Ensures the currently authenticated user is an admin.
- * Registered admins can manage any tournament.
- * Returns the admin's UUID.
+ * Admin pause/resume of one tatami. Pausing halts the running category and
+ * its bout clock; resuming only releases the category. The bout clock is
+ * restarted by the moderator when the bout actually resumes.
  */
-export async function ensureAdminOwnsTournament(tournamentId: string) {
-  const adminId = await ensureAdmin();
-
-  const tournament = await db
-    .select({ id: tournaments.id })
-    .from(tournaments)
-    .where(eq(tournaments.id, tournamentId))
-    .limit(1);
-
-  if (!tournament || tournament.length === 0) {
-    throw new Error("Tournament not found or unauthorized");
-  }
-
-  return adminId;
-}
-
 export async function adminSetRingStatus(ringId: string, isPaused: boolean) {
-  const [ring] = await db
-    .select({ id: rings.id, tournamentId: rings.tournamentId })
-    .from(rings)
-    .where(eq(rings.id, ringId))
-    .limit(1);
+  const tournamentId = await tournamentIdForRing(ringId);
+  await requireTournamentAdmin(tournamentId);
 
-  if (!ring) return;
-
-  // Verify admin owns this tournament
-  await ensureAdminOwnsTournament(ring.tournamentId);
-
-  // Update ring timer state directly
-  if (isPaused) {
-    await pauseRingTimer(ringId, ring.tournamentId);
-  } else {
-    await startRingTimer(ringId, ring.tournamentId);
-  }
+  if (isPaused) await haltRingClock(ringId);
 
   const [assignment] = await db
     .select()
@@ -137,7 +60,7 @@ export async function adminSetRingStatus(ringId: string, isPaused: boolean) {
     )
     .limit(1);
 
-  if (!assignment) return;
+  if (!assignment) return { success: true };
 
   await db
     .update(categoryAssignments)
@@ -145,15 +68,27 @@ export async function adminSetRingStatus(ringId: string, isPaused: boolean) {
     .where(eq(categoryAssignments.id, assignment.id));
 
   await db.insert(eventLog).values({
-    tournamentId: ring.tournamentId,
-    ringId: ringId,
+    tournamentId,
+    ringId,
     categoryId: assignment.categoryId,
     action: isPaused ? "PAUSE_RING" : "RESUME_RING",
+    metadata: { by: "admin" },
   });
+
+  broadcastLiveEvent({
+    table: "category_assignments",
+    op: "UPDATE",
+    id: assignment.id,
+    ringId,
+    tournamentId,
+    status: isPaused ? "paused" : "running",
+  });
+
+  return { success: true };
 }
 
 export async function adminSetAllRingsStatus(tournamentId: string, isPaused: boolean) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const ringList = await db
     .select({ id: rings.id })
@@ -161,7 +96,11 @@ export async function adminSetAllRingsStatus(tournamentId: string, isPaused: boo
     .where(eq(rings.tournamentId, tournamentId));
 
   const ringIds = ringList.map((r) => r.id);
-  if (ringIds.length === 0) return;
+  if (ringIds.length === 0) return { success: true };
+
+  if (isPaused) {
+    for (const id of ringIds) await haltRingClock(id);
+  }
 
   const assignments = await db
     .select()
@@ -173,8 +112,6 @@ export async function adminSetAllRingsStatus(tournamentId: string, isPaused: boo
       )
     );
 
-  if (!assignments || assignments.length === 0) return;
-
   for (const assignment of assignments) {
     await db
       .update(categoryAssignments)
@@ -182,19 +119,30 @@ export async function adminSetAllRingsStatus(tournamentId: string, isPaused: boo
       .where(eq(categoryAssignments.id, assignment.id));
 
     await db.insert(eventLog).values({
-      tournamentId: tournamentId,
+      tournamentId,
       ringId: assignment.ringId,
       categoryId: assignment.categoryId,
       action: isPaused ? "PAUSE_RING" : "RESUME_RING",
+      metadata: { by: "admin", scope: "all" },
+    });
+
+    broadcastLiveEvent({
+      table: "category_assignments",
+      op: "UPDATE",
+      id: assignment.id,
+      ringId: assignment.ringId,
+      tournamentId,
+      status: isPaused ? "paused" : "running",
     });
   }
+
+  return { success: true };
 }
 
-/**
- * High-performance, direct Drizzle query for live dashboard reconciliation.
- * Replaces client-side PostgREST queries with single fast server query.
- */
+/** Live floor state for the admin dashboard and the organiser overview. */
 export async function getAdminDashboardData(tournamentId: string) {
+  await requireTournamentStaff(tournamentId, ["admin", "organiser"]);
+
   const [ringRows, logRows] = await Promise.all([
     db
       .select()
@@ -210,7 +158,7 @@ export async function getAdminDashboardData(tournamentId: string) {
   ]);
 
   const ringIds = ringRows.map((r) => r.id);
-  let assignments: any[] = [];
+  let assignments: ReturnType<typeof serializeCategoryAssignment>[] = [];
 
   if (ringIds.length > 0) {
     const rawAssignments = await db
@@ -220,18 +168,13 @@ export async function getAdminDashboardData(tournamentId: string) {
       .orderBy(asc(categoryAssignments.queueOrder));
 
     const categoryIds = Array.from(new Set(rawAssignments.map((a) => a.categoryId).filter(Boolean)));
-    const catMap = new Map<string, any>();
+    const catMap = new Map<string, typeof categories.$inferSelect>();
     if (categoryIds.length > 0) {
-      const cats = await db
-        .select()
-        .from(categories)
-        .where(inArray(categories.id, categoryIds));
+      const cats = await db.select().from(categories).where(inArray(categories.id, categoryIds));
       cats.forEach((c) => catMap.set(c.id, c));
     }
 
-    assignments = rawAssignments.map((a) =>
-      serializeCategoryAssignment(a, catMap.get(a.categoryId))
-    );
+    assignments = rawAssignments.map((a) => serializeCategoryAssignment(a, catMap.get(a.categoryId)));
   }
 
   return {
@@ -242,6 +185,8 @@ export async function getAdminDashboardData(tournamentId: string) {
 }
 
 export async function getLiveLogs(tournamentId: string) {
+  await requireTournamentStaff(tournamentId, ["admin", "organiser"]);
+
   const logRows = await db
     .select()
     .from(eventLog)
@@ -252,6 +197,8 @@ export async function getLiveLogs(tournamentId: string) {
 }
 
 export async function getPendingModeratorRequests(tournamentId: string) {
+  await requireTournamentAdmin(tournamentId);
+
   const ringRows = await db
     .select({ id: rings.id, name: rings.name })
     .from(rings)
@@ -272,7 +219,10 @@ export async function getPendingModeratorRequests(tournamentId: string) {
   return rawReqs.map((mr) => serializeModRequest(mr, ringMap.get(mr.ringId)));
 }
 
+/** Category / tatami index for the staff header search. */
 export async function getTournamentSearchMeta(tournamentId: string) {
+  await requireTournamentStaff(tournamentId);
+
   const [cats, ringList] = await Promise.all([
     db.select().from(categories).where(eq(categories.tournamentId, tournamentId)),
     db.select().from(rings).where(eq(rings.tournamentId, tournamentId)),
@@ -306,40 +256,26 @@ export async function getTournamentSearchMeta(tournamentId: string) {
 
 export async function getSidebarTournamentCounts(tournamentId: string) {
   if (!tournamentId) return null;
+  await requireTournamentStaff(tournamentId, ["admin", "organiser"]);
 
-  try {
-    const [t] = await db
-      .select({ name: tournaments.name })
-      .from(tournaments)
-      .where(eq(tournaments.id, tournamentId))
-      .limit(1);
+  const [t] = await db
+    .select({ name: tournaments.name })
+    .from(tournaments)
+    .where(eq(tournaments.id, tournamentId))
+    .limit(1);
 
-    if (!t) return null;
+  if (!t) return null;
 
-    const [[ringsRes], [catsRes], [athRes]] = await Promise.all([
-      db
-        .select({ count: sql<number>`cast(count(*) as integer)` })
-        .from(rings)
-        .where(eq(rings.tournamentId, tournamentId)),
-      db
-        .select({ count: sql<number>`cast(count(*) as integer)` })
-        .from(categories)
-        .where(eq(categories.tournamentId, tournamentId)),
-      db
-        .select({ count: sql<number>`cast(count(*) as integer)` })
-        .from(athletes)
-        .where(eq(athletes.tournamentId, tournamentId)),
-    ]);
+  const [[ringsRes], [catsRes], [athRes]] = await Promise.all([
+    db.select({ count: sql<number>`cast(count(*) as integer)` }).from(rings).where(eq(rings.tournamentId, tournamentId)),
+    db.select({ count: sql<number>`cast(count(*) as integer)` }).from(categories).where(eq(categories.tournamentId, tournamentId)),
+    db.select({ count: sql<number>`cast(count(*) as integer)` }).from(athletes).where(eq(athletes.tournamentId, tournamentId)),
+  ]);
 
-    return {
-      name: t.name,
-      ringsCount: ringsRes?.count ?? 0,
-      categoriesCount: catsRes?.count ?? 0,
-      athletesCount: athRes?.count ?? 0,
-    };
-  } catch (err) {
-    console.error("Failed to load sidebar tournament counts:", err);
-    return null;
-  }
+  return {
+    name: t.name,
+    ringsCount: ringsRes?.count ?? 0,
+    categoriesCount: catsRes?.count ?? 0,
+    athletesCount: athRes?.count ?? 0,
+  };
 }
-

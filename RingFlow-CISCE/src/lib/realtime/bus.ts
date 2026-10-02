@@ -19,7 +19,6 @@ export interface LiveEvent {
   tournamentId?: string;
   categoryId?: string;
   matchId?: string;
-  sessionToken?: string;
   akaScore?: number;
   aoScore?: number;
   akaPenalties?: number;
@@ -128,27 +127,4 @@ export function broadcastLiveEvent(event: LiveEvent): void {
   } catch (err) {
     console.error("[live] broadcast error:", err);
   }
-}
-
-/** True when an event is relevant to a screen that scoped itself to these ids. */
-export function eventMatchesScope(
-  event: LiveEvent,
-  scope: { ringId?: string | null; tournamentId?: string | null; categoryId?: string | null; requestId?: string | null }
-): boolean {
-  if (scope.ringId) {
-    if (event.ringId) return event.ringId === scope.ringId;
-    return false;
-  }
-  if (scope.requestId) return event.id === scope.requestId;
-  if (scope.categoryId) {
-    if (event.categoryId) return event.categoryId === scope.categoryId;
-    if (event.id && event.table === "categories") return event.id === scope.categoryId;
-    return false;
-  }
-  if (scope.tournamentId) {
-    if (event.tournamentId) return event.tournamentId === scope.tournamentId;
-    // A tournament-wide screen also cares about general ring/category rows
-    return true;
-  }
-  return true;
 }

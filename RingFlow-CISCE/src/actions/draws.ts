@@ -12,27 +12,31 @@ import {
   matchEvents,
   kataScores,
 } from "@/db/schema";
-import { resolveDraw } from "@/engine/draw-engine";
-import type { DrawGraph } from "@/engine/draw-engine/types";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { tournaments } from "@/db/schema";
-import { ensureAdminOwnsTournament } from "./admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 import {
   performCategoryDraw,
   performGenerateAllTournamentDraws,
   performGetTournamentDrawPreflight,
 } from "@/lib/draws/generateDraws";
-import { isAnyStaff } from "@/lib/staffAccess";
+import { getTournamentStaff } from "@/lib/auth/guards";
+import { tournamentIdForCategory } from "@/lib/auth/scope";
+import { isValidUuid } from "@/lib/utils";
 
 /**
- * Staff (moderator, organiser, admin) may always open a full bracket. The
- * public may only open one when the admin enabled public draws — or when they
- * reached it through their own athlete's search result, which is scoped to a
- * single name they already know.
+ * Staff of this category's event may always open a full bracket. The public
+ * may only open one when the admin enabled public draws — or when they reached
+ * it through their own athlete's search result, which is scoped to a single
+ * name they already know.
  */
-async function isStaffViewer(): Promise<boolean> {
-  return isAnyStaff();
+async function isStaffViewer(categoryId: string): Promise<boolean> {
+  try {
+    return Boolean(await getTournamentStaff(await tournamentIdForCategory(categoryId)));
+  } catch {
+    return false;
+  }
 }
 
 async function publicDrawsEnabledForCategory(categoryId: string): Promise<boolean> {
@@ -63,7 +67,7 @@ export async function generateCategoryDraw(
 
   if (!cat) return { success: false, error: "Category not found" };
 
-  await ensureAdminOwnsTournament(cat.tournamentId);
+  await requireTournamentAdmin(cat.tournamentId);
   return performCategoryDraw(categoryId, options);
 }
 export async function setCategoryDrawOption(
@@ -77,7 +81,7 @@ export async function setCategoryDrawOption(
 
   if (!cat) return { success: false, error: "Category not found" };
 
-  await ensureAdminOwnsTournament(cat.tournamentId);
+  await requireTournamentAdmin(cat.tournamentId);
 
   if (bronzeMedals !== null && ![0, 1, 2, 3].includes(bronzeMedals)) {
     return { success: false, error: "Bronze medals must be 0, 1, 2, 3 or null" };
@@ -99,7 +103,7 @@ export async function generateAllTournamentDraws(
   tournamentId: string,
   options?: { bronzeMedals?: 0 | 1 | 2 | 3; separateByClub?: boolean }
 ) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
   return performGenerateAllTournamentDraws(tournamentId, options);
 }
 
@@ -107,7 +111,7 @@ export async function generateAllTournamentDraws(
  * Pre-flight preview report of what "Generate All Draws" will do. Admin only.
  */
 export async function getTournamentDrawPreflight(tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
   return performGetTournamentDrawPreflight(tournamentId);
 }
 
@@ -118,9 +122,9 @@ export async function getCategoryDraw(
   categoryId: string,
   options?: { athleteId?: string | null }
 ) {
-  if (!categoryId) return null;
+  if (!categoryId || !isValidUuid(categoryId)) return null;
 
-  const staff = await isStaffViewer();
+  const staff = await isStaffViewer(categoryId);
   if (!staff) {
     const allowed = options?.athleteId ? true : await publicDrawsEnabledForCategory(categoryId);
     if (!allowed) {
@@ -169,7 +173,7 @@ export async function lockCategoryDraw(categoryId: string) {
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
-  await ensureAdminOwnsTournament(cat.tournamentId);
+  await requireTournamentAdmin(cat.tournamentId);
 
   await db
     .update(draws)
@@ -190,7 +194,7 @@ export async function unlockCategoryDraw(categoryId: string) {
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
-  await ensureAdminOwnsTournament(cat.tournamentId);
+  await requireTournamentAdmin(cat.tournamentId);
 
   await db
     .update(draws)
@@ -211,7 +215,7 @@ export async function toggleCategoryDrawLock(categoryId: string) {
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
-  await ensureAdminOwnsTournament(cat.tournamentId);
+  await requireTournamentAdmin(cat.tournamentId);
 
   const [draw] = await db
     .select()
@@ -247,7 +251,7 @@ export async function flushCategoryDraw(categoryId: string) {
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
-  await ensureAdminOwnsTournament(cat.tournamentId);
+  await requireTournamentAdmin(cat.tournamentId);
 
   await db.transaction(async (tx) => {
     // 1. Find all matches for this category

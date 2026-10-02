@@ -1,71 +1,18 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { checkStagerStatus } from "@/actions/stager";
-import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useAccessRequestStatus } from "@/hooks/useAccessRequestStatus";
 
 export default function StagerWaitingRoom() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
-  const [status, setStatus] = useState("pending");
 
-  const handleApproved = (tournamentId: string, token?: string, stagerName?: string) => {
-    // Also ensure server-side cookie is set via Server Action
-    checkStagerStatus(id).catch(() => {});
-
-    const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
-    const secureFlag = isHttps ? "; Secure" : "";
-    const tokenValue = token || id;
-    document.cookie = `stager_token=${tokenValue}; path=/; max-age=604800; SameSite=Lax${secureFlag}`;
-    if (stagerName) {
-      document.cookie = `stager_name=${encodeURIComponent(stagerName)}; path=/; max-age=604800; SameSite=Lax${secureFlag}`;
-    }
-
-    setStatus("approved");
-    setTimeout(() => {
-      window.location.replace(`/stager/event/${tournamentId}/balance`);
-    }, 800);
-  };
-
-  // Approval lands here instantly via SSE
-  useLiveEvents({ requestId: id }, () => {
-    void checkStagerStatus(id)
-      .then((res) => {
-        if (res.status === "approved" && res.tournamentId) {
-          handleApproved(res.tournamentId, res.sessionToken || undefined, res.stagerName || undefined);
-        } else if (res.status === "rejected") {
-          setStatus("rejected");
-        }
-      })
-      .catch(() => {});
+  // The server sets the httpOnly session cookie when it reports "approved".
+  const { state, message } = useAccessRequestStatus(id, checkStagerStatus, (res) => {
+    setTimeout(() => window.location.replace(`/stager/event/${res.tournamentId}/balance`), 800);
   });
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    const checkStatus = async () => {
-      try {
-        const res = await checkStagerStatus(id);
-        if (isCancelled) return;
-        if (res.status === "approved" && res.tournamentId) {
-          handleApproved(res.tournamentId, res.sessionToken || undefined, res.stagerName || undefined);
-        } else if (res.status === "rejected") {
-          setStatus("rejected");
-        }
-      } catch (e) {
-        console.error("Error checking stager status:", e);
-      }
-    };
-
-    checkStatus();
-    const pollInterval = setInterval(checkStatus, 5000);
-
-    return () => {
-      isCancelled = true;
-      clearInterval(pollInterval);
-    };
-  }, [id]);
 
   return (
     <div className="bg-surface text-on-surface min-h-screen flex flex-col font-body-md overflow-hidden relative">
@@ -85,7 +32,7 @@ export default function StagerWaitingRoom() {
         <div className="w-full max-w-md text-center flex flex-col items-center">
 
           {/* ── Pending ── */}
-          {status === "pending" && (
+          {state === "pending" && (
             <>
               <div className="w-24 h-24 mb-10 relative flex justify-center items-center">
                 <svg className="w-24 h-24 -rotate-90 animate-spin text-secondary" viewBox="0 0 100 100">
@@ -124,7 +71,7 @@ export default function StagerWaitingRoom() {
           )}
 
           {/* ── Approved ── */}
-          {status === "approved" && (
+          {state === "approved" && (
             <>
               <div className="w-24 h-24 mb-10 rounded-full bg-green-100 flex items-center justify-center shadow-lg transform transition-transform scale-110">
                 <span
@@ -142,7 +89,7 @@ export default function StagerWaitingRoom() {
           )}
 
           {/* ── Rejected ── */}
-          {status === "rejected" && (
+          {state === "rejected" && (
             <>
               <div className="w-24 h-24 mb-10 rounded-full bg-error-container flex items-center justify-center shadow-lg">
                 <span
@@ -156,7 +103,7 @@ export default function StagerWaitingRoom() {
                 Access Declined
               </h1>
               <p className="text-body-lg text-on-error-container mb-10">
-                The tournament administrator declined your access request.
+                {message}
               </p>
               <button
                 onClick={() => router.push("/login/stager")}

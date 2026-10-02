@@ -3,9 +3,17 @@
 import { db } from "@/db";
 import { admins } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { cookies } from "next/headers";
-import { verifyPassword, hashPassword } from "@/lib/auth/password";
 import { revalidatePath } from "next/cache";
+import { verifyPassword } from "@/lib/auth/password";
+import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from "@/lib/auth/cookies";
+
+const ADMIN_SESSION_SECONDS = 7 * 24 * 60 * 60;
+
+// A well-formed hash that matches no password. Checking against it means an
+// unknown email costs the same time as a wrong password, so the login form
+// cannot be used to find out which emails are admins.
+const DUMMY_HASH =
+  "00000000000000000000000000000000:" + "0".repeat(128);
 
 export async function signInWithAdminPassword(
   formData: FormData | { email?: string; password?: string }
@@ -14,89 +22,47 @@ export async function signInWithAdminPassword(
   let password = "";
 
   if (formData instanceof FormData) {
-    email = (formData.get("email") as string) || "";
-    password = (formData.get("password") as string) || "";
+    email = String(formData.get("email") ?? "");
+    password = String(formData.get("password") ?? "");
   } else if (formData && typeof formData === "object") {
     email = formData.email || "";
     password = formData.password || "";
   }
 
-  email = email.trim().toLowerCase();
-  password = password.trim();
+  email = email.trim().toLowerCase().slice(0, 320);
+  password = password.slice(0, 1024);
 
   if (!email || !password) {
     return { success: false, error: "Email and password are required." };
   }
 
-  // Find admin by email
-  const existing = await db
-    .select()
-    .from(admins)
-    .where(eq(admins.email, email))
-    .limit(1);
+  const [admin] = await db.select().from(admins).where(eq(admins.email, email)).limit(1);
 
-  if (!existing || existing.length === 0) {
+  // Accounts without a password must be given one with `npm run db:create-admin`;
+  // there is no built-in default password.
+  const valid = await verifyPassword(password, admin?.passwordHash || DUMMY_HASH);
+  if (!admin || !admin.passwordHash || !valid) {
     return { success: false, error: "Invalid email or password." };
   }
 
-  const admin = existing[0];
+  await clearCookies(...LEGACY_COOKIES);
+  await setSessionCookie(SESSION_COOKIES.admin, admin.id, ADMIN_SESSION_SECONDS);
 
-  // If admin has no passwordHash set yet (e.g. initial migration or seed default),
-  // allow 'admin123' as default password and automatically hash & persist it.
-  if (!admin.passwordHash) {
-    if (password === "admin123") {
-      const newHash = await hashPassword("admin123");
-      await db
-        .update(admins)
-        .set({ passwordHash: newHash })
-        .where(eq(admins.id, admin.id));
-    } else {
-      return { success: false, error: "Invalid email or password." };
-    }
-  } else {
-    const isValid = await verifyPassword(password, admin.passwordHash);
-    if (!isValid) {
-      return { success: false, error: "Invalid email or password." };
-    }
+  try {
+    revalidatePath("/admin");
+  } catch {
+    // Outside a revalidatable context.
   }
 
-  // Set secure session cookie
-  try {
-    const cookieStore = await cookies();
-    cookieStore.set("admin_session", admin.id, {
-      path: "/",
-      maxAge: 86400 * 7, // 7 days
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
-    cookieStore.set("admin_dev_id", admin.id, {
-      path: "/",
-      maxAge: 86400 * 7,
-      sameSite: "lax",
-    });
-  } catch {}
-
-  try {
-    revalidatePath("/admin");
-  } catch {}
-
-  return { success: true, adminId: admin.id, email: admin.email };
-}
-
-export async function logoutAdminAction() {
-  try {
-    const cookieStore = await cookies();
-    cookieStore.delete("admin_session");
-    cookieStore.delete("admin_dev_id");
-  } catch {}
-  try {
-    revalidatePath("/admin");
-  } catch {}
   return { success: true };
 }
 
-/** Legacy stub kept for backward compatibility */
-export async function signInWithGoogleAdmin(turnstileToken?: string) {
-  return { success: false, error: "Google OAuth is disabled in local LAN mode. Please use Email & Password." };
+export async function logoutAdminAction() {
+  await clearCookies(SESSION_COOKIES.admin, ...LEGACY_COOKIES);
+  try {
+    revalidatePath("/admin");
+  } catch {
+    // Outside a revalidatable context.
+  }
+  return { success: true };
 }

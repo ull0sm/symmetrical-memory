@@ -1,7 +1,7 @@
 import React, { Suspense } from "react";
 import AdminHeader from "@/components/layout/AdminHeader";
 import { redirect } from "next/navigation";
-import { ensureAdminOwnsTournament } from "@/actions/admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 import AthletesClient from "@/components/admin/AthletesClient";
 import { db } from "@/db";
 import { tournaments as tournamentsTable, athletes as athletesTable, categories as categoriesTable } from "@/db/schema";
@@ -11,7 +11,7 @@ import { serializeAthlete } from "@/lib/serializers";
 export default async function AdminAthletes({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
   try {
-    await ensureAdminOwnsTournament(tournamentId);
+    await requireTournamentAdmin(tournamentId);
   } catch {
     redirect("/admin");
   }

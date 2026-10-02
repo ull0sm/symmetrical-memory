@@ -1,17 +1,17 @@
 import React from "react";
 import AdminHeader from "@/components/layout/AdminHeader";
 import { redirect } from "next/navigation";
-import { ensureAdminOwnsTournament } from "@/actions/admin";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
 import SettingsClient from "@/components/admin/SettingsClient";
 import { db } from "@/db";
 import { tournaments as tournamentsTable, organiserRequests as organiserRequestsTable } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { serializeTournament, serializeOrganiserRequest } from "@/lib/serializers";
+import { serializeTournamentForAdmin, serializeOrganiserRequest } from "@/lib/serializers";
 
 export default async function AdminSettings({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
   try {
-    await ensureAdminOwnsTournament(tournamentId);
+    await requireTournamentAdmin(tournamentId);
   } catch {
     redirect("/admin");
   }
@@ -36,7 +36,7 @@ export default async function AdminSettings({ params }: { params: Promise<{ id: 
     <>
       <AdminHeader title="Settings" eventName={tournament.name} />
       <SettingsClient 
-        tournament={serializeTournament(tournament)} 
+        tournament={serializeTournamentForAdmin(tournament)} 
         initialOrganiserRequests={requestRows.map(serializeOrganiserRequest)} 
       />
     </>

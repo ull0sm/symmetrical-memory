@@ -1,10 +1,12 @@
 "use server";
 
 import { db } from "@/db";
-import { athletes, categories } from "@/db/schema";
+import { athletes, categories, categoryEntries } from "@/db/schema";
 import { eq, and, sql, or, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { ensureAdminOwnsTournament } from "./admin";
+import { getTournamentStaff, requireTournamentAdmin } from "@/lib/auth/guards";
+import { isValidUuid } from "@/lib/utils";
+import { inferEventType } from "@/lib/categories/eventType";
 import { syncTournamentCategoryCounts } from "@/lib/categories/syncCounts";
 
 export type AthleteInput = {
@@ -21,7 +23,7 @@ export type AthleteInput = {
 };
 
 export async function addAthlete(tournamentId: string, input: AthleteInput) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const name = (input.name || "").trim().slice(0, 200);
   if (!name) throw new Error("Athlete name is required");
@@ -94,7 +96,7 @@ export async function addAthlete(tournamentId: string, input: AthleteInput) {
 }
 
 export async function deleteAthlete(athleteId: string, tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   await db
     .delete(athletes)
@@ -112,7 +114,7 @@ export async function updateAthleteCategory(
   categoryId: string | null,
   tournamentId: string
 ) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   if (categoryId) {
     const [cat] = await db
@@ -129,12 +131,42 @@ export async function updateAthleteCategory(
     if (!cat) throw new Error("Target category not found in this tournament");
   }
 
-  await db
-    .update(athletes)
-    .set({ categoryId })
-    .where(
-      and(eq(athletes.id, athleteId), eq(athletes.tournamentId, tournamentId))
-    );
+  const [athlete] = await db
+    .select({ categoryId: athletes.categoryId })
+    .from(athletes)
+    .where(and(eq(athletes.id, athleteId), eq(athletes.tournamentId, tournamentId)))
+    .limit(1);
+  if (!athlete) throw new Error("Athlete not found in this tournament");
+
+  await db.transaction(async (tx) => {
+    await tx.update(athletes).set({ categoryId }).where(eq(athletes.id, athleteId));
+
+    // The draw reads category_entries too: move the entry for the old category
+    // with the athlete, otherwise they would be drawn into both.
+    if (athlete.categoryId && athlete.categoryId !== categoryId) {
+      if (categoryId) {
+        const [already] = await tx
+          .select({ id: categoryEntries.id })
+          .from(categoryEntries)
+          .where(and(eq(categoryEntries.categoryId, categoryId), eq(categoryEntries.athleteId, athleteId)))
+          .limit(1);
+        if (already) {
+          await tx
+            .delete(categoryEntries)
+            .where(and(eq(categoryEntries.categoryId, athlete.categoryId), eq(categoryEntries.athleteId, athleteId)));
+        } else {
+          await tx
+            .update(categoryEntries)
+            .set({ categoryId })
+            .where(and(eq(categoryEntries.categoryId, athlete.categoryId), eq(categoryEntries.athleteId, athleteId)));
+        }
+      } else {
+        await tx
+          .delete(categoryEntries)
+          .where(and(eq(categoryEntries.categoryId, athlete.categoryId), eq(categoryEntries.athleteId, athleteId)));
+      }
+    }
+  });
 
   await syncTournamentCategoryCounts(tournamentId);
   revalidatePath(`/admin/event/${tournamentId}/athletes`);
@@ -147,7 +179,7 @@ export async function bulkAddAthletes(
   categoryName: string,
   rawAthletes: { no: string; name: string }[]
 ) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   // Find or create category
   const existingCats = await db
@@ -166,6 +198,7 @@ export async function bulkAddAthletes(
       .values({
         tournamentId,
         name: categoryName,
+        eventType: inferEventType(categoryName),
         athletesCount: rawAthletes.length,
         expectedMatches,
         hasFullRoster: true,
@@ -206,7 +239,7 @@ export async function bulkAddMasterAthletes(
   tournamentId: string,
   rawAthletes: any[]
 ) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const existingCats = await db
     .select({
@@ -290,15 +323,28 @@ export async function bulkAddMasterAthletes(
   return { success: true, count: toInsert.length };
 }
 
+/**
+ * Athlete search by name or chest number. Public (the spectator page uses it),
+ * so it returns only what a spectator needs; staff also get the category PDF link.
+ */
 export async function searchTournamentAthletes(
   tournamentId: string,
   query: string,
   categoryIds?: string[]
 ) {
-  const cleanQ = query.trim().replace(/^#/, "");
-  if (!cleanQ && (!categoryIds || categoryIds.length === 0)) return [];
+  if (!isValidUuid(tournamentId)) return [];
+  const cleanQ = String(query || "").trim().replace(/^#/, "").slice(0, 100);
+  const cleanCategoryIds = (Array.isArray(categoryIds) ? categoryIds : []).filter(isValidUuid).slice(0, 50);
+  if (!cleanQ && cleanCategoryIds.length === 0) return [];
 
-  const words = cleanQ.split(/[\s\u00A0\u2000-\u200B]+/).filter(Boolean);
+  const isStaff = Boolean(await getTournamentStaff(tournamentId));
+
+  // LIKE wildcards typed into the search box are dropped, not interpreted.
+  const words = cleanQ
+    .split(/[\s\u00A0\u2000-\u200B]+/)
+    .filter(Boolean)
+    .map((w) => w.replace(/[%_]/g, ""))
+    .filter(Boolean);
   const pattern = words.length > 0 ? `%${words.join("%")}%` : "";
 
   const whereConditions = [eq(athletes.tournamentId, tournamentId)];
@@ -308,8 +354,8 @@ export async function searchTournamentAthletes(
     textMatches.push(sql`LOWER(${athletes.name}) LIKE LOWER(${pattern})`);
     textMatches.push(sql`LOWER(COALESCE(${athletes.chestNumber}, '')) LIKE LOWER(${pattern})`);
   }
-  if (categoryIds && categoryIds.length > 0) {
-    textMatches.push(inArray(athletes.categoryId, categoryIds.slice(0, 50)));
+  if (cleanCategoryIds.length > 0) {
+    textMatches.push(inArray(athletes.categoryId, cleanCategoryIds));
   }
 
   if (textMatches.length > 0) {
@@ -336,7 +382,8 @@ export async function searchTournamentAthletes(
     chest_number: r.chestNumber,
     chestNumber: r.chestNumber,
     category_id: r.categoryId,
-    categories: r.categoryId ? { id: r.categoryId, name: r.categoryName, doc_url: r.categoryDocUrl } : null,
+    categories: r.categoryId
+      ? { id: r.categoryId, name: r.categoryName, doc_url: isStaff ? r.categoryDocUrl : null }
+      : null,
   }));
 }
-

@@ -118,9 +118,11 @@ export function normalizeAccessCode(code?: string | null): string {
  */
 export function generateUnambiguousCode(length = 6): string {
   const chars = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+  const bytes = new Uint32Array(length);
+  globalThis.crypto.getRandomValues(bytes);
   let result = "";
   for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+    result += chars.charAt(bytes[i] % chars.length);
   }
   return result;
 }

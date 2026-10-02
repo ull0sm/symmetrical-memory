@@ -1,75 +1,18 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { checkModeratorStatus } from "@/actions/moderator";
-import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useAccessRequestStatus } from "@/hooks/useAccessRequestStatus";
 
 export default function WaitingRoom() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
-  const [status, setStatus] = useState("pending");
 
-  const handleApproved = (ringId: string, token?: string) => {
-    // Also ensure server-side cookie is set via Server Action
-    checkModeratorStatus(id).catch(() => {});
-
-    // Save token in cookie or local storage so middleware/layout can read it
-    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-    const secureFlag = isHttps ? '; Secure' : '';
-    if (token) {
-      document.cookie = `mod_token=${token}; path=/; max-age=86400; SameSite=Lax${secureFlag}`;
-    } else {
-      document.cookie = `mod_token=${id}; path=/; max-age=86400; SameSite=Lax${secureFlag}`;
-    }
-    
-    // Animate a bit then redirect
-    setStatus("approved");
-    setTimeout(() => {
-      router.push(`/moderator/ring/${ringId}/queue`);
-    }, 1500);
-  };
-
-  // Approval lands here instantly via SSE
-  useLiveEvents({ requestId: id }, () => {
-    void checkModeratorStatus(id)
-      .then((res) => {
-        if (res.status === "approved" && res.ringId) {
-          handleApproved(res.ringId, res.sessionToken || undefined);
-        } else if (res.status === "rejected") {
-          setStatus("rejected");
-        }
-      })
-      .catch(() => {});
+  // The server sets the httpOnly session cookie when it reports "approved".
+  const { state, message } = useAccessRequestStatus(id, checkModeratorStatus, (res) => {
+    setTimeout(() => router.push(`/moderator/ring/${res.ringId}/queue`), 1200);
   });
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    const checkStatus = async () => {
-      try {
-        const res = await checkModeratorStatus(id);
-        if (isCancelled) return;
-        if (res.status === "approved" && res.ringId) {
-          handleApproved(res.ringId, res.sessionToken || undefined);
-        } else if (res.status === "rejected") {
-          setStatus("rejected");
-        }
-      } catch (err) {
-        console.error("Error checking moderator status:", err);
-      }
-    };
-
-    checkStatus();
-    const pollInterval = setInterval(checkStatus, 5000);
-
-    return () => {
-      isCancelled = true;
-      clearInterval(pollInterval);
-    };
-  }, [id]);
-
-
 
   return (
     <div className="bg-surface text-on-surface min-h-screen flex flex-col font-body-md overflow-hidden relative">
@@ -82,7 +25,7 @@ export default function WaitingRoom() {
       <main className="flex-grow flex items-center justify-center px-4 relative z-10">
         <div className="w-full max-w-md text-center flex flex-col items-center">
           
-          {status === "pending" && (
+          {state === "pending" && (
             <>
               <div className="w-24 h-24 mb-10 relative flex justify-center items-center">
                 <svg className="w-24 h-24 -rotate-90 animate-spin text-secondary" viewBox="0 0 100 100">
@@ -120,7 +63,7 @@ export default function WaitingRoom() {
             </>
           )}
 
-          {status === "approved" && (
+          {state === "approved" && (
             <>
               <div className="w-24 h-24 mb-10 rounded-full bg-green-100 flex items-center justify-center shadow-lg transform transition-transform scale-110">
                 <span className="material-symbols-outlined text-green-700 text-5xl" style={{fontVariationSettings: '"FILL" 1'}}>check_circle</span>
@@ -130,13 +73,13 @@ export default function WaitingRoom() {
             </>
           )}
 
-          {status === "rejected" && (
+          {state === "rejected" && (
             <>
               <div className="w-24 h-24 mb-10 rounded-full bg-error-container flex items-center justify-center shadow-lg">
                 <span className="material-symbols-outlined text-error text-5xl" style={{fontVariationSettings: '"FILL" 1'}}>cancel</span>
               </div>
               <h1 className="text-display-sm font-headline-lg text-error mb-4 tracking-tight">Access Denied</h1>
-              <p className="text-body-lg text-on-error-container mb-10">The administrator declined your request.</p>
+              <p className="text-body-lg text-on-error-container mb-10">{message}</p>
               <button 
                 onClick={() => router.push('/login/mod')}
                 className="bg-error text-white px-6 py-3 rounded-lg font-headline-sm"

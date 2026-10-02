@@ -2,8 +2,9 @@
 
 import { db } from "@/db";
 import { tournaments, categories, rings } from "@/db/schema";
-import { ensureAdmin } from "./admin";
-import { generateAccessCode, generateUnambiguousCode } from "@/lib/utils";
+import { requireAdmin } from "@/lib/auth/guards";
+import { uniqueOrganiserCode, uniqueRingAccessCode } from "@/lib/accessCodes";
+import { inferEventType } from "@/lib/categories/eventType";
 
 export type CategoryInput = {
   name: string;
@@ -23,7 +24,7 @@ export type TournamentInput = {
 };
 
 export async function createTournament(input: TournamentInput) {
-  const adminId = await ensureAdmin();
+  const { adminId } = await requireAdmin();
 
   // Validate inputs
   const name = (input.name || "").trim();
@@ -50,7 +51,7 @@ export async function createTournament(input: TournamentInput) {
       venue,
       city,
       status: "draft",
-      organiserCode: generateUnambiguousCode(6),
+      organiserCode: await uniqueOrganiserCode(),
     })
     .returning({ id: tournaments.id });
 
@@ -75,6 +76,7 @@ export async function createTournament(input: TournamentInput) {
         return {
           tournamentId,
           name: catName,
+          eventType: inferEventType(catName),
           ageBracket: (c.age_bracket || "").trim().slice(0, 100) || null,
           weightClass: (c.weight_class || "").trim().slice(0, 100) || null,
           athletesCount,
@@ -89,13 +91,15 @@ export async function createTournament(input: TournamentInput) {
   }
 
   // 3. Create Rings via Drizzle ORM
-  const ringsToInsert = Array.from({ length: ringCount }).map((_, i) => ({
-    tournamentId,
-    name: `Tatami ${String(i + 1).padStart(2, "0")}`,
-    ringOrder: i + 1,
-    accessCode: generateAccessCode(),
-    judgePin: String(Math.floor(1000 + Math.random() * 9000)),
-  }));
+  const ringsToInsert = [];
+  for (let i = 0; i < ringCount; i++) {
+    ringsToInsert.push({
+      tournamentId,
+      name: `Tatami ${String(i + 1).padStart(2, "0")}`,
+      ringOrder: i + 1,
+      accessCode: await uniqueRingAccessCode(),
+    });
+  }
 
   if (ringsToInsert.length > 0) {
     await db.insert(rings).values(ringsToInsert);

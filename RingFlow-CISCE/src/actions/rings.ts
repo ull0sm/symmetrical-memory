@@ -4,23 +4,31 @@ import { db } from "@/db";
 import { rings, moderatorRequests } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { ensureAdmin, ensureAdminOwnsTournament } from "./admin";
-import { ensureOrganiser } from "./organiser";
+import { requireTournamentAdmin } from "@/lib/auth/guards";
+import { tournamentIdForRing } from "@/lib/auth/scope";
 
-import { generateAccessCode } from "@/lib/utils";
+import { uniqueRingAccessCode } from "@/lib/accessCodes";
 import { elapsedMs as elapsedFor, normalizeClock } from "@/lib/matchClock";
 import { persistRingClock, readRingClockRow } from "@/lib/ringClockStore";
 
 export async function addRing(tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   const existingRings = await db
-    .select({ ringOrder: rings.ringOrder })
+    .select({ ringOrder: rings.ringOrder, name: rings.name })
     .from(rings)
     .where(eq(rings.tournamentId, tournamentId));
 
-  const newOrder = existingRings.length + 1;
-  const newName = `Tatami ${String(newOrder).padStart(2, "0")}`;
+  // After a deletion the count no longer matches the highest order, so take
+  // max+1 and skip any name already in use (names are unique per event).
+  const newOrder = existingRings.reduce((max, r) => Math.max(max, r.ringOrder), 0) + 1;
+  const takenNames = new Set(existingRings.map((r) => r.name));
+  let suffix = newOrder;
+  let newName = `Tatami ${String(suffix).padStart(2, "0")}`;
+  while (takenNames.has(newName)) {
+    suffix += 1;
+    newName = `Tatami ${String(suffix).padStart(2, "0")}`;
+  }
 
   const [newRing] = await db
     .insert(rings)
@@ -28,7 +36,7 @@ export async function addRing(tournamentId: string) {
       tournamentId,
       name: newName,
       ringOrder: newOrder,
-      accessCode: generateAccessCode(),
+      accessCode: await uniqueRingAccessCode(),
     })
     .returning();
 
@@ -42,9 +50,9 @@ export async function addRing(tournamentId: string) {
 }
 
 export async function regenerateRingCode(ringId: string, tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
-  const newCode = generateAccessCode();
+  const newCode = await uniqueRingAccessCode();
   await db
     .update(rings)
     .set({ accessCode: newCode })
@@ -65,7 +73,7 @@ export async function regenerateRingCode(ringId: string, tournamentId: string) {
 }
 
 export async function deleteRing(ringId: string, tournamentId: string) {
-  await ensureAdminOwnsTournament(tournamentId);
+  await requireTournamentAdmin(tournamentId);
 
   await db
     .delete(rings)
@@ -80,7 +88,10 @@ export async function deleteRing(ringId: string, tournamentId: string) {
  * second, drifting version of the same clock.
  */
 export async function startRingTimer(ringId: string, tournamentId: string) {
-  await ensureAdmin();
+  await requireTournamentAdmin(tournamentId);
+  if ((await tournamentIdForRing(ringId)) !== tournamentId) {
+    return { success: false, error: "Tatami not found in this tournament" };
+  }
 
   const row = await readRingClockRow(ringId);
   if (!row) return { success: false, error: "Ring not found" };
@@ -101,7 +112,10 @@ export async function startRingTimer(ringId: string, tournamentId: string) {
 }
 
 export async function pauseRingTimer(ringId: string, tournamentId: string) {
-  await ensureAdmin();
+  await requireTournamentAdmin(tournamentId);
+  if ((await tournamentIdForRing(ringId)) !== tournamentId) {
+    return { success: false, error: "Tatami not found in this tournament" };
+  }
 
   const row = await readRingClockRow(ringId);
   if (!row) return { success: false, error: "Ring not found" };
@@ -125,7 +139,10 @@ export async function resumeRingTimer(ringId: string, tournamentId: string) {
 }
 
 export async function resetRingTimer(ringId: string, tournamentId: string) {
-  await ensureAdmin();
+  await requireTournamentAdmin(tournamentId);
+  if ((await tournamentIdForRing(ringId)) !== tournamentId) {
+    return { success: false, error: "Tatami not found in this tournament" };
+  }
 
   const row = await readRingClockRow(ringId);
   if (!row) return { success: false, error: "Ring not found" };
@@ -151,20 +168,8 @@ export async function toggleRingTimer(ringId: string, tournamentId: string, curr
 }
 
 export async function setAllRingTimers(tournamentId: string, pause: boolean) {
-  // Authorize admin or organiser
-  let isAuthorized = false;
-  try {
-    await ensureAdmin();
-    isAuthorized = true;
-  } catch {
-    try {
-      await ensureOrganiser();
-      isAuthorized = true;
-    } catch {}
-  }
-  if (!isAuthorized) {
-    throw new Error("Unauthorized to set ring timers");
-  }
+  // Floor-wide clock control is the event admin's alone; organisers are read-only.
+  await requireTournamentAdmin(tournamentId);
 
   const tournamentRings = await db
     .select({ id: rings.id })
