@@ -38,6 +38,8 @@ export const KATA_VOTING_STATES = ["idle", "open", "closed"] as const;
 export const KATA_TARGET_SIDES = ["AKA", "AO", "BOTH"] as const;
 export const KATA_SCORE_TYPES = ["FLAG", "POINT"] as const;
 export const DRAW_STATES = ["DRAFT", "LOCKED"] as const;
+export const DRAW_PROFILES = ["OFFICIAL", "LOCAL"] as const;
+export const DRAW_SEPARATIONS = ["CLUB", "OFF"] as const;
 
 export type TournamentStatus = (typeof TOURNAMENT_STATUSES)[number];
 export type RingTimerStatus = (typeof RING_TIMER_STATUSES)[number];
@@ -82,4 +84,7 @@ export const STATUS_CHECKS: ReadonlyArray<readonly [string, string, string, read
   ["kata_scores_score_type_check", "kata_scores", "score_type", KATA_SCORE_TYPES, false],
   ["draws_state_check", "draws", "state", DRAW_STATES, false],
   ["category_attendance_status_check", "category_attendance", "status", ATTENDANCE_STATUSES, false],
+  ["tournaments_draw_profile_check", "tournaments", "draw_profile", DRAW_PROFILES, false],
+  ["tournaments_draw_separation_check", "tournaments", "draw_separation", DRAW_SEPARATIONS, false],
+  ["categories_draw_profile_check", "categories", "draw_profile", DRAW_PROFILES, true],
 ];

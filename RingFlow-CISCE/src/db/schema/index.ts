@@ -76,6 +76,10 @@ export const tournaments = pgTable('tournaments', {
   showPublicScoreboard: boolean('show_public_scoreboard').notNull().default(false),
   // 0 = no bronze bout, 1 = single bronze, 2 = repechage with two bronzes (WKF).
   defaultBronzeMedals: integer('default_bronze_medals').notNull().default(2),
+  // 'OFFICIAL' follows WKF procedure strictly; 'LOCAL' uses WKF as a base the organiser may tweak.
+  drawProfile: text('draw_profile').notNull().default('LOCAL'),
+  // Local events only: keep club-mates apart ('CLUB') or draw without regard to club ('OFF').
+  drawSeparation: text('draw_separation').notNull().default('CLUB'),
   tunnelUrl: text('tunnel_url'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
@@ -85,6 +89,8 @@ export const tournaments = pgTable('tournaments', {
     .defaultNow(),
 }, () => [
   statusCheck('tournaments_status_check'),
+  statusCheck('tournaments_draw_profile_check'),
+  statusCheck('tournaments_draw_separation_check'),
 ]);
 
 export const rings = pgTable(
@@ -144,6 +150,8 @@ export const categories = pgTable('categories', {
   docUrl: text('doc_url'),
   // Null means "inherit the tournament's default".
   bronzeMedals: integer('bronze_medals'),
+  // Null means "inherit the tournament's draw profile".
+  drawProfile: text('draw_profile'),
   eventType: text('event_type').notNull().default('kumite'), // 'kumite' | 'kata' | 'team_kumite' | 'team_kata'
   kataFormat: text('kata_format').notNull().default('GROUP_POOLS'), // 'BRACKET' | 'GROUP_POOLS'
   kataScoringMode: text('kata_scoring_mode').notNull().default('FLAG'), // 'FLAG' | 'POINTS'
@@ -155,6 +163,7 @@ export const categories = pgTable('categories', {
 }, () => [
   statusCheck('categories_event_type_check'),
   statusCheck('categories_kata_scoring_mode_check'),
+  statusCheck('categories_draw_profile_check'),
 ]);
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({

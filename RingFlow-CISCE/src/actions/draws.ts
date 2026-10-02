@@ -6,6 +6,7 @@ import { assembleCategoryDraw, type BracketMatchView } from "@/lib/draws/assembl
 import {
   athletes,
   categories,
+  categoryEntries,
   draws,
   drawVersions,
   matches,
@@ -13,15 +14,17 @@ import {
   matchEvents,
   kataScores,
 } from "@/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { tournaments } from "@/db/schema";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
 import {
+  loadCategoryRoster,
   performCategoryDraw,
   performGenerateAllTournamentDraws,
   performGetTournamentDrawPreflight,
 } from "@/lib/draws/generateDraws";
+import { asDrawProfile, resolveDrawRules } from "@/lib/draws/drawRules";
 import { getTournamentStaff } from "@/lib/auth/guards";
 import { tournamentIdForCategory } from "@/lib/auth/scope";
 import { isValidUuid } from "@/lib/utils";
@@ -132,6 +135,168 @@ export async function setCategoryDrawOption(
   } catch {}
 
   return { success: true, drawOutdated, drawBronzeMedals: existing?.bronzeMedals ?? null };
+}
+
+/** Overrides the tournament's draw profile for one category (null = inherit). Admin only. */
+export async function setCategoryDrawProfile(categoryId: string, profile: "OFFICIAL" | "LOCAL" | null) {
+  const [cat] = await db
+    .select({ tournamentId: categories.tournamentId, drawProfile: categories.drawProfile })
+    .from(categories)
+    .where(eq(categories.id, categoryId));
+
+  if (!cat) return { success: false, error: "Category not found" };
+  const admin = await requireTournamentAdmin(cat.tournamentId);
+
+  if (profile !== null && asDrawProfile(profile) === null) {
+    return { success: false, error: "Profile must be OFFICIAL, LOCAL or null" };
+  }
+
+  await db.update(categories).set({ drawProfile: profile }).where(eq(categories.id, categoryId));
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: "DRAW_OPTION_CHANGED",
+    targetType: "category",
+    targetId: categoryId,
+    before: { drawProfile: cat.drawProfile },
+    after: { drawProfile: profile },
+  });
+
+  try {
+    revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
+  } catch {}
+
+  return { success: true };
+}
+
+/**
+ * What the draw panel needs for one category: the rules that apply to it, the
+ * roster with any seeds, and how the current draw came about (its seed and
+ * version), so the admin can explain a bracket. Admin only.
+ */
+export async function getCategoryDrawSetup(categoryId: string) {
+  const [cat] = await db.select().from(categories).where(eq(categories.id, categoryId));
+  if (!cat) return null;
+  await requireTournamentAdmin(cat.tournamentId);
+
+  const [tournament] = await db
+    .select({
+      defaultBronzeMedals: tournaments.defaultBronzeMedals,
+      drawProfile: tournaments.drawProfile,
+      drawSeparation: tournaments.drawSeparation,
+    })
+    .from(tournaments)
+    .where(eq(tournaments.id, cat.tournamentId));
+
+  const rules = resolveDrawRules({
+    tournamentProfile: tournament?.drawProfile,
+    categoryProfile: cat.drawProfile,
+    tournamentSeparation: tournament?.drawSeparation,
+    categoryBronze: cat.bronzeMedals,
+    tournamentBronze: tournament?.defaultBronzeMedals,
+  });
+
+  const roster = (await loadCategoryRoster(db, categoryId))
+    .map((a) => ({ athleteId: a.athleteId, name: a.name, club: a.school || a.dojo || null, seed: a.seed }))
+    .sort((a, b) => (a.seed ?? Infinity) - (b.seed ?? Infinity) || a.name.localeCompare(b.name));
+
+  const [draw] = await db.select().from(draws).where(eq(draws.categoryId, categoryId));
+  let drawInfo: {
+    version: number;
+    state: string;
+    seed: number | null;
+    checksum: string;
+    bronzeMedals: number;
+    note: string | null;
+  } | null = null;
+
+  if (draw) {
+    const [latest] = await db
+      .select({ graph: drawVersions.graph, reason: drawVersions.reason })
+      .from(drawVersions)
+      .where(eq(drawVersions.drawId, draw.id))
+      .orderBy(sql`${drawVersions.version} desc`)
+      .limit(1);
+    const graph = latest?.graph as { randomSeed?: number | null } | undefined;
+    drawInfo = {
+      version: draw.version,
+      state: draw.state,
+      seed: graph?.randomSeed ?? null,
+      checksum: draw.checksum,
+      bronzeMedals: draw.bronzeMedals,
+      note: latest?.reason ?? null,
+    };
+  }
+
+  return {
+    rules,
+    categoryProfile: asDrawProfile(cat.drawProfile),
+    tournamentProfile: asDrawProfile(tournament?.drawProfile) ?? "LOCAL",
+    roster,
+    draw: drawInfo,
+  };
+}
+
+/**
+ * Sets (or clears) the seeds for a category's athletes. A seed is the athlete's
+ * place in the bracket order: 1 is strongest. Athletes with no seed are drawn at
+ * random around the seeded ones. Takes effect at the next draw. Admin only.
+ */
+export async function setCategorySeeds(
+  categoryId: string,
+  seeds: { athleteId: string; seed: number | null }[]
+) {
+  const [cat] = await db
+    .select({ tournamentId: categories.tournamentId, name: categories.name })
+    .from(categories)
+    .where(eq(categories.id, categoryId));
+
+  if (!cat) return { success: false, error: "Category not found" };
+  const admin = await requireTournamentAdmin(cat.tournamentId);
+
+  const roster = await loadCategoryRoster(db, categoryId);
+  const inRoster = new Set(roster.map((a) => a.athleteId));
+  const wanted = new Map<string, number>();
+  const used = new Set<number>();
+
+  for (const { athleteId, seed } of seeds) {
+    if (seed === null) continue;
+    if (!inRoster.has(athleteId)) return { success: false, error: "A seeded athlete is not in this category." };
+    if (!Number.isInteger(seed) || seed < 1 || seed > roster.length) {
+      return { success: false, error: `Seeds must be whole numbers from 1 to ${roster.length}.` };
+    }
+    if (used.has(seed)) return { success: false, error: `Seed ${seed} is given to more than one athlete.` };
+    used.add(seed);
+    wanted.set(athleteId, seed);
+  }
+
+  const before = Object.fromEntries(roster.filter((a) => a.seed !== null).map((a) => [a.athleteId, a.seed]));
+
+  await db.transaction(async (tx) => {
+    for (const athlete of roster) {
+      const seed = wanted.get(athlete.athleteId) ?? null;
+      if (seed === null && athlete.seed === null) continue;
+
+      await tx
+        .insert(categoryEntries)
+        .values({ categoryId, athleteId: athlete.athleteId, seed })
+        .onConflictDoUpdate({ target: [categoryEntries.categoryId, categoryEntries.athleteId], set: { seed } });
+    }
+  });
+
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: "DRAW_SEEDS_SET",
+    targetType: "category",
+    targetId: categoryId,
+    before,
+    after: Object.fromEntries(wanted),
+  });
+
+  return { success: true, seeded: wanted.size };
 }
 
 /**

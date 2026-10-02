@@ -9,6 +9,7 @@ import {
 } from "@/actions/draws";
 import { downloadCategoryDrawPdf } from "@/actions/drawPdfs";
 import { updateCategoryKataSettings } from "@/actions/categories";
+import { DrawSetupPanel } from "@/components/admin/DrawSetupPanel";
 
 export type CategoryDrawInfo = {
   id: string;
@@ -379,6 +380,14 @@ export function CategoryDrawDrawer({
               </div>
             )}
           </div>
+
+          <DrawSetupPanel
+            categoryId={category.id}
+            seedable={!isKataCategory}
+            locked={lifecycle !== "NO_DRAW" && lifecycle !== "DRAFT"}
+            reloadKey={`${category.draw_version ?? category.drawVersion ?? 0}-${category.draw_state ?? "none"}-${category.bronze_medals ?? "i"}`}
+            onChanged={onRefresh}
+          />
 
           {/* Conditional: Kata Settings vs Kumite Bronze Settings */}
           {isKataCategory ? (

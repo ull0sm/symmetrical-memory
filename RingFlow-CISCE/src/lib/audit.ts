@@ -129,6 +129,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   DRAW_UNLOCKED: "Draw unlocked",
   DRAW_FLUSHED: "Draw deleted",
   DRAW_OPTION_CHANGED: "Draw option changed",
+  DRAW_SEEDS_SET: "Draw seeds set",
   ASSIGNMENTS_SAVED: "Tatami assignments saved",
   CATEGORY_STARTED: "Category started",
   CATEGORY_FINISHED: "Category finished",

@@ -165,7 +165,7 @@ export async function updateAthleteCategory(
         } else {
           await tx
             .update(categoryEntries)
-            .set({ categoryId })
+            .set({ categoryId, seed: null })
             .where(and(eq(categoryEntries.categoryId, athlete.categoryId), eq(categoryEntries.athleteId, athleteId)));
         }
       } else {

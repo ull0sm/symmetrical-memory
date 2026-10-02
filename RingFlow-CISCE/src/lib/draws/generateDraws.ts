@@ -12,7 +12,9 @@ import {
   tournaments,
 } from "@/db/schema";
 import { generateDraw } from "@/engine/draw-engine";
-import type { DrawGraph, Participant } from "@/engine/draw-engine/types";
+import { DrawInputError } from "@/engine/draw-engine/errors";
+import { resolveDrawRules } from "@/lib/draws/drawRules";
+import type { DrawGraph, Participant, SeedAssignment } from "@/engine/draw-engine/types";
 import { foughtBoutCount } from "@/lib/draws/boutCount";
 import { WKF_KATA_2026, WKF_KUMITE_2026 } from "@/engine/rules-engine";
 import { eq, inArray, sql } from "drizzle-orm";
@@ -79,6 +81,53 @@ class DrawRefusedError extends Error {
   }
 }
 
+/** A fresh 32-bit seed, stored with the draw; deterministic from there, but not guessable from the clock. */
+function newRandomSeed(): number {
+  return crypto.getRandomValues(new Uint32Array(1))[0] ?? Date.now() >>> 0;
+}
+
+/** Club key for separation; an athlete with no club never shares one. */
+export function clubKey(athleteId: string, school: string | null, dojo: string | null): string {
+  const name = (school || dojo || "").trim();
+  return name === "" ? `independent:${athleteId}` : name;
+}
+
+export interface RosterEntry {
+  athleteId: string;
+  name: string;
+  school: string | null;
+  dojo: string | null;
+  seed: number | null;
+}
+
+/**
+ * Everyone drawn in a category. Athletes reach a category two ways: official
+ * import entries and the athlete's own category (manual add / move). Both are
+ * used, once each, the same way the category counts do, so a manually added
+ * athlete is never left out of a category that also has imported entries.
+ */
+export async function loadCategoryRoster(executor: DbExecutor, categoryId: string): Promise<RosterEntry[]> {
+  const entries = await executor
+    .select({
+      athleteId: athletes.id,
+      name: athletes.name,
+      school: athletes.school,
+      dojo: athletes.dojo,
+      seed: categoryEntries.seed,
+    })
+    .from(categoryEntries)
+    .innerJoin(athletes, eq(categoryEntries.athleteId, athletes.id))
+    .where(eq(categoryEntries.categoryId, categoryId));
+
+  const direct = await executor
+    .select({ athleteId: athletes.id, name: athletes.name, school: athletes.school, dojo: athletes.dojo })
+    .from(athletes)
+    .where(eq(athletes.categoryId, categoryId));
+
+  const seen = new Set(entries.map((e) => e.athleteId));
+  return [...entries, ...direct.filter((a) => !seen.has(a.athleteId)).map((a) => ({ ...a, seed: null }))];
+}
+
 /**
  * The core of draw generation: pure database work with no request context, so
  * the admin actions can guard it and scripts (seeding, verification) can call
@@ -108,57 +157,30 @@ export async function performCategoryDraw(
   const early = refusalFor(cat.name, await readProtection(db, categoryId));
   if (early) return early;
 
-  // The bronze choice resolves in order: explicit override → this category's
-  // setting → the tournament default → WKF's two.
+  // Profile, bronze format and separation resolve in one place: see drawRules.ts.
   const [tournament] = await db
-    .select({ defaultBronzeMedals: tournaments.defaultBronzeMedals })
+    .select({
+      defaultBronzeMedals: tournaments.defaultBronzeMedals,
+      drawProfile: tournaments.drawProfile,
+      drawSeparation: tournaments.drawSeparation,
+    })
     .from(tournaments)
     .where(eq(tournaments.id, cat.tournamentId));
 
-  const bronzeMedals: 0 | 1 | 2 | 3 =
-    options?.bronzeMedals ??
-    (cat.bronzeMedals === 0 || cat.bronzeMedals === 1 || cat.bronzeMedals === 2 || cat.bronzeMedals === 3
-      ? (cat.bronzeMedals as 0 | 1 | 2 | 3)
-      : undefined) ??
-    (tournament?.defaultBronzeMedals === 0 ||
-    tournament?.defaultBronzeMedals === 1 ||
-    tournament?.defaultBronzeMedals === 2 ||
-    tournament?.defaultBronzeMedals === 3
-      ? (tournament.defaultBronzeMedals as 0 | 1 | 2 | 3)
-      : 2);
+  const rules = resolveDrawRules({
+    tournamentProfile: tournament?.drawProfile,
+    categoryProfile: cat.drawProfile,
+    tournamentSeparation: tournament?.drawSeparation,
+    bronzeOverride: options?.bronzeMedals,
+    categoryBronze: cat.bronzeMedals,
+    tournamentBronze: tournament?.defaultBronzeMedals,
+  });
+  const bronzeMedals = rules.bronzeMedals;
+  // A one-off "no separation" request only counts where the profile permits tweaks.
+  const separate = rules.separation === "CLUB" && !(rules.profile === "LOCAL" && options?.separateByClub === false);
 
-  // 2. Fetch category entries with athlete details
-  const entries = await db
-    .select({
-      entryId: categoryEntries.id,
-      athleteId: athletes.id,
-      name: athletes.name,
-      school: athletes.school,
-      dojo: athletes.dojo,
-      seed: categoryEntries.seed,
-    })
-    .from(categoryEntries)
-    .innerJoin(athletes, eq(categoryEntries.athleteId, athletes.id))
-    .where(eq(categoryEntries.categoryId, categoryId));
-
-  // Athletes reach a category two ways: official-import entries and the
-  // athlete's own category (manual add / move). Use both, once each, the same
-  // way the category counts do — otherwise a manually added athlete would be
-  // silently left out of a category that also has imported entries.
-  const directAthletes = await db
-    .select({
-      entryId: athletes.id,
-      athleteId: athletes.id,
-      name: athletes.name,
-      school: athletes.school,
-      dojo: athletes.dojo,
-      seed: sql<number | null>`null`,
-    })
-    .from(athletes)
-    .where(eq(athletes.categoryId, categoryId));
-
-  const seen = new Set(entries.map((e) => e.athleteId));
-  const participantList = [...entries, ...directAthletes.filter((a) => !seen.has(a.athleteId))];
+  // 2. The category's roster, with any seeds the admin set
+  const participantList = await loadCategoryRoster(db, categoryId);
 
   if (participantList.length < 2) {
     return {
@@ -171,9 +193,14 @@ export async function performCategoryDraw(
   const participants: Participant[] = participantList.map((p) => ({
     registrationId: p.athleteId,
     displayName: p.name,
-    clubId: p.school || p.dojo || "Independent",
+    // An athlete with no club is their own club, so they are never "separated" from each other.
+    clubId: clubKey(p.athleteId, p.school, p.dojo),
     districtId: null,
   }));
+
+  const seeds: SeedAssignment[] = participantList
+    .filter((p) => p.seed !== null)
+    .map((p) => ({ registrationId: p.athleteId, seed: p.seed as number }));
 
   // Synchronize category table with verified participant count
   await db
@@ -188,26 +215,32 @@ export async function performCategoryDraw(
   const isKata = isKataCategory(cat);
   const ruleset = isKata ? WKF_KATA_2026 : WKF_KUMITE_2026;
 
-  // 5. Run draw engine
-  const graph: DrawGraph = generateDraw(
-    {
-      categoryId,
-      format: "SINGLE_ELIM_REPECHAGE",
-      participants,
-      seeding: {
-        mode: "RANDOM_SEEDED",
-        randomSeed: Date.now(),
+  // 5. Run draw engine. The seed is stored with the draw so it can be explained and reproduced.
+  const randomSeed = newRandomSeed();
+  let graph: DrawGraph;
+  try {
+    graph = generateDraw(
+      {
+        categoryId,
+        format: "SINGLE_ELIM_REPECHAGE",
+        participants,
+        seeding: seeds.length > 0 ? { mode: "MANUAL", seeds, randomSeed } : { mode: "RANDOM_SEEDED", randomSeed },
+        separation: separate ? { by: "CLUB", rule: "FIRST_ROUND" } : undefined,
+        options: {
+          bronzeMedals,
+        },
       },
-      separation: {
-        by: "CLUB",
-        rule: "FIRST_ROUND",
-      },
-      options: {
-        bronzeMedals,
-      },
-    },
-    ruleset
-  );
+      ruleset
+    );
+  } catch (err) {
+    if (err instanceof DrawInputError) {
+      return {
+        success: false as const,
+        error: `Could not draw "${cat.name}": ${err.issues.map((issue) => issue.message).join("; ")}`,
+      };
+    }
+    throw err;
+  }
 
   // 6. Save draw into database atomically
   let result;
@@ -355,7 +388,7 @@ export async function performCategoryDraw(
         version,
         graph: graph as any,
         checksum: graph.checksum,
-        reason: "Generated by organizer",
+        reason: `Generated by admin (seed ${randomSeed}, ${rules.profile.toLowerCase()} profile, ${seeds.length} seeded, club separation ${separate ? "on" : "off"})`,
     });
 
     if (kataFlight) {

@@ -23,6 +23,10 @@ export async function updateTournamentSettings(
     show_public_scoreboard?: boolean;
     /** 0 = no bronze, 1 = local official (1 bronze), 2 = official WKF (2 bronzes), 3 = local official (joint 2 bronzes). */
     default_bronze_medals?: 0 | 1 | 2 | 3;
+    /** OFFICIAL follows WKF strictly; LOCAL lets the organiser tweak (bronze format, separation). */
+    draw_profile?: "OFFICIAL" | "LOCAL";
+    /** Local events only: keep club-mates apart ('CLUB') or ignore club ('OFF'). */
+    draw_separation?: "CLUB" | "OFF";
     tunnel_url?: string | null;
     tunnelUrl?: string | null;
   }
@@ -38,6 +42,8 @@ export async function updateTournamentSettings(
       showPublicDraws: tournaments.showPublicDraws,
       showPublicScoreboard: tournaments.showPublicScoreboard,
       defaultBronzeMedals: tournaments.defaultBronzeMedals,
+      drawProfile: tournaments.drawProfile,
+      drawSeparation: tournaments.drawSeparation,
       tunnelUrl: tournaments.tunnelUrl,
     })
     .from(tournaments)
@@ -63,6 +69,9 @@ export async function updateTournamentSettings(
     ? (rawBronze as 0 | 1 | 2 | 3)
     : 2;
 
+  const drawProfile = data.draw_profile === "OFFICIAL" ? "OFFICIAL" : "LOCAL";
+  const drawSeparation = data.draw_separation === "OFF" ? "OFF" : "CLUB";
+
   await db
     .update(tournaments)
     .set({
@@ -74,6 +83,8 @@ export async function updateTournamentSettings(
       showPublicDraws: data.show_public_draws ?? true,
       showPublicScoreboard: data.show_public_scoreboard ?? false,
       defaultBronzeMedals,
+      drawProfile,
+      drawSeparation,
       tunnelUrl: cleanTunnel,
       updatedAt: new Date(),
     })
@@ -95,6 +106,8 @@ export async function updateTournamentSettings(
       showPublicDraws: data.show_public_draws ?? true,
       showPublicScoreboard: data.show_public_scoreboard ?? false,
       defaultBronzeMedals,
+      drawProfile,
+      drawSeparation,
       tunnelUrl: cleanTunnel,
     },
   });

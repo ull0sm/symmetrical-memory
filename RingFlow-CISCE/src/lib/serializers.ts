@@ -54,6 +54,8 @@ export function serializeTournament(t: Record<string, unknown> | null | undefine
     show_public_draws: t.showPublicDraws ?? true,
     show_public_scoreboard: t.showPublicScoreboard ?? false,
     default_bronze_medals: t.defaultBronzeMedals ?? 2,
+    draw_profile: t.drawProfile ?? "LOCAL",
+    draw_separation: t.drawSeparation ?? "CLUB",
     tunnel_url: t.tunnelUrl ?? null,
     tunnelUrl: t.tunnelUrl ?? null,
     created_at: t.createdAt ? new Date(t.createdAt).toISOString() : null,
