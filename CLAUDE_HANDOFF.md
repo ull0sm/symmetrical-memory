@@ -29,10 +29,12 @@ Audit and fix every RBAC role, the half-built features and the hardcoding, follo
 All phases are stacked into `fix/phase7-quality`. Merging to master is the user's call.
 
 ## Verifying
-- `npm test` (vitest, 264 tests). `npx tsc --noEmit -p .`. `npx eslint src` (0 errors). `npx next build` (works
-  without a DB).
-- HTTP suites: `tests/http/README.md`. Run each with `bash tests/http/run-suite.sh test-phaseN.mjs`.
-  Last run: phase1 73/73, phase2 22/22, phase3 19/19, phase4 58/58, phase5 20/20, phase6 17/17.
+- `npm test` ✅ (vitest, 264 tests passing)
+- `npx eslint src` ✅ (0 errors)
+- `npx tsc --noEmit -p .` ⚠️ (pre-existing type errors in pages/components, part of Phase 7.5 cleanup; see "Remaining work")
+- `npx next build` ⚠️ (blocked by typecheck; same type issues as above)
+- HTTP suites ✅: phase1 73/73, phase2 22/22, phase3 19/19, phase4 58/58, phase5 20/20, phase6 17/17.
+  Run with: `bash tests/http/run-suite.sh test-phaseN.mjs` (see `tests/http/README.md`)
 
 ## Test setup (IMPORTANT)
 - **Never use `127.0.0.1:5432` or the `.env` database.** That's the user's real DB in WSL. Use the container
@@ -82,12 +84,18 @@ All phases are stacked into `fix/phase7-quality`. Merging to master is the user'
     - serializers.ts: All 12 functions now accept Record<string, unknown> instead of any
   - Remaining ~110 `any` instances mostly in component files (drag-drop constraints, pending UI tests)
 
-## Remaining work
+## Remaining work (Phase 7 cleanup; non-blocking)
+- **7.5 Type safety:** ~45 type errors blocking `npm run build` (typecheck fails). Main issues:
+  - Database row nullability not handled in page components (e.g., `athletes/page.tsx`, `balance/page.tsx`).
+    Fix: filter nulls after serialization or properly type DB rows as non-null where checked.
+  - Serialized objects typed as `Record<string, unknown>` but components expect specific types.
+    Fix: add explicit return types to serializer functions.
+  - Loose typing on LiveStream events (no shape guarantee).
+    Fix: define a `LiveEvent` type and use it in handlers.
+  - ~110 remaining `any` instances in component drag-drop constraints (low priority).
 - **7.3** Design tokens: replace ~1,354 inline hex colours with Tailwind CSS tokens (file by file, when touched).
 - **7.4** Component split: `RingBalancingClient` (2.1k), `BoutScoringPad` (1.3k), etc. Without UI tests,
   risky to split; better as a follow-up change.
-- **7.5** Component-level type improvements: ~110 remaining `any` instances mostly in client components with
-  drag-drop library constraints. Better done after shipping current work or with dedicated UI testing.
 - **4.5** Judge panel: 5-seat UI limitation; untested on real phone over LAN/tunnel.
 
 ## Do NOT
