@@ -9,7 +9,7 @@ import {
   athletes,
   kataScores,
   categoryAssignments,
-  judgeRequests,
+  judgeSessions,
 } from "@/db/schema";
 import { eq, and, asc, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -202,14 +202,13 @@ export async function submitJudgeVote(params: {
     }
 
     const [judge] = await db
-      .select({ id: judgeRequests.id })
-      .from(judgeRequests)
+      .select({ id: judgeSessions.id })
+      .from(judgeSessions)
       .where(
         and(
-          eq(judgeRequests.ringId, scope.ringId),
-          eq(judgeRequests.deviceToken, judgeDeviceToken),
-          eq(judgeRequests.seatNumber, judgeSeat),
-          eq(judgeRequests.status, "approved")
+          eq(judgeSessions.ringId, scope.ringId),
+          eq(judgeSessions.seat, judgeSeat),
+          eq(judgeSessions.status, "approved")
         )
       )
       .limit(1);
