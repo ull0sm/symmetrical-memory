@@ -11,7 +11,7 @@ import { isAthleteInCategory, listCategoryAthletes } from "@/lib/roster/category
 import { parseInput } from "@/lib/validation";
 
 /**
- * Optional call-area attendance (PLAN Phase 6, docs/roles/stager.md). A
+ * Optional call-area attendance. A
  * helper, never a gate: nothing in the app waits on it. Stagers and the
  * event's admin mark athletes; moderators of the event read it (the desk
  * hint); organisers and the public never see it.

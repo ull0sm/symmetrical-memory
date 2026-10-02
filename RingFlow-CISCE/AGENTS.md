@@ -1,445 +1,120 @@
-# RingFlow Implementation Agent Guide
-
-**Read first**: [../AGENTS.md](../AGENTS.md) (system-wide guide for all agents)  
-**This file**: Deep implementation details, file locations, phase progress
-
----
-
-## 📍 You Are Here
-
-```
-symmetrical-memory/
-└── RingFlow-CISCE/              ← YOU ARE IN THIS FOLDER
-    ├── AGENTS.md                ← This file (implementation details)
-    ├── CLAUDE.md                ← Quick instructions
-    ├── src/
-    │   ├── actions/             ← Server logic (76 files × 7 phases)
-    │   ├── app/                 ← UI routes per role
-    │   ├── lib/                 ← Helpers & engines
-    │   ├── components/          ← React components
-    │   └── db/schema/index.ts   ← DATABASE SCHEMA (SINGLE FILE)
-    ├── docs/
-    │   ├── roles/               ← Per-role docs
-    │   └── PLAN.md              ← Open work tracking
-    ├── supabase/migrations/     ← Migration scripts
-    └── tests/http/              ← Integration tests (one per phase)
-```
-
----
-
-## 🔍 File Finder (By Task Type)
-
-### Adding/Editing Server Logic
-
-| Task | Primary File | Related Files |
-|------|-------------|---------------|
-| Admin actions | `src/actions/admin.ts` | `src/lib/auth/guards.ts` (requireAdmin) |
-| Category/draw logic | `src/actions/categories.ts`, `src/actions/draws.ts` | `src/actions/balancing.ts` |
-| Bout scoring (kumite) | `src/actions/matches.ts` | `src/lib/bouts/results.ts` |
-| Judge/kata voting | `src/actions/kata.ts`, `src/actions/judgePanel.ts` | `src/lib/kata/tally.ts`, `src/actions/judgeAuth.ts` |
-| Moderator queue | `src/actions/moderator.ts` | `src/app/moderator/` pages |
-| Results export | `src/actions/resultsExport.ts` | `src/lib/` helpers |
-| Ring/tatami logic | `src/actions/rings.ts` | `src/lib/matchClock.ts` |
-| Live feed events | `src/lib/realtime/bus.ts` | `/api/live`, `/api/live/staff` routes |
-| Audit logging | `src/lib/audit.ts` | Every action that writes |
-
-### Adding UI
-
-| Role | Primary Folder | Guard | Layout File |
-|------|---------------|-------|------------|
-| Admin dashboard | `src/app/admin/event/[id]/` | `requireAdmin()` | `src/app/admin/event/[id]/layout.tsx` |
-| Organiser view | `src/app/organiser/event/[id]/` | `getOrganiserPrincipal()` | `src/app/organiser/event/[id]/layout.tsx` |
-| Stager controls | `src/app/stager/event/[id]/` | `getTournamentStaff()` | `src/app/stager/page.tsx` |
-| Moderator console | `src/app/moderator/ring/[ringId]/` | `requireRingModerator()` | `src/app/moderator/ring/[ringId]/layout.tsx` |
-| Judge phone | `src/app/judge/ring/[ringId]/` | `requireJudge()` | N/A (single page) |
-| Public scoreboard | `src/app/scoreboard/[ringId]/` | None (gated by event settings) | N/A |
-| Public event | `src/app/public/event/[id]/` | None | N/A |
-
-### Schema & Database
-
-| Task | File | Command |
-|------|------|---------|
-| Add table/field | `src/db/schema/index.ts` | `npm run db:push` |
-| Data migration | `supabase/migrations/migrationN_*.sql` | `npm run db:migrate` |
-| Inspect current schema | `src/db/schema/index.ts` | (just read it) |
-| Seed demo data | `scripts/seed-realistic-tournament.ts` | `npm run db:seed` |
-| Reset everything | `scripts/reset-and-seed-clean.ts` | `npm run db:reset` |
-
----
-
-## 🛡️ Auth Quick Reference
-
-### Guards (Import from `src/lib/auth/guards.ts`)
-
-```typescript
-// Admin tier
-await requireAdmin()              // ✓ Authenticated admin
-await requireTournamentAdmin(tid) // ✓ Admin for THIS tournament (tenancy)
-await getTournamentAdmin(tid)     // ✓ Admin or null
-
-// Staff tier (one per tournament)
-await requireTournamentStaff(tid, allowed)  // ✓ Any approved staff
-await getTournamentStaff(tid, allowed)      // ✓ Any staff or null
-
-// Moderator/ring specific
-await requireRingModerator(ringId)     // ✓ Moderator for THIS ring
-await getRingModerator(ringId)         // ✓ Moderator or null
-await requireMatchModerator(matchId)   // ✓ Moderator + bout scope
-await requireRingOperator(ringId)      // ✓ Moderator OR tournament admin (override)
-
-// Judge (seat-bound)
-await requireJudge(ringId)    // ✓ Judge approved for THIS ring
-
-// Organiser (read-only, same tournament)
-await getOrganiserPrincipal()
-
-// Helper
-await hasAnyStaffIdentity()   // UX: show staff menu?
-describePrincipal(p)          // Actor for audit (role, id, name)
-```
-
-### Session Lookup (Import from `src/lib/auth/principal.ts`)
-
-```typescript
-const principals = await getPrincipals()    // All identities in this cookie
-const admin = await getAdminPrincipal()     // Admin or null
-const judge = await getJudgePrincipal()     // Judge or null
-const mod = await getModeratorPrincipal()   // Moderator or null
-```
-
-### Sessions Table
-
-| Table | Fields | Verification |
-|-------|--------|--------------|
-| `admin_sessions` | `adminId`, `tokenHash`, `expiresAt`, `ip`, `userAgent` | Hash-verified, expiry checked |
-| `judge_sessions` | `ringId`, `seat`, `tokenHash`, `status`, `claimHash`, `expiresAt` | Hash-verified, expiry checked, seat-bound, partial unique index (one per seat) |
-| `moderator_requests` | `ringId`, `sessionTokenHash`, `status`, `claimHash`, `expiresAt` | Hash-verified, status=approved, expiry checked |
-| `organiser_requests` | `tournamentId`, `sessionTokenHash`, `status`, `claimHash`, `expiresAt` | Hash-verified, status=approved |
-| `stager_requests` | `tournamentId`, `sessionTokenHash`, `status`, `claimHash`, `expiresAt` | Hash-verified, status=approved |
-
----
-
-## 🗄️ Schema Structure (src/db/schema/index.ts)
-
-The schema file is organized in sections:
-
-### Section 1: Core Tournament Tables
-- `admins`, `admin_sessions`, `tournaments`, `rings`, `categories`, `athletes`, `categoryAssignments`
-- `matches`, `matchSlots`, `kataScores`, `matchEvents`
-- `moderator_requests`, `organiser_requests`, `stager_requests`, `judge_sessions`, `judge_rackets` (old, deprecated)
-
-### Section 2: Decoupled Registration & Setup
-- `tournament_category_definitions`, `tournament_registrations`, `category_attendance`, `category_entries`
-- `category_documents` (PDF storage, no Supabase)
-
-### Section 3: Draws & Matches
-- `draws`, `drawBrackets`, `drawMatchCopies`
-
-### Section 4: Audit & Logs
-- `audit_log` (append-only, trigger prevents UPDATE)
-- `event_log` (legacy, being replaced by audit_log)
-
-**Key Field Naming**:
-- Database: `snake_case` (e.g., `ring_id`, `judge_pin`)
-- Drizzle exported: camelCase (e.g., `ringId`, `judgePi`)
-- Always use Drizzle exports, never raw SQL
-
----
-
-## 📦 Realtime & Broadcasting (src/lib/realtime/bus.ts)
-
-### When to Broadcast
-
-**Every write operation** must broadcast:
-```typescript
-import { broadcastLiveEvent } from "@/lib/realtime/bus";
-
-// Syntax
-broadcastLiveEvent({
-  table: "matches" | "rings" | "categories" | ... (see schema tables),
-  op: "INSERT" | "UPDATE" | "DELETE",
-  id: rowId,
-  matchId?: matchId,
-  ringId?: ringId,
-  tournamentId?: tournamentId,
-  categoryId?: categoryId,
-  status?: status, // for *_requests tables
-});
-```
-
-### Who Listens
-
-- **Moderator pad**: `useLiveEvents({ feed: "staff", ringId }, refetch)`
-- **Admin dashboard**: `useLiveEvents({ feed: "staff", tournamentId }, refetch)`
-- **Public scoreboard**: `useLiveEvents({ ringId }, refetch)` (public feed only)
-
-### Secrets Never Leave DB
-- Never broadcast: session tokens, claim hashes, judge PINs, device tokens
-- Only broadcast: `status`, `id`, structural IDs (`ringId`, `tournamentId`, etc.)
-- See `src/lib/serializers.ts` for safe response formatting
-
----
-
-## 📝 Audit Logging (src/lib/audit.ts)
-
-**Every change to scores, results, approvals, draws** needs an audit entry:
-
-```typescript
-import { audit } from "@/lib/audit";
-
-await audit({
-  tournamentId,     // Required
-  ringId,           // Required
-  categoryId,       // Optional
-  matchId,          // Optional
-  actor: {          // describePrincipal(principal)
-    role: "moderator" | "admin" | "stager" | "organiser" | "judge",
-    id: principalId,
-    name: principalName,
-  },
-  action: "MATCH_SCORED" | "RESULT_FINALIZED" | ... (free text, ~30 chars),
-  targetType: "match" | "draw" | "entry" | ... (free text),
-  targetId: rowId,
-  before: oldValues,   // Optional (JSON)
-  after: newValues,    // Optional (JSON)
-  reason: "Appeals", // Optional
-});
-```
-
-Table: `audit_log` (append-only, trigger prevents UPDATE/DELETE on rows, cascade on tournament delete only)
-
----
-
-## 🧪 Testing Patterns
-
-### Unit Test (vitest, src/**/*.test.ts)
-
-```typescript
-import { describe, it, expect, beforeEach } from "vitest";
-
-describe("calculateKataTally", () => {
-  it("sums judge flags correctly", () => {
-    const result = calculateKataTally(scores);
-    expect(result.akaFlags).toBe(4);
-  });
-});
-```
-
-### Integration Test (HTTP, tests/http/test-phaseN.mjs)
-
-```javascript
-import { test } from "./harness.mjs"; // Seeds DB, starts dev server
-
-test("Moderator scores a kumite bout", async () => {
-  const res = await POST("/api/action/scoreMatch", {
-    matchId: "...",
-    akaScore: 3,
-    moderatorToken: "...",
-  });
-  expect(res.success).toBe(true);
-  expect(res.matchStatus).toBe("COMPLETED");
-});
-```
-
-**Run**: `bash tests/http/run-suite.sh test-phase4.mjs`
-
----
-
-## 🚨 Phase-by-Phase Bug History
-
-### Phase 1: `judgeRequests` Import Error (FIXED)
-- **Bug**: `src/actions/kata.ts` imported non-existent `judgeRequests` table
-- **Fix**: Changed to correct table name (which got added in Phase 2)
-- **Lesson**: Phases build on each other; Phase 1 auth code assumes Phase 2 schema
-
-### Phase 2: Schema Expansion (COMPLETE)
-- Added `judgeRequests` table for judge approval flow
-- Added hashed session tokens (`sessionTokenHash` on all `*_requests` tables)
-- Added `category_documents` table (Postgres storage, no Supabase)
-
-### Phases 3-7: No Critical Bugs Detected
-- Consistent schema usage
-- Proper guard placement in all actions
-- Type safety improvements throughout
-
----
-
-## 🎯 Quick Wins (Easy Tasks for New Contributors)
-
-1. **Add a status check**: Edit `src/lib/statuses.ts`, update schema status columns
-2. **New serializer**: Add type-safe response in `src/lib/serializers.ts`
-3. **Audit a missing action**: Find action in `src/actions/`, add `audit()` call
-4. **Fix a typo in docs**: Edit `docs/roles/*.md`
-5. **Add a test case**: Create `src/actions/newFeature.test.ts` with vitest
-6. **Extract a helper**: Create `src/lib/newHelper.ts` and import in actions
-7. **Update PLAN.md**: Track what you're working on in `docs/PLAN.md`
-
----
-
-## 💾 State Management
-
-**No Redux, Zustand, or Jotai.** Instead:
-
-- **Server state**: Database (source of truth)
-- **Client cache**: React Query / SWR (via `useLiveEvents`)
-- **Form state**: React hook `useFormState()` (Next.js 15+)
-- **UI state**: React hooks (`useState`)
-
-**Pattern**:
-1. Action writes to DB
-2. Action calls `broadcastLiveEvent()`
-3. Client re-fetches via `useLiveEvents()` hook
-4. Component re-renders
-
----
-
-## 🔗 Dependency Graph
-
-```
-src/lib/auth/
-  ├─ guards.ts          (exports all guard functions)
-  ├─ principal.ts       (session lookup)
-  ├─ claims.ts          (browser claim binding)
-  ├─ cookies.ts         (httpOnly management)
-  └─ errors.ts          (AuthError)
-
-src/lib/
-  ├─ audit.ts           (append-only logging)
-  ├─ realtime/bus.ts    (live event broadcast)
-  ├─ serializers.ts     (type-safe responses)
-  ├─ kafka/
-  ├─ draws/
-  ├─ kata/              (tally, scoring)
-  └─ ... (other helpers)
-
-src/actions/
-  ├─ *.ts               (all import guards + audit + broadcast)
-  └─ (every export needs a guard)
-
-src/db/
-  └─ schema/index.ts    (SINGLE SOURCE OF TRUTH)
-```
-
-**Golden Rule**: Always import guards at the top of your action.
-
----
-
-## 🛠️ Common Patterns
-
-### Pattern: Protected Action with Validation
+# RingFlow: engineering guide
+
+For anyone (human or AI agent) changing the code. For what the product does, read
+[README.md](README.md) and [PRD.md](PRD.md). For who may do what, read
+[docs/roles/](docs/roles/README.md). For how it fits together, read
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Rules that must hold
+
+1. **Every exported server action authorizes itself**, as its first step, with a guard from
+   `src/lib/auth/guards.ts`. Page layouts, `readOnly` props and the request gate do not protect
+   anything, because anyone can POST to an action.
+2. **Resolve ownership from the target row.** Never trust a `tournamentId`, `ringId` or `categoryId`
+   from the client on its own. Guards such as `requireTournamentAdmin`, `requireMatchModerator` and
+   `requireRingModerator` check the row's real tournament and tatami.
+3. **Never send secrets to a browser or the live feed**: session tokens, claim secrets, request IDs
+   as credentials, judge PINs, pairing keys, access codes, device tokens. The live feed carries ids
+   and status only. Use the functions in `src/lib/serializers.ts` for client-bound data.
+4. **The organiser is read only.** Do not add an organiser write path.
+5. **A tatami runs one category at a time and has one approved moderator.** Approving a new
+   moderator revokes the old session. A seat on a judge panel belongs to one phone (partial unique
+   index on `judge_sessions`).
+6. **Official actions are audited** with `audit()` (scores, results, corrections, draws, approvals,
+   queue, settings, roster, attendance). `audit_log` is append-only; do not add an UPDATE path.
+7. **No runtime calls to outside services.** The app must work on a network with no internet.
+   Cloudflare Turnstile is optional and off when `OFFLINE_MODE=true`.
+8. **Draw sheets and category PDFs are staff documents**, never public downloads.
+9. **Scripts must not call guarded actions.** Seed and maintenance scripts use the request-free
+   cores in `src/lib/` (for example `performGenerateAllTournamentDraws`, `commitBoutResult`).
+10. **Do not edit a migration that has been applied.** Add a new one.
+
+## Where things live
+
+| I want to change | Look in |
+|---|---|
+| Any server behavior | `src/actions/<area>.ts` (one file per area: `admin`, `athletes`, `attendance`, `audit`, `auth`, `balancing`, `categories`, `categoryDefinitions`, `categoryDocs`, `clock`, `drawPdfs`, `draws`, `judge`, `judgePanel`, `kata`, `matches`, `moderator`, `officialImport`, `organiser`, `public`, `resultsExport`, `rings`, `settings`, `stager`, `tournament`, `turnstile`) |
+| Who can call what | `src/lib/auth/` ([roles/README.md](docs/roles/README.md)) |
+| Database tables | `src/db/schema/index.ts`, plus `db/migrations/` for triggers and constraints |
+| Allowed status values | `src/lib/statuses.ts` (then the schema check and a migration) |
+| Shared tunables (session lifetimes, judge seats, polling, bout length) | `src/lib/constants/index.ts` |
+| Kumite result and bracket advancement | `src/actions/matches.ts`, `src/lib/bouts/results.ts`, `src/engine/draw-engine/resolution.ts` |
+| Kata voting, totals, pool advancement | `src/actions/kata.ts`, `src/lib/kata/` |
+| Draw generation | `src/actions/draws.ts`, `src/lib/draws/`, `src/engine/draw-engine/` |
+| Rules (durations, scoring, penalties) | `src/engine/rules-engine/rulesets/` |
+| Match clock | `src/actions/clock.ts`, `src/lib/matchClock.ts`, `src/lib/ringClockStore.ts`, `src/hooks/useMatchClock.ts` |
+| Live updates | `src/lib/realtime/` (`bus.ts`, `liveStream.ts`), `src/app/api/live/`, `src/hooks/useLiveEvents.ts` |
+| Roster import and category definitions | `src/lib/roster/`, `src/lib/constants/categoryPresets.ts` |
+| PDFs and exports | `src/lib/pdf/`, `src/lib/results/`, `src/actions/resultsExport.ts` |
+| Environment and deployment mode | `src/lib/env.ts`, `src/lib/offline.ts`, `src/lib/http/` |
+| Screens | `src/app/<role>/...` (admin, organiser, stager, moderator, judge, public, scoreboard) and `src/components/<role or feature>/` |
+
+## Anatomy of an action (illustrative)
 
 ```typescript
 "use server";
 
-import { requireAdmin } from "@/lib/auth/guards";
-import { audit } from "@/lib/audit";
-import { parseInput } from "@/lib/validation";
-import { z } from "zod";
-import { db } from "@/db";
-import { tournaments } from "@/db/schema";
-
-const createTournamentSchema = z.object({
-  name: z.string().min(1).max(100),
-  eventDate: z.string().date().optional(),
-});
-
-export async function createTournament(input: z.input<typeof createTournamentSchema>) {
-  const admin = await requireAdmin(); // GUARD FIRST
-  const params = parseInput(createTournamentSchema, input, "create tournament"); // VALIDATE
-
-  const [tournament] = await db
-    .insert(tournaments)
-    .values({
-      adminId: admin.adminId,
-      name: params.name,
-      eventDate: params.eventDate,
-    })
-    .returning();
-
-  await audit({
-    tournamentId: tournament.id,
-    ringId: null,
-    actor: describePrincipal(admin),
-    action: "TOURNAMENT_CREATED",
-    targetType: "tournament",
-    targetId: tournament.id,
-    after: tournament,
-  });
-
-  broadcastLiveEvent({ table: "tournaments", op: "INSERT", id: tournament.id, tournamentId: tournament.id });
-  revalidatePath("/admin");
-
-  return { success: true, tournament };
+export async function renameRing(tournamentId: string, ringId: string, name: string) {
+  const admin = await requireTournamentAdmin(tournamentId);        // 1. guard
+  const params = parseInput(renameSchema, { ringId, name }, "rename");  // 2. validate (zod)
+  // 3. confirm the ring belongs to that tournament, then write with Drizzle
+  await audit({ tournamentId, ringId, actor: admin, action: "RING_RENAMED",
+                targetType: "ring", targetId: ringId, before, after });  // 4. audit
+  broadcastLiveEvent({ table: "rings", op: "UPDATE", id: ringId, ringId, tournamentId }); // 5. notify
+  revalidatePath(`/admin/event/${tournamentId}/rings`);             // 6. refresh pages
+  return { success: true };
 }
 ```
 
-### Pattern: Query with Permission Check
+Guards throw `AuthError`; non-throwing `get...` variants return `null`. Actions return
+`{ success, error? }` for expected failures. `audit()` never fails the action it records.
 
-```typescript
-export async function getTournamentDetails(tournamentId: string) {
-  const admin = await getTournamentAdmin(tournamentId); // Check tenancy
-  if (!admin) {
-    return { success: false, error: "Tournament not found or not yours" };
-  }
+Guard cheat sheet (`src/lib/auth/guards.ts`):
 
-  const [tournament] = await db.select().from(tournaments).where(eq(tournaments.id, tournamentId));
-  return { success: true, tournament };
-}
-```
+| Need | Guard |
+|---|---|
+| The tournament's owner | `requireTournamentAdmin(tid)` |
+| Any staff of a tournament, limited to some roles | `requireTournamentStaff(tid, ["admin", "organiser"])` |
+| The moderator of a tatami | `requireRingModerator(ringId)` |
+| A moderator or the owning admin (clock, judge panel) | `requireRingOperator(ringId)` |
+| Scoring a bout | `requireMatchModerator(matchId)` (also checks the category is running or paused on that tatami) |
+| A judge phone on a tatami | `requireJudge(ringId)` |
+| Resolve which tournament a row belongs to | `src/lib/auth/scope.ts` |
 
-### Pattern: Judge Seat Validation
+## Database changes
 
-```typescript
-export async function approveJudge(ringId: string, seat: number) {
-  const mod = await requireRingModerator(ringId);
-  
-  if (seat < 1 || seat > 7) {
-    return { success: false, error: "Judge seat must be 1-7" };
-  }
+1. Edit `src/db/schema/index.ts`.
+2. `npm run db:push` applies tables and columns.
+3. Anything the schema cannot express (triggers, backfills, data fixes) goes in a new idempotent
+   `db/migrations/migrationN_description.sql`, applied by `npm run db:migrate`. If a new table
+   should drive live screens, add its trigger to the `ringflow_events` function
+   (`migration8_realtime_notify.sql`).
+4. A new status value goes in `src/lib/statuses.ts` first.
 
-  // Approve: insert into judge_sessions with status='approved'
-  // Old one on same ring/seat is revoked (enforced by unique partial index)
-}
-```
+Fresh installs and upgrades use the same two commands. See [db/migrations/README.md](db/migrations/README.md).
 
----
+## Testing
 
-## 📊 Database Diagram (Simplified)
+- **Unit tests**: `npm test` (vitest, `src/**/*.test.ts`). They cover the draw and rules engines,
+  the kata tally, auth guards (database mocked), status lists, environment validation and security
+  headers.
+- **HTTP suites**: `tests/http/`, run with `bash tests/http/run-suite.sh test-<name>.mjs`. They call
+  actions against a running dev server and a throwaway database. See
+  [tests/http/README.md](tests/http/README.md).
+- **Use a disposable database for the suites.** They create tournaments and hammer logins. Never
+  point them, or the seed scripts, at a database with real event data. `run-suite.sh` refuses port
+  5432.
+- Static checks: `npm run lint`, `npx tsc --noEmit`. The type check currently reports errors that
+  also stop `npm run build`; they are listed in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Do not
+  add new ones.
 
-```
-admins
-  ├─ admin_sessions (one-to-many)
-  │   └─ tokenHash (verified per request)
-  └─ tournaments (one-to-many)
-      ├─ rings
-      │   ├─ categoryAssignments (queue)
-      │   ├─ moderator_requests / judge_sessions
-      │   └─ matches
-      │       ├─ matchSlots (aka/ao athletes)
-      │       └─ kataScores (judge votes)
-      ├─ categories
-      │   ├─ athletes
-      │   ├─ categoryEntries
-      │   ├─ draws
-      │   └─ category_documents (PDF storage)
-      ├─ organiser_requests
-      ├─ stager_requests
-      └─ audit_log (append-only)
-```
+## Conventions
 
----
-
-## 🎓 Study Order for New Agents
-
-1. Read **[../AGENTS.md](../AGENTS.md)** (system overview)
-2. Read **this file** (you are here)
-3. Read **[docs/roles/YOUR_ROLE.md](docs/roles/)** (workflow for your task)
-4. Read **[docs/PLAN.md](docs/PLAN.md)** (what's left to do)
-5. Find example in **[src/actions/](src/actions/)** (copy the pattern)
-6. Run **`npm run build`** (verify types)
-7. Write test in **[tests/http/](tests/http/)** (integration test)
-8. Submit PR with commit message attribution
-
----
-
-**Last Updated**: 2026-10-02 | **Schema Version**: Phase 7 | **Test Coverage**: Phases 1-7 complete
+- TypeScript throughout; no new `any`. Use Drizzle's inferred row types.
+- Database columns are `snake_case`; Drizzle exports are camelCase.
+- Use `isHttpsRequest()` (`src/lib/auth/cookies.ts`), not `NODE_ENV`, to decide cookie security, so
+  LAN installs over HTTP keep working.
+- Style new UI with the theme tokens in `src/app/globals.css`, not inline hex colours.
+- Do not leave empty `catch {}` blocks; log or return a typed error.
+- Commit messages explain why. Branch names: `feature/`, `bugfix/`, `docs/`, `chore/`
+  ([CONTRIBUTING.md](CONTRIBUTING.md)).

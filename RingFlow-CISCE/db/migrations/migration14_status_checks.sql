@@ -1,5 +1,5 @@
 -- =========================================================================
--- RingFlow Migration 14 — CHECK constraints on status columns (PLAN 7.6)
+-- RingFlow Migration 14 — CHECK constraints on status columns
 --
 -- Generated from src/lib/statuses.ts (keep them in sync; the Drizzle schema
 -- declares the same constraints). Each is added NOT VALID, so existing rows

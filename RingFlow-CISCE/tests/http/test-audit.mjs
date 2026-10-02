@@ -1,4 +1,4 @@
-// Phase 3: audit trail, corrections with reasons, official record access, accountable exports.
+// Audit: trail, corrections with reasons, official record access, accountable exports.
 import { createRequire } from "node:module";
 import { BASE, Jar, call, check, loadActions, results } from "./rbac-lib.mjs";
 

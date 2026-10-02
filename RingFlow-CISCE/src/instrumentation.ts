@@ -1,6 +1,6 @@
 /**
  * Runs once when the server starts. Validates the environment so a misconfigured
- * deployment stops immediately with a readable message (PLAN 5.1).
+ * deployment stops immediately with a readable message.
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;

@@ -1,9 +1,7 @@
 # RingFlow — Product Requirements
 
-> Single source of truth for **what** RingFlow does. Roles and permissions are detailed in
-> [docs/roles/](docs/roles/README.md). Open engineering work is in [docs/PLAN.md](docs/PLAN.md).
-> Rewritten 2026-10-01. Older versions described a "progress-only, no scoring" product, and that
-> text is obsolete.
+> What RingFlow does and for whom. Who may do what is in [docs/roles/](docs/roles/README.md);
+> how it works inside is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## 1. Vision
 RingFlow runs a karate tournament floor end to end, in real time. It builds the draws, spreads
@@ -22,9 +20,9 @@ at venues where the internet, power and budget are all unreliable.
 - Governing bodies require an official, signed-off record of bouts, scores and winners.
 
 ## 3. Deployment model
-- **Offline venue LAN (primary today):** one server (laptop or mini-PC) and a router. All devices
+- **Offline venue LAN:** one server (laptop or mini-PC) and a router. All devices
   use `http://<server-ip>:3000`. There are no internet dependencies.
-- **Online / hosted (required next):** the same build runs behind HTTPS on a cloud host when the
+- **Online / hosted:** the same build runs behind HTTPS on a cloud host when the
   venue has mobile data but no reliable local infrastructure.
 - **Hybrid:** staff consoles on the LAN, with only judge phones reaching the server through a tunnel.
 - The same codebase serves all three modes. Security never depends on the network: every action
@@ -47,7 +45,7 @@ Full permission matrix: [docs/roles/README.md](docs/roles/README.md).
 |---|---|---|
 | Individual Kumite | Live | Yuko/Waza-ari/Ippon, senshu, C1/C2 penalties, decisions (points, hantei, kiken, hansoku, shikaku). Single elimination with repechage or 1–2 bronzes |
 | Individual Kata | Live | Pool flights (preliminary scores rank only within the pool) followed by medal bouts that start from 0. Flag (majority) or points (5.0–10.0, drop high and low) modes. Bracket format optional |
-| Team Kata / Team Kumite | Partial | Rulesets and registration flags exist. Floor operations are not built. Spec: [docs/KATA_AND_TEAM_EVENTS_SPEC.md](docs/KATA_AND_TEAM_EVENTS_SPEC.md) |
+| Team Kata / Team Kumite | Partial | Rulesets and registration flags exist. Floor operations are not built. See [docs/DISCIPLINES.md](docs/DISCIPLINES.md) |
 
 ## 6. Event lifecycle
 **Setup (admin)**
@@ -76,9 +74,10 @@ Full permission matrix: [docs/roles/README.md](docs/roles/README.md).
 ## 7. Ring balancing & estimation
 - A category's load is its expected bout count (kumite bracket size including repechage/bronze
   bouts; kata pool and medal bouts).
-- The balancing board shows athletes, bouts and total load per tatami, plus estimated finish times.
-- ETA = remaining bouts × average bout duration, refined from the event's own completed bouts.
-- Future: learn durations across past events for better predictions and suggested assignments.
+- The balancing board shows each tatami's categories, athletes and bouts so loads can be evened out
+  by dragging categories between tatamis.
+- The live dashboard shows an estimated finish time for each running tatami: remaining bouts times a
+  fixed 109 seconds per bout. It is a rough guide, not a prediction learned from the event.
 
 ## 8. Live updates
 - The server is authoritative. Clients subscribe to `/api/live` (SSE), scoped by tournament,

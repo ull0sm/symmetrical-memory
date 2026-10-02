@@ -27,7 +27,7 @@ const inputClass =
 const labelClass = "mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--ink-700)]";
 
 /**
- * Admin-only correction of a CONFIRMED kumite bout (PLAN 3.3). The reason is
+ * Admin-only correction of a CONFIRMED kumite bout. The reason is
  * mandatory and lands in the official record; reversing a winner whose later
  * bouts are already fought needs an explicit rollback confirmation.
  */

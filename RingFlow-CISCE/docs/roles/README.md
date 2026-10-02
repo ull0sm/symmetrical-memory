@@ -1,71 +1,86 @@
-# Roles & Permissions
+# Roles and permissions
 
-The authoritative permission model. Each role has its own file:
+RingFlow has six kinds of user. Each has its own page in this folder:
 [admin](admin.md) · [organiser](organiser.md) · [stager](stager.md) · [moderator](moderator.md) ·
-[judge](judge.md) · [public & scoreboard](public.md)
-
-This file and the role files describe the **target** rules. Where the code doesn't follow them yet,
-each role file says so under **Known gaps**, with a link to [PLAN.md](../PLAN.md).
+[judge](judge.md) · [public and scoreboard](public.md)
 
 ## Principles
+
 - **Security lives in server actions.** Every exported action in `src/actions/` checks the caller's
-  role and scope itself. Middleware, page guards and `readOnly` props only shape the UI.
-- **Tenancy:** everything belongs to a tournament, and a tournament belongs to exactly one admin.
-  Each request resolves the target row's tournament and checks the caller against it.
-- **Least scope:** a moderator is bound to one tatami, a judge to one tatami seat, and an organiser
-  or stager to one tournament.
-- **No accounts for floor staff.** Organiser, stager, moderator and judge request access with a
-  code. A human approves the request. They then get a temporary, scoped session that can be revoked.
-- **Everything officials do is audited** (who, what, when, before/after).
+  role and scope itself. The request gate (`src/proxy.ts`), page layouts and `readOnly` props only
+  shape the UI; anyone can POST to an action, so they protect nothing.
+- **Tenancy.** Everything belongs to a tournament, and a tournament belongs to exactly one admin.
+  Each guard resolves the target row's real tournament and checks the caller against it. A
+  `tournamentId` sent by the client is never trusted on its own.
+- **Least scope.** A moderator is bound to one tatami, a judge to one seat on one tatami, and an
+  organiser or stager to one tournament.
+- **No accounts for floor staff.** Organisers, stagers, moderators and judges ask for access with a
+  code. A human approves the request, and the browser that asked then receives a temporary,
+  revocable session.
+- **Everything officials do is audited**: who, what, when, and the before and after values.
 
 ## Permission matrix
-`O` = own scope only. `R` = read. `—` = no access.
+
+`O` = own scope only, `R` = read only, `-` = no access.
 
 | Capability | Admin | Organiser | Stager | Moderator | Judge | Public |
 |---|---|---|---|---|---|---|
-| Create / edit / delete tournament | O | — | — | — | — | — |
-| Event settings, public toggles | O | R | — | — | — | — |
-| Rings: add/delete, access codes, judge PIN | O | R | — | rotate own tatami PIN | — | — |
-| Categories & category definitions | O | R | R | R (own tatami queue) | — | R (names) |
-| Athletes roster / import | O | R | R | R (current bout) | — | search only |
-| Generate / lock / flush draws | O | — | — | — | — | — |
-| View draws / brackets | O | R | R | R | — | if `showPublicDraws`, or own athlete |
-| Draw sheet PDFs | O | — | — | — | — | — |
-| Ring balancing (assign/reorder categories) | O | R | R | reorder own pending queue | — | — |
-| Approve organiser / stager / moderator | O | — | — | — | — | — |
-| Approve / kick judges | O | — | — | own tatami | — | — |
-| Start / finish / pause category | O (override) | — | — | own tatami | — | — |
-| Score bouts, confirm results, run clock | — | — | — | own tatami | — | — |
-| Kata judge votes | — | — | — | override/void, audited | own seat, current bout | — |
-| Mark category calling / ready | O | — | O | R | — | — |
-| Athlete attendance (optional) | O | — | O | R | — | — |
-| Live dashboard, all tatamis | O | R | R | own tatami | — | R (public view) |
-| Audit log | O | R | — | — | — | — |
-| Results export (CSV/PDF) | O | R | — | — | — | — |
-| Scoreboard TV | O | R | — | own tatami | — | if `showPublicScoreboard` |
+| Create, edit, delete a tournament | O | - | - | - | - | - |
+| Event settings and public toggles | O | - | - | - | - | - |
+| Add or delete tatamis, regenerate access codes | O | - | - | - | - | - |
+| Categories and category definitions | O | R | R | R (own queue) | - | names only |
+| Athlete roster, import, moves | O | R | R | R (current bout) | - | search only |
+| Generate, lock, unlock, flush draws | O | - | - | - | - | - |
+| View draws and brackets | O | R | R | R | - | if "show draws publicly", or their own athlete |
+| Draw-sheet PDFs | O | - | - | - | - | - |
+| Ring balancing (assign and order categories) | O | R | R | reorder own pending queue | - | - |
+| Approve organisers, stagers, moderators | O | - | - | - | - | - |
+| Approve or remove judges, rotate the QR and PIN | O | - | - | own tatami | - | - |
+| Start, finish, pause a category | O (pause and clock only) | - | - | own tatami | - | - |
+| Score bouts, confirm results | - | - | - | own tatami | - | - |
+| Correct a confirmed result | O (reason required) | - | - | own tatami, while on the mat (reason required) | - | - |
+| Run the bout clock | O (override) | - | - | own tatami | - | - |
+| Kata votes | - | - | - | open, close, void, override | own seat, current bout | - |
+| Mark a category calling or ready | O | - | O | R | - | - |
+| Athlete attendance | O | - | O | R | - | - |
+| Live dashboard of all tatamis | O | R | - | own tatami | - | public floor view |
+| Audit log | O | R | - | - | - | - |
+| Results export (CSV, PDF) | O | R | - | - | - | - |
+| Scoreboard TV | O | R | - | own tatami | - | if "show scoreboard publicly" |
 
 ## Sessions
-| Role | Credential | Lifetime | Revocation |
-|---|---|---|---|
-| Admin | password → random session token (hashed in DB), httpOnly cookie | 7 days | logout / password change |
-| Organiser | event code → admin approval → session token | 48 h | admin revokes |
-| Stager | stager code → admin approval → session token (one per code) | 48 h | admin revokes, or the code is approved again |
-| Moderator | tatami code → admin approval → session token (one per tatami) | 24 h | admin revokes, or a new moderator is approved |
-| Judge | tatami QR/PIN + seat → moderator approval → session token | until the panel is closed, max 12 h | moderator removes the phone or ends the panel; a newly approved phone on the seat replaces it |
 
-All session cookies are `httpOnly` and `SameSite=Lax`, and are `Secure` when served over HTTPS.
-Tokens are stored hashed (sha256), and request IDs are never accepted as credentials. A staff
-session is created only when the browser that made the request (it holds the claim cookie)
-collects it after approval. Admin login, access-code requests and judge PINs are rate-limited.
+| Role | Credential | Lifetime | Ends when |
+|---|---|---|---|
+| Admin | email and password; random token in an httpOnly cookie, SHA-256 hash in `admin_sessions` | 7 days | logout |
+| Organiser | tournament organiser code, then admin approval | 48 hours | admin revokes it |
+| Stager | one of the tournament's stager codes, then admin approval | 48 hours | admin revokes it, or the code is approved for someone else |
+| Moderator | tatami access code, then admin approval | 24 hours | admin revokes it, or a new moderator is approved for the tatami |
+| Judge | tatami QR link or PIN plus a seat, then moderator approval | 12 hours | moderator removes the phone or ends the panel, or a new phone takes the seat |
+
+Lifetimes are defined in `src/lib/constants/index.ts`. All session cookies are `httpOnly` and
+`SameSite=Lax`, and are `Secure` when the request came over HTTPS. Tokens are stored as SHA-256
+hashes. A request ID is never accepted as a credential: an approved staff session is only handed to
+the browser that made the request, which proves it with a claim cookie (`src/lib/auth/claims.ts`).
+
+Wrong passwords, access codes and judge PINs are rate limited (`src/lib/rateLimit.ts`). Only failed
+attempts count, so a busy desk that logs in correctly is never throttled.
+
+A browser can hold several identities at once, for example an admin testing the moderator pad. Each
+guard looks for the identity it needs.
 
 ## Where the auth code is
-All in `src/lib/auth/` (plain modules, never callable from a browser):
-- `principal.ts` — reads the session cookies and re-verifies each identity against the DB per request.
-- `guards.ts` — `requireAdmin`, `requireTournamentAdmin`, `getTournamentStaff`/`requireTournamentStaff`,
-  `getRingModerator`/`requireRingModerator`, `requireRingOperator`, `requireMatchModerator`, `requireJudge`.
-- `scope.ts` — resolves ring/category/match/athlete → tournament (and tatami for matches).
-- `claims.ts` — binds an access request to the browser that made it (claim cookie + hash).
-- `cookies.ts` — cookie names and the one `setSessionCookie` (httpOnly, SameSite=Lax, Secure on HTTPS).
 
-Admin login is in `src/actions/auth.ts`; each role's request/approve/revoke flow is in its
-`src/actions/<role>.ts`. The request gate (`src/lib/http/requestGate.ts`) only does UX redirects.
+All in `src/lib/auth/`. These are plain modules, not `"use server"`, so a browser cannot call them.
+
+| File | Purpose |
+|---|---|
+| `principal.ts` | Reads the session cookies and re-verifies each identity against the database on every request |
+| `guards.ts` | `requireAdmin`, `requireTournamentAdmin`, `requireTournamentStaff`, `requireRingModerator`, `requireRingOperator`, `requireMatchModerator`, `requireJudge` and their non-throwing `get...` versions |
+| `scope.ts` | Resolves a ring, category, athlete or match to its tournament (and tatami) |
+| `claims.ts` | Binds an access request to the browser that made it |
+| `cookies.ts` | Cookie names and the single `setSessionCookie` helper |
+| `password.ts`, `tokens.ts` | Password hashing, token generation and hashing |
+
+Admin login is `src/actions/auth.ts`. Each role's request, approve and revoke flow lives in
+`src/actions/<role>.ts`.

@@ -13,7 +13,7 @@ interface Props {
 }
 
 /**
- * Call-area hint for the desk (PLAN 6.3). Only informs: the moderator decides
+ * Call-area hint for the desk. Only informs: the moderator decides
  * whether to call Kiken. Nothing is blocked.
  */
 export function AttendanceHint({ aka, ao, attendance }: Props) {

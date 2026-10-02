@@ -1,4 +1,4 @@
-// Phase 6: optional call-area attendance — who may mark it, who sees it, the desk hint.
+// Attendance: optional call-area attendance — who may mark it, who sees it, the desk hint.
 import { createRequire } from "node:module";
 import { BASE, Jar, call, check, loadActions, results } from "./rbac-lib.mjs";
 

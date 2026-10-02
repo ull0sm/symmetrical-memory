@@ -1,5 +1,5 @@
 -- =========================================================================
--- RingFlow Migration 10 — Hashed sessions and local category documents (Phase 2)
+-- RingFlow Migration 10 — Hashed sessions and local category documents
 --
 -- 1. admin_sessions: random per-browser admin sessions; only token hashes stored.
 -- 2. Staff sessions (moderator/stager/organiser) are looked up by sha256 hash.

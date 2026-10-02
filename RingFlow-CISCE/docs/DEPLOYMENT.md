@@ -62,6 +62,6 @@ same way the app does. A variable set on the command line wins.
   staff for the scope, and adds the event log and access requests.
 
 ## Not supported yet
-- Syncing an offline venue database with an online one (PLAN 5.6). For now an event runs on one
+- Syncing an offline venue database with an online one. For now an event runs on one
   database: the venue laptop or the hosted server.
 - Several app instances (see the rate-limit note above).

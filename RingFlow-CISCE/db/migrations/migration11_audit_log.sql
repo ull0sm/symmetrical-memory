@@ -1,5 +1,5 @@
 -- =========================================================================
--- RingFlow Migration 11 — Audit log (Phase 3)
+-- RingFlow Migration 11 — Audit log
 --
 -- Append-only record of every official action (approvals, scores, results,
 -- corrections, draws, queue, settings). A trigger refuses UPDATE so history

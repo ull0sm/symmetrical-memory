@@ -17,7 +17,7 @@ Thank you for your interest in contributing to RingFlow! This guide outlines our
 We follow a typical Git branching and Pull Request workflow:
 
 ### 1. Branch Naming Conventions
-Create a new branch from `main` using the appropriate prefix:
+Create a new branch from `master` using the appropriate prefix:
 * `feature/` for new features (e.g., `feature/analytics-export`)
 * `bugfix/` for bug fixes (e.g., `bugfix/moderator-redirect-loop`)
 * `docs/` for documentation updates (e.g., `docs/contributing-guide`)
@@ -53,10 +53,20 @@ Read [AGENTS.md](AGENTS.md) (rules and layout), [PRD.md](PRD.md) (product) and
 1. **Every exported server action authorizes itself.** It checks role, tenancy (the admin owns the
    tournament), and scope (the moderator owns the tatami). UI guards are not security.
 2. **Audit official actions.** Writes that change scores, results, draws, approvals or the queue
-   record who did what (see [docs/PLAN.md](docs/PLAN.md) Phase 3).
+   record who did what with `audit()` from `src/lib/audit.ts`.
 3. **Realtime:** after a write, call `broadcastLiveEvent` with ids only (never tokens or PINs).
    Screens refetch through `useLiveEvents`.
 4. **Database changes:** edit `src/db/schema/index.ts`, then add an idempotent SQL file in
-   `db/migrations/` (`migrationN_description.sql`). Name unique constraints the way
-   drizzle-kit does (`<table>_<column>_unique`) so `npm run db:push` agrees with the SQL. If a new table must drive live screens,
-   add its trigger to the `ringflow_events` NOTIFY function (see `migration8_realtime_notify.sql`).
+   `db/migrations/` (`migrationN_description.sql`) for anything the schema cannot express. Name
+   unique constraints the way drizzle-kit does (`<table>_<column>_unique`) so `npm run db:push`
+   agrees with the SQL. If a new table must drive live screens, add its trigger to the
+   `ringflow_events` NOTIFY function (see `migration8_realtime_notify.sql`).
+5. **No outside calls at runtime.** The app must work with no internet.
+
+## Before you open a pull request
+
+- `npm run lint` and `npm test` pass.
+- `npx tsc --noEmit` reports no new errors (see the known errors in
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)).
+- If you touched authorization, scoring or sessions, run the matching suite in
+  [tests/http](tests/http/README.md).
