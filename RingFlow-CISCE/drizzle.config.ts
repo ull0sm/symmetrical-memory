@@ -29,7 +29,7 @@ function requireDatabaseUrl(): string {
 
 export default defineConfig({
   schema: './src/db/schema/index.ts',
-  out: './supabase/migrations',
+  out: './db/migrations',
   dialect: 'postgresql',
   dbCredentials: {
     url: requireDatabaseUrl(),

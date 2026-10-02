@@ -14,6 +14,7 @@ import HeaderSearchBar from "@/components/layout/HeaderSearchBar";
 import BackNavigationGuard from "@/components/common/BackNavigationGuard";
 import LogoutConfirmModal from "@/components/ui/LogoutConfirmModal";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -217,12 +218,8 @@ export default function StagerBalancingClient({
     }
   }, [initialRings]);
 
-  useLiveEvents({ tournamentId }, refreshAssignments, { feed: "staff" });
-
-  useEffect(() => {
-    const poll = setInterval(refreshAssignments, 15000);
-    return () => clearInterval(poll);
-  }, [refreshAssignments]);
+  const { connected } = useLiveEvents({ tournamentId }, refreshAssignments, { feed: "staff" });
+  useFallbackPoll(refreshAssignments, connected);
 
   // ── Stager action handler ──────────────────────────────────────────────────
   const handleStagerAction = useCallback(

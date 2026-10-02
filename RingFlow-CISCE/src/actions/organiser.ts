@@ -17,8 +17,9 @@ import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
 import { hashToken, newSessionToken } from "@/lib/auth/tokens";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
 import { getOrganiserPrincipal } from "@/lib/auth/principal";
+import { SESSION_TTL_SECONDS } from "@/lib/constants";
 
-const ORGANISER_SESSION_SECONDS = 48 * 60 * 60;
+const ORGANISER_SESSION_SECONDS = SESSION_TTL_SECONDS.organiser;
 
 async function clientIp(): Promise<string> {
   const h = await headers();

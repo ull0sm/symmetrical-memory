@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { saveAssignments, getBalancingAssignments } from "@/actions/balancing";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
 import StagerStatusIndicator from "@/components/ui/StagerStatusIndicator";
 import { PdfViewerModal } from "@/components/ui/PdfViewerModal";
@@ -235,12 +236,8 @@ export default function RingBalancingClient({
     }
   }, [initialRings]);
 
-  useLiveEvents({ tournamentId }, refreshAssignments, { feed: "staff" });
-
-  useEffect(() => {
-    const poll = setInterval(refreshAssignments, 15000);
-    return () => clearInterval(poll);
-  }, [refreshAssignments]);
+  const { connected } = useLiveEvents({ tournamentId }, refreshAssignments, { feed: "staff" });
+  useFallbackPoll(refreshAssignments, connected);
 
   // Initialize state from props (once on mount)
   useEffect(() => {

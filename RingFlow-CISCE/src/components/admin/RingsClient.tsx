@@ -15,6 +15,7 @@ import {
 } from "@/actions/stager";
 import { getPendingModeratorRequests } from "@/actions/admin";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { normalizeAccessCode } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -120,12 +121,8 @@ export default function RingsClient({
     }
   }, [tournamentId]);
 
-  useLiveEvents({ tournamentId }, refreshRingsData, { feed: "staff" });
-
-  useEffect(() => {
-    const poll = setInterval(refreshRingsData, 15000);
-    return () => clearInterval(poll);
-  }, [refreshRingsData]);
+  const { connected } = useLiveEvents({ tournamentId }, refreshRingsData, { feed: "staff" });
+  useFallbackPoll(refreshRingsData, connected);
 
   // ── Moderator actions ──────────────────────────────────────────────────────
   const handleAddRing = async () => {

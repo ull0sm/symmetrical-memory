@@ -20,10 +20,7 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "@event-suite/protocol": ["./src/engine/protocol"],
-      "@event-suite/domain": ["./src/engine/domain"],
       "@event-suite/rules-engine": ["./src/engine/rules-engine"],
-      "@event-suite/scoring": ["./src/engine/scoring"],
       "@event-suite/draw-engine": ["./src/engine/draw-engine"]
     }
   },

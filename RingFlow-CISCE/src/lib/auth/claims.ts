@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { setSessionCookie } from "./cookies";
 import { hashToken } from "./tokens";
+import { SESSION_TTL_SECONDS } from "@/lib/constants";
 
 /**
  * Binding an access request to the browser that made it.
@@ -22,7 +23,7 @@ const CLAIM_COOKIE: Record<ClaimRole, string> = {
   judge: "judge_claim",
 };
 
-const CLAIM_TTL_SECONDS = 48 * 60 * 60;
+const CLAIM_TTL_SECONDS = SESSION_TTL_SECONDS.claim;
 
 export const sha256 = hashToken;
 

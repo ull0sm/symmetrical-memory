@@ -32,8 +32,9 @@ import {
 } from "@/lib/auth/guards";
 import { tournamentIdForRing } from "@/lib/auth/scope";
 import { getModeratorPrincipal, type ModeratorPrincipal } from "@/lib/auth/principal";
+import { SESSION_TTL_SECONDS } from "@/lib/constants";
 
-const MODERATOR_SESSION_SECONDS = 24 * 60 * 60;
+const MODERATOR_SESSION_SECONDS = SESSION_TTL_SECONDS.moderator;
 
 // ─── Admin: approve / reject / revoke ────────────────────────────────────────
 

@@ -4,6 +4,8 @@
  * across all existing UI components without regressions.
  */
 
+import { DEFAULT_BOUT_DURATION_MS } from "@/lib/constants";
+
 /**
  * Tournament shape for every screen. The organiser code and stager codes are
  * credentials and are left out; the admin settings screen uses
@@ -62,7 +64,7 @@ export function serializeRing(r: any) {
     timer_started_at: r.timerStartedAt ? new Date(r.timerStartedAt).toISOString() : null,
     timer_paused_at: r.timerPausedAt ? new Date(r.timerPausedAt).toISOString() : null,
     timer_accumulated_seconds: r.timerAccumulatedSeconds ?? 0,
-    timer_duration_ms: r.timerDurationMs ?? 180000,
+    timer_duration_ms: r.timerDurationMs ?? DEFAULT_BOUT_DURATION_MS,
     timer_accumulated_ms: r.timerAccumulatedMs ?? 0,
     sides_swapped: r.sidesSwapped ?? false,
     current_match_id: r.currentMatchId ?? null,

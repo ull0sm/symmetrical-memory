@@ -10,6 +10,7 @@ import {
   getOrganiserRequests,
 } from "@/actions/organiser";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
+import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { useRouter } from "next/navigation";
 
 export interface OrganiserRequest {
@@ -102,13 +103,8 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
   }, [tournament.id]);
 
   // Live real-time SSE listener
-  useLiveEvents({ tournamentId: tournament.id }, refreshRequests, { feed: "staff" });
-
-  // Polling fallback
-  useEffect(() => {
-    const poll = setInterval(refreshRequests, 15000);
-    return () => clearInterval(poll);
-  }, [refreshRequests]);
+  const { connected } = useLiveEvents({ tournamentId: tournament.id }, refreshRequests, { feed: "staff" });
+  useFallbackPoll(refreshRequests, connected);
 
   const handleCopyCode = () => {
     if (!organiserCode || organiserCode === "------") return;

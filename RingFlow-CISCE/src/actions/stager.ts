@@ -16,13 +16,14 @@ import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
 import { hashToken, newSessionToken } from "@/lib/auth/tokens";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
 import { getStagerPrincipal } from "@/lib/auth/principal";
+import { SESSION_TTL_SECONDS } from "@/lib/constants";
 
 export type StagerCode = {
   code: string;
   label: string;
 };
 
-const STAGER_SESSION_SECONDS = 48 * 60 * 60;
+const STAGER_SESSION_SECONDS = SESSION_TTL_SECONDS.stager;
 
 // ─── Public: request access ─────────────────────────────────────────────────
 

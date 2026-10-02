@@ -22,13 +22,20 @@ cookies; Postgres stores only their sha256 (`admin_sessions`, `*_requests.sessio
 npm run dev            # dev server on 0.0.0.0:3000
 npm run build          # production build + typecheck (the real CI gate)
 npm run lint           # eslint
+npm test               # vitest unit tests (src/**/*.test.ts)
 npm run db:push        # apply src/db/schema to the DB (drizzle-kit)
 npm run db:migrate     # apply the SQL migrations 8+ (triggers etc.); idempotent
 npm run db:seed        # realistic demo tournament
 npm run db:reset       # wipe + clean seed
 npm run db:create-admin -- --email=a@b.c --password=... --name="..."
 ```
-Tests (`src/engine/**/*.test.ts`) use vitest, but vitest isn't installed yet (see PLAN Phase 7).
+Two test layers:
+- **Unit** (`npm test`, vitest): engines, kata tally, env, security headers, status lists, and the auth
+  guards with the DB mocked. No database needed.
+- **HTTP** (`tests/http/`): calls server actions like a browser would, against a running dev server and
+  a throwaway database. Each `test-phaseN.mjs` covers one PLAN phase:
+  `bash tests/http/run-suite.sh test-phase4.mjs` (it seeds a fresh tournament first). See
+  `tests/http/README.md`. Never point these at a real database.
 Local DB: `docker compose up -d db`. Env template: `.env.example`.
 
 ## Where things live
@@ -43,7 +50,7 @@ Local DB: `docker compose up -d db`. Env template: `.env.example`.
 | `src/lib/` | Helpers: `staffAccess.ts` (who is staff for an event), `realtime/bus.ts`, `pdf/`, `results/`, `kata/scoringEngine.ts`, `matchClock.ts`, `serializers.ts`. |
 | `src/lib/auth/` | Sessions and guards: who is calling, what they may touch. Every action uses it. |
 | `src/lib/http/requestGate.ts` | Request gate (wired in `src/proxy.ts`): cookie-presence redirects + tunnel host block. **Not** a security boundary. |
-| `supabase/migrations/` | SQL migrations (hand-written `migrationN_*.sql` + drizzle output). The folder name is legacy. |
+| `db/migrations/` | SQL migrations. `npm run db:push` creates tables from the schema; `npm run db:migrate` applies `migration8+` (triggers, backfills, CHECKs). Earlier files are history. |
 | `docs/roles/` | One file per role: scope, permissions, workflow, key files, known gaps. |
 
 ## Roles (summary — details in docs/roles/)
