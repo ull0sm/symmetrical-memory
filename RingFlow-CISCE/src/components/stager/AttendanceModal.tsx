@@ -21,7 +21,7 @@ const OPTIONS: { value: AttendanceStatus; label: string; on: string }[] = [
 ];
 
 /**
- * Call-area attendance for one category (PLAN 6.2): one tap per athlete,
+ * Call-area attendance for one category: one tap per athlete,
  * tap again to clear. Optional; nothing waits on it.
  */
 export function AttendanceModal({ categoryId, categoryName, tournamentId, onClose }: Props) {

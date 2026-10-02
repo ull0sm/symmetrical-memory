@@ -2,7 +2,7 @@
 
 This guide details how to run RingFlow in a **100% offline, air-gapped tournament environment** on a local homelab server (Proxmox / Ubuntu VM) connected directly to a TP-Link wireless router, with zero reliance on public internet.
 
-> Hosted and hybrid (LAN + judge tunnel) setups, and every environment variable: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+> Hosted and hybrid (LAN plus judge tunnel) setups, and every environment variable: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
@@ -71,16 +71,15 @@ APP_URL="http://192.168.0.100:3000"
 
 ### Step 2: Database Initialization
 
-Initialize the database schema and optionally seed demo data:
+Create the database schema:
 
 ```bash
 # Apply schema to local PostgreSQL, then the SQL migrations (triggers, audit log, judge sessions)
 npm run db:push
 npm run db:migrate
-
-# (Optional) Seed realistic championship structure
-npm run db:seed
 ```
+
+Do not run `npm run db:seed` on a real event server. It creates a demo tournament with a known admin password and fixed access codes (see [QUICKSTART.md](QUICKSTART.md)); it is for local development only.
 
 ---
 
@@ -102,7 +101,7 @@ npm run db:create-admin admin@ringflow.org yourpassword "Tournament Director"
 
 ### Step 4: Build & Launch Production Server
 
-To achieve sub-millisecond response times on the arena floor, build and start the optimized standalone server:
+Build and start the production server:
 
 ```bash
 # 1. Build the optimized production bundle
@@ -138,19 +137,15 @@ Once the server is running, all clients connected to the TP-Link Wi-Fi can navig
 
 ---
 
-## 4. Kata Scoring Flow & Point Isolation
+---
 
-RingFlow strictly isolates points earned in different bouts:
+## 4. Day-of checklist
 
-### 1. Preliminary Flight Pools (Pool A & Pool B)
-* Competitors are divided into balanced pools (Pool A and Pool B).
-* Each athlete performs their preliminary kata, and the mat-side table official records their scores directly on the Moderator scoring desk.
-* Total scores from preliminary bouts (e.g. `16.20 pts`) determine **pool rank and qualification only**.
+* Server and router powered, server IP reserved (DHCP reservation or static).
+* Admin can sign in at `/login/admin`, and the tournament has tatamis, categories, athletes and locked draws.
+* Each tatami's moderator has signed in with the tatami code and been approved. Open `/scoreboard/<ringId>` on each TV (the tatami's moderator can open it, or enable "show scoreboard publicly" in settings).
+* Click once on each scoreboard and moderator page so the browser allows the bell sound.
+* Kata judges scan the QR code in the moderator's Judge phones panel. On a LAN-only install the QR uses the address the moderator's browser is on, so open the moderator pad through `http://<server-ip>:3000`, not `localhost`.
+* Share `http://<server-ip>:3000/` (or a QR code of it) with spectators and athletes.
 
-### 2. Championship & Medal Flight Bouts
-* When preliminary bouts conclude, the top 2 from each pool advance to the Medal Flight:
-  * **Bout #6**: Gold / Silver Championship Match (Pool A #1 vs Pool B #1)
-  * **Bout #5**: Bronze Medal Match (Pool A #2 vs Pool B #2)
-* **Point Reset**: Points are strictly unique to each bout. When competitors step onto the mat for Bout #5 or #6, their preliminary score (`16.20`) is preserved only as their **Qualification Seed Mark**.
-* The medal bout is scored fresh from `0.00`.
-* Final medals (🥇 Gold, 🥈 Silver, 🥉 Bronze) are awarded based solely on the outcome of the Championship matches.
+How kata pools and medal bouts are scored: [docs/DISCIPLINES.md](docs/DISCIPLINES.md).

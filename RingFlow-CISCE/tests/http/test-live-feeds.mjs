@@ -1,4 +1,4 @@
-// Phase 5: split live feeds, security headers, tunnel isolation of the staff feed.
+// Live feeds: split public and staff feeds, security headers, tunnel isolation of the staff feed.
 import { createRequire } from "node:module";
 import http from "node:http";
 import { BASE, Jar, call, check, loadActions, results } from "./rbac-lib.mjs";

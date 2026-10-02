@@ -1,5 +1,5 @@
 -- =========================================================================
--- RingFlow Migration 13 — Optional call-area attendance (Phase 6)
+-- RingFlow Migration 13 — Optional call-area attendance
 --
 -- One row per (category, athlete) once the stager has marked them present,
 -- absent or withdrawn. No row = not taken. Never blocks anything; the

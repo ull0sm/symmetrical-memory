@@ -1,16 +1,17 @@
 # HTTP suites
 
-These scripts call server actions over HTTP, the way a browser (or an attacker) would. Each suite checks
-one PLAN phase:
+These scripts call server actions over HTTP, the way a browser (or an attacker) would, against a
+running dev server and a throwaway database. Unit tests (`npm test`) cover pure logic; these cover
+authorization, sessions and the flows that need a database.
 
 | Suite | Covers |
 |---|---|
-| `test-phase1.mjs` | Backdoors, tenancy, bout control, secrets on the live feed, request-id-as-credential, organiser read-only, cookies, public data |
-| `test-phase2.mjs` | Hashed admin and staff sessions, logout, rate limits, input validation, staff-only PDFs |
-| `test-phase3.mjs` | Audit entries, corrections with reasons, official record access, accountable exports |
-| `test-phase4.mjs` | Judge pairing and approval, seat ownership, the voting window, void/override, server totals |
-| `test-phase5.mjs` | Public and staff live feeds, security headers, HSTS, tunnel isolation |
-| `test-phase6.mjs` | Attendance permissions, the desk hint, staff-only visibility |
+| `test-access-control.mjs` | Backdoors, tenancy, bout control, secrets on the live feed, request-id-as-credential, organiser read-only, cookies, public data |
+| `test-sessions.mjs` | Hashed admin and staff sessions, logout, rate limits, input validation, staff-only PDFs |
+| `test-audit.mjs` | Audit entries, corrections with reasons, official record access, accountable exports |
+| `test-judge-panel.mjs` | Judge pairing and approval, seat ownership, the voting window, void and override, server totals |
+| `test-live-feeds.mjs` | Public and staff live feeds, security headers, HSTS, tunnel isolation |
+| `test-attendance.mjs` | Attendance permissions, the desk hint, staff-only visibility |
 
 ## Database checks (no server needed)
 `npm run test:db` runs the draw guard, setup, manual-swap and kata-flow checks straight against the database.
@@ -32,7 +33,7 @@ DATABASE_URL=postgres://event_suite:event_suite@127.0.0.1:55432/ringflow npm run
    ```
 3. Run one or more suites. Each run seeds a fresh tournament first:
    ```bash
-   bash tests/http/run-suite.sh test-phase4.mjs
+   bash tests/http/run-suite.sh test-judge-panel.mjs
    ```
    `TEST_DATABASE_URL` and `BASE` override the defaults above. The script refuses port 5432.
 

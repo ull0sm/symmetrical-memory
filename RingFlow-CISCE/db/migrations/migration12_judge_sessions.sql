@@ -1,5 +1,5 @@
 -- =========================================================================
--- RingFlow Migration 12 — Judge panel rebuild (Phase 4)
+-- RingFlow Migration 12 — Judge panel rebuild
 --
 -- * judge_sessions replaces judge_requests: one row per phone per tatami seat,
 --   bound to the requesting browser (claim_hash) and, once approved, to a

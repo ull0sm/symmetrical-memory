@@ -1,4 +1,4 @@
-// Phase 2: hashed sessions, logout, rate limits, input validation, staff-only PDFs.
+// Sessions: hashed admin and staff sessions, logout, rate limits, input validation, staff-only PDFs.
 import { createRequire } from "node:module";
 import { createHash, randomUUID } from "node:crypto";
 import { BASE, Jar, call, check, loadActions, results } from "./rbac-lib.mjs";

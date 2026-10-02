@@ -1,4 +1,4 @@
-// Phase 4: judge panel — pairing, approval, seat ownership, voting window, void/override, server totals.
+// Judge panel: pairing, approval, seat ownership, voting window, void/override, server totals.
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { BASE, Jar, call, check, loadActions, results } from "./rbac-lib.mjs";

@@ -1,49 +1,55 @@
-# Moderator (Tatami Table Official)
+# Moderator (tatami table official)
 
-**Who:** the single person at a tatami's table. They run that tatami's category queue **and** score
-every bout. A tatami runs exactly one category at a time, so one login per tatami is enough.
+The single person at a tatami's table. They run that tatami's category queue and score every bout.
+A tatami runs one category at a time, so one login per tatami is enough.
 
 ## Access
-- `/login/mod`: the tatami's access code plus a name. Request → `/moderator/waiting/[requestId]` →
-  the admin approves → `mod_token` session (24 h).
-- **One approved moderator per tatami.** Approving a new one revokes the previous session (shift change).
-- Scope: **one tatami** (`ringId`). Moderators can't read or affect other tatamis.
+
+- Sign in at `/login/mod` (`/moderator/login` redirects there) with the tatami's access code and a
+  name.
+- The request waits at `/moderator/waiting/[requestId]` until the admin approves it. The browser
+  then receives a `mod_token` session valid for 24 hours.
+- One approved moderator per tatami. Approving a new one revokes the previous session, which is how
+  a shift change works.
+- Scope: one tatami (`ringId`). A moderator cannot read or affect other tatamis.
 
 ## Screens
-| Route | Purpose | Component |
+
+| Route | Purpose | Main components |
 |---|---|---|
-| `/moderator/ring/[ringId]/queue` | Pending categories for this tatami. Start one, reorder pending ones. | `ModeratorQueueClient` |
-| `/moderator/ring/[ringId]/current` | The running category: pick a bout, score it, run the clock, confirm results, view the bracket, manage judges | `ModeratorCurrentClient`, `BoutScoringPad`, `KataScoringPad`, `BoutPickerModal` |
-| `/moderator/ring/[ringId]/controls` | Pause/resume, emergency alert, request assistance | `ModeratorControlsClient` |
-| `/scoreboard/[ringId]` | Opens the TV scoreboard for this tatami | `ScoreboardClient` |
+| `/moderator/ring/[ringId]/queue` | Pending categories for this tatami: start one, reorder the pending ones | `ModeratorQueueClient` |
+| `/moderator/ring/[ringId]/current` | The running category: pick a bout, score it, run the clock, confirm results, see the bracket, manage judge phones | `ModeratorCurrentClient`, `BoutScoringPad`, `KataScoringPad`, `BoutPickerModal` |
+| `/moderator/ring/[ringId]/controls` | Pause or resume, emergency alert, request assistance | `ModeratorControlsClient` |
+| `/scoreboard/[ringId]` | The arena TV screen for this tatami | `ScoreboardClient` |
 
-## Can (own tatami only)
-- Queue: `startCategory`, `finishCategory`, `returnCategoryToQueue`, `reorderCategory` (pending only),
-  `setRingStatus` / `pauseCurrentRingAssignment`, `adjustMatchCount`, `logRingEvent`
-  (emergency / assistance). These are in `moderator.ts`.
-- Kumite bouts: `setActiveBout`, `updateLiveMatchState` (points, C1/C2 penalties, senshu),
-  `confirmBoutResult` (points / hantei / kiken / hansoku / shikaku). The winner advances through the
-  draw graph. These are in `matches.ts`.
-- Kata bouts: open/close judge voting (`openKataVoting`, `closeKataVoting`), void a seat's vote
-  (`voidJudgeVote`), desk marks/flags and finalize (`submitModeratorManualKataMarks`; the server
-  computes the winner and the desk decides only ties). These are in `kata.ts`.
-- Clock: start, pause, reset, adjust, finish, set duration, swap sides (`clock.ts`).
-- Judges: the **Judge phones** panel in the kata pad shows the QR/PIN, approves or removes phones,
-  rotates the QR/PIN, and ends the panel (`judgePanel.ts`). See [judge.md](judge.md).
-- See call-area attendance: an amber hint above the pad when an athlete in the current bout was
-  marked absent or withdrawn (`AttendanceHint`, data from `getRingActiveBout`). It is only a hint;
-  the moderator decides whether to call Kiken.
+## What a moderator can do (own tatami only)
 
-## Cannot
-Touch other tatamis, edit categories, athletes or draws, change ring assignments, or approve other staff.
+- **Queue** (`moderator.ts`): `startCategory`, `finishCategory`, `returnCategoryToQueue`,
+  `reorderCategory` (pending only), `setRingStatus`, `pauseCurrentRingAssignment`,
+  `adjustMatchCount`, `logRingEvent` (emergency and assistance requests).
+- **Kumite bouts** (`matches.ts`): `setActiveBout`, `updateLiveMatchState` (points, penalties,
+  senshu), `confirmBoutResult` (points, hantei, kiken, hansoku, shikkaku). The winner advances
+  through the draw.
+- **Kata bouts** (`kata.ts`): open and close judge voting, void one seat's vote, enter marks or
+  flags at the desk, finalize. The server computes the totals and the winner; the moderator only
+  decides a tie. See [judge.md](judge.md) and [../DISCIPLINES.md](../DISCIPLINES.md).
+- **Clock** (`clock.ts`): start, pause, reset, adjust, finish, set duration, swap sides.
+- **Judge phones** (`judgePanel.ts`): the Judge phones panel in the kata pad shows the QR code and
+  PIN, approves or removes phones, rotates the QR and PIN, and ends the panel.
+- **Attendance hint**: an amber hint above the pad when an athlete in the current bout was marked
+  absent or withdrawn. It informs; the moderator decides whether to call kiken.
 
-## Rules
-- Only bouts in the category that is **running on this tatami** can be made live or confirmed.
-- A confirmed result can be corrected by the moderator only while that category is still on their
-  tatami (running or paused); a correction that would undo later bouts asks for explicit
-  confirmation first. Every confirmation records who did it.
-- Every score change, result, override, and queue change is audited with the moderator's name and session.
+## What a moderator cannot do
 
-## Known gaps (see [PLAN.md](../PLAN.md))
-- Corrections: while its category is on the mat the moderator can re-confirm (correct) a bout, but
-  only with a reason (5+ characters). It goes into the audit log under the moderator's name.
+Touch other tatamis, edit categories, athletes or draws, change tatami assignments, or approve
+other staff.
+
+## Rules the server enforces
+
+- Only bouts of the category that is running or paused on this tatami can be made live, scored or
+  confirmed (`requireMatchModerator`).
+- A confirmed result can be changed by the moderator only while its category is still on their
+  tatami, with a reason of at least five characters. A change that would undo later bouts asks for
+  explicit confirmation first.
+- Every score change, result, override and queue change is audited with the moderator's name.
+- After the category leaves the mat, only the admin can correct a result (see [admin.md](admin.md)).

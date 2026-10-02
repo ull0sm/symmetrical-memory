@@ -10,7 +10,7 @@ import { headers } from "next/headers";
  *
  * In memory, per server process. RingFlow runs as one Node process (venue
  * laptop or a single hosted container); a multi-instance deployment would need
- * a shared store (see docs/PLAN.md, Phase 5).
+ * a shared store.
  */
 
 type Bucket = { count: number; resetAt: number };

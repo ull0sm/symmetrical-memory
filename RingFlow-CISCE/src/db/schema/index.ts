@@ -314,7 +314,7 @@ export const stagerRequests = pgTable('stager_requests', {
 ]);
 
 /**
- * A judge's phone on one tatami seat (PLAN Phase 4, docs/roles/judge.md).
+ * A judge's phone on one tatami seat.
  * The requesting browser holds a claim secret (hash in `claim_hash`); after
  * the moderator approves, that browser collects a session token (hash in
  * `token_hash`). One approved phone per seat, enforced by a partial index.
@@ -447,7 +447,7 @@ export const tournamentRegistrations = pgTable(
 );
 
 /**
- * Optional call-area attendance (PLAN Phase 6). A helper, never a gate: nothing
+ * Optional call-area attendance. A helper, never a gate: nothing
  * blocks on it; the moderator just sees a hint. No row means "not taken".
  * Keyed by (category, athlete) because athletes reach a category through
  * either `category_entries` or `athletes.category_id`.
