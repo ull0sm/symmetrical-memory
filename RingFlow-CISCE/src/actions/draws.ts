@@ -25,6 +25,8 @@ import {
   performGetTournamentDrawPreflight,
 } from "@/lib/draws/generateDraws";
 import { asDrawProfile, resolveDrawRules } from "@/lib/draws/drawRules";
+import { performDrawSwap } from "@/lib/draws/manualSwap";
+import type { DrawGraph } from "@/engine/draw-engine/types";
 import { getTournamentStaff } from "@/lib/auth/guards";
 import { tournamentIdForCategory } from "@/lib/auth/scope";
 import { isValidUuid } from "@/lib/utils";
@@ -202,6 +204,12 @@ export async function getCategoryDrawSetup(categoryId: string) {
     .sort((a, b) => (a.seed ?? Infinity) - (b.seed ?? Infinity) || a.name.localeCompare(b.name));
 
   const [draw] = await db.select().from(draws).where(eq(draws.categoryId, categoryId));
+
+  // The first round as drawn, for the hand-adjust view (elimination brackets only).
+  let firstRound: {
+    matchNo: number;
+    slots: { slotId: string; kind: "ATHLETE" | "BYE"; athleteId: string | null; name: string | null; club: string | null }[];
+  }[] = [];
   let drawInfo: {
     version: number;
     state: string;
@@ -218,7 +226,27 @@ export async function getCategoryDrawSetup(categoryId: string) {
       .where(eq(drawVersions.drawId, draw.id))
       .orderBy(sql`${drawVersions.version} desc`)
       .limit(1);
-    const graph = latest?.graph as { randomSeed?: number | null } | undefined;
+    const graph = latest?.graph as unknown as DrawGraph | undefined;
+
+    if (graph && graph.pools.length === 0) {
+      const byId = new Map(roster.map((a) => [a.athleteId, a]));
+      firstRound = graph.matches
+        .filter((m) => m.roundNo === 0 && m.bracketType === "MAIN")
+        .sort((a, b) => a.matchNo - b.matchNo)
+        .map((m) => ({
+          matchNo: m.matchNo,
+          slots: graph.slots
+            .filter((sl) => sl.matchId === m.id)
+            .sort((a, b) => a.position - b.position)
+            .map((sl) => ({
+              slotId: sl.id,
+              kind: sl.slotType === "ATHLETE" ? ("ATHLETE" as const) : ("BYE" as const),
+              athleteId: sl.registrationId,
+              name: sl.registrationId ? (byId.get(sl.registrationId)?.name ?? null) : null,
+              club: sl.registrationId ? (byId.get(sl.registrationId)?.club ?? null) : null,
+            })),
+        }));
+    }
     drawInfo = {
       version: draw.version,
       state: draw.state,
@@ -235,7 +263,45 @@ export async function getCategoryDrawSetup(categoryId: string) {
     tournamentProfile: asDrawProfile(tournament?.drawProfile) ?? "LOCAL",
     roster,
     draw: drawInfo,
+    firstRound,
   };
+}
+
+/**
+ * Trades two athletes' places in the first round of a draft bracket. Only under
+ * local / unofficial rules, only before the draw is locked or any bout is
+ * fought, and never for a kata pool flight. The result is stored as the next
+ * draw version (so the history shows what the draw was before) and audited.
+ * Admin only.
+ */
+export async function swapDrawAthletes(categoryId: string, slotIdA: string, slotIdB: string, reason?: string) {
+  const [cat] = await db
+    .select({ tournamentId: categories.tournamentId })
+    .from(categories)
+    .where(eq(categories.id, categoryId));
+  if (!cat) return { success: false, error: "Category not found" };
+  const admin = await requireTournamentAdmin(cat.tournamentId);
+
+  const outcome = await performDrawSwap(categoryId, slotIdA, slotIdB, reason);
+  if ("error" in outcome) return { success: false, error: outcome.error };
+
+  await audit({
+    tournamentId: cat.tournamentId,
+    categoryId,
+    actor: admin,
+    action: "DRAW_ATHLETES_SWAPPED",
+    targetType: "category",
+    targetId: categoryId,
+    before: { [slotIdA]: outcome.a, [slotIdB]: outcome.b },
+    after: { [slotIdA]: outcome.b, [slotIdB]: outcome.a, version: outcome.version },
+    reason: reason?.trim() || null,
+  });
+
+  try {
+    revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
+  } catch {}
+
+  return { success: true, version: outcome.version };
 }
 
 /**

@@ -97,6 +97,29 @@ async function main() {
     assert.equal(bad.success, false, "an out-of-range seed is refused with a message");
     assert.match(String((bad as { error?: string }).error), /outside 1\.\.8/);
 
+    // ---- Manual swap: local profile only, draft only, recorded as a new version.
+    const { performDrawSwap } = await import("../src/lib/draws/manualSwap");
+    await db.update(categoryEntries).set({ seed: null }).where(eq(categoryEntries.categoryId, category.id));
+    await db.update(tournaments).set({ drawProfile: "LOCAL" }).where(eq(tournaments.id, tournament.id));
+    assert.equal((await performCategoryDraw(category.id)).success, true, "redraw under local rules");
+    const swapSlots = await db.select().from(matchSlots).where(inArray(matchSlots.matchId, (await db.select().from(matches).where(eq(matches.categoryId, category.id))).filter((m) => m.roundNo === 0).map((m) => m.id)));
+    const [slotA, slotB] = swapSlots.filter((sl) => sl.slotType === "ATHLETE" && sl.athleteId);
+    const swapped = await performDrawSwap(category.id, slotA.id, slotB.id, "club clash");
+    assert.ok(!("error" in swapped), `swap succeeds (${(swapped as { error?: string }).error ?? ""})`);
+    const [slotAAfter] = await db.select().from(matchSlots).where(eq(matchSlots.id, slotA.id));
+    assert.equal(slotAAfter.athleteId, slotB.athleteId, "the database slot moved");
+    const versions = await db.select().from(drawVersions).where(eq(drawVersions.drawId, (await db.select().from(draws).where(eq(draws.categoryId, category.id)))[0].id));
+    assert.equal(versions.length >= 2, true, "the history keeps the pre-swap draw");
+    assert.match(String(versions.sort((x, y) => y.version - x.version)[0].reason), /Manual swap.*club clash/);
+
+    await db.update(tournaments).set({ drawProfile: "OFFICIAL" }).where(eq(tournaments.id, tournament.id));
+    assert.ok("error" in (await performDrawSwap(category.id, slotA.id, slotB.id)), "official draws cannot be swapped");
+    await db.update(tournaments).set({ drawProfile: "LOCAL" }).where(eq(tournaments.id, tournament.id));
+    const [oneBout] = await db.select().from(matches).where(eq(matches.categoryId, category.id)).limit(1);
+    await db.update(matches).set({ status: "CONFIRMED" }).where(eq(matches.id, oneBout.id));
+    assert.ok("error" in (await performDrawSwap(category.id, slotA.id, slotB.id)), "a fought category cannot be swapped");
+    await db.update(matches).set({ status: "SCHEDULED" }).where(eq(matches.id, oneBout.id));
+
     // ---- Kata pool flight: same graph, seed and checksum; advancement still works on top of it.
     const { checksumOf } = await import("../src/engine/draw-engine/canonical");
     const { advanceKataPoolFinalists } = await import("../src/lib/kata/poolAdvancement");

@@ -202,6 +202,25 @@ check("stager reads balancing for own event", Array.isArray((await call(A, "getB
 check("stager cannot save assignments", denied(await call(A, "saveAssignments", [T1, []], st, ST_PAGE)));
 check("stager cannot download draw PDFs", denied(await call(A, "downloadAllCategoryDrawPdfs", [T1], st, ST_PAGE)));
 
+// Draw administration is admin-only: every action that changes or reveals a draw's setup refuses
+// the anonymous caller and the stager. (A missing action would also look "denied", so check it exists.)
+const drawCat = assignment.category_id;
+for (const [name, args] of [
+  ["generateCategoryDraw", [drawCat]],
+  ["flushCategoryDraw", [drawCat, { confirm: "FLUSH", reason: "attack test" }]],
+  ["swapDrawAthletes", [drawCat, "a", "b", "attack test"]],
+  ["setCategorySeeds", [drawCat, []]],
+  ["setCategoryDrawProfile", [drawCat, "OFFICIAL"]],
+  ["setCategoryDrawOption", [drawCat, 1]],
+  ["getCategoryDrawSetup", [drawCat]],
+]) {
+  check(`${name} is compiled into a page`, Boolean(A[name]));
+  check(`anonymous cannot ${name}`, denied(await call(A, name, args, new Jar(), "/")));
+  check(`stager cannot ${name}`, denied(await call(A, name, args, st, ST_PAGE)));
+}
+const [stillDrawn] = await sql`select count(*)::int as n from matches where category_id=${drawCat}`;
+check("the attacks above did not touch the category's bouts", stillDrawn.n > 0);
+
 // ── F. Logout ends the server session ──────────────────────────────────────
 const token = mod.c.get("mod_token");
 await call(A, "logoutModerator", [], mod);

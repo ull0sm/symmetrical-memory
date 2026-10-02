@@ -22,10 +22,10 @@ import { revalidatePath } from "next/cache";
 import { syncTournamentCategoryCounts, getActiveAthleteCounts } from "@/lib/categories/syncCounts";
 import { isKataCategory } from "@/lib/categories/eventType";
 
-type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** What stands between a category and a redraw: a lock, or bouts already fought. */
-async function readProtection(executor: DbExecutor, categoryId: string) {
+export async function readProtection(executor: DbExecutor, categoryId: string) {
   const [existingDraw] = await executor.select().from(draws).where(eq(draws.categoryId, categoryId));
 
   const [matchStats] = await executor
@@ -47,7 +47,7 @@ async function readProtection(executor: DbExecutor, categoryId: string) {
   };
 }
 
-function refusalFor(catName: string, protection: Awaited<ReturnType<typeof readProtection>>) {
+export function refusalFor(catName: string, protection: Awaited<ReturnType<typeof readProtection>>) {
   const { isLocked, confirmedCount, liveCount, activeBoutCount } = protection;
 
   // Fought bouts win over the lock: unlocking cannot make a redraw safe.

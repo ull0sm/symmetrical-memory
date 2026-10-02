@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { getCategoryDrawSetup, setCategoryDrawProfile, setCategorySeeds } from "@/actions/draws";
+import { getCategoryDrawSetup, setCategoryDrawProfile, setCategorySeeds, swapDrawAthletes } from "@/actions/draws";
 
 type Setup = NonNullable<Awaited<ReturnType<typeof getCategoryDrawSetup>>>;
 
@@ -28,6 +28,9 @@ export function DrawSetupPanel({ categoryId, seedable, locked, reloadKey, onChan
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [showSeeds, setShowSeeds] = useState(false);
+  const [showSwap, setShowSwap] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [swapReason, setSwapReason] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -89,6 +92,34 @@ export function DrawSetupPanel({ categoryId, seedable, locked, reloadKey, onChan
   };
 
   const seededCount = roster.filter((a) => a.seed !== null).length;
+
+  const pick = (slotId: string) =>
+    setPicked((current) =>
+      current.includes(slotId) ? current.filter((id) => id !== slotId) : current.length >= 2 ? [current[1] as string, slotId] : [...current, slotId]
+    );
+
+  const swap = async () => {
+    const [a, b] = picked;
+    if (!a || !b) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await swapDrawAthletes(categoryId, a, b, swapReason);
+      if (!res.success) {
+        alert(res.error || "Could not swap the athletes.");
+        return;
+      }
+      setPicked([]);
+      setSwapReason("");
+      await load();
+      onChanged();
+      setMessage("Swapped. The change is recorded as a new draw version in the audit log.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const canSwap = rules.allowManualSwap && canTweak && Boolean(draw) && setup.firstRound.length > 0;
 
   return (
     <div className="border border-outline-variant rounded-xl bg-white p-4 space-y-3 text-xs">
@@ -186,6 +217,83 @@ export function DrawSetupPanel({ categoryId, seedable, locked, reloadKey, onChan
                 className="w-full py-2 rounded-lg bg-primary text-white font-bold disabled:opacity-40 cursor-pointer"
               >
                 Save seeds
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {canSwap && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setShowSwap((v) => !v)}
+            className="w-full flex items-center justify-between text-left font-bold text-primary cursor-pointer"
+          >
+            <span>Adjust first round by hand</span>
+            <span className="material-symbols-outlined text-[18px]">{showSwap ? "expand_less" : "expand_more"}</span>
+          </button>
+
+          {showSwap && (
+            <>
+              <p className="text-on-surface-variant leading-snug">
+                Pick two athletes to trade places. Byes and later rounds stay as drawn. Every swap is recorded.
+              </p>
+              <ul className="max-h-64 overflow-y-auto space-y-1.5">
+                {setup.firstRound.map((bout) => {
+                  const clubs = bout.slots.map((sl) => sl.club?.trim().toLowerCase()).filter(Boolean);
+                  const sameClub = clubs.length === 2 && clubs[0] === clubs[1];
+                  return (
+                    <li key={bout.matchNo} className="border border-outline-variant/60 rounded-lg p-1.5 flex items-center gap-1.5">
+                      <span className="font-data-mono text-[10px] text-on-surface-variant w-8">#{bout.matchNo}</span>
+                      <div className="flex-1 grid grid-cols-2 gap-1.5">
+                        {bout.slots.map((sl) =>
+                          sl.kind === "BYE" ? (
+                            <span key={sl.slotId} className="px-2 py-1 rounded-md bg-surface-container-low text-on-surface-variant italic">
+                              BYE
+                            </span>
+                          ) : (
+                            <button
+                              key={sl.slotId}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => pick(sl.slotId)}
+                              aria-pressed={picked.includes(sl.slotId)}
+                              className={`px-2 py-1 rounded-md border text-left cursor-pointer truncate ${
+                                picked.includes(sl.slotId)
+                                  ? "border-[#0E9C7C] bg-[#E3F6F0] text-[#0B7C63]"
+                                  : "border-outline-variant bg-white"
+                              }`}
+                            >
+                              <span className="block font-bold truncate">{sl.name ?? "Athlete"}</span>
+                              {sl.club && <span className="block text-[10px] text-on-surface-variant truncate">{sl.club}</span>}
+                            </button>
+                          )
+                        )}
+                      </div>
+                      {sameClub && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[10px] font-bold" title="Same club">
+                          same club
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              <input
+                type="text"
+                value={swapReason}
+                onChange={(e) => setSwapReason(e.target.value)}
+                placeholder="Reason (optional)"
+                className="w-full px-2.5 py-1.5 border border-outline-variant rounded-lg"
+              />
+              <button
+                type="button"
+                disabled={busy || picked.length !== 2}
+                onClick={swap}
+                className="w-full py-2 rounded-lg bg-primary text-white font-bold disabled:opacity-40 cursor-pointer"
+              >
+                Swap the two selected athletes
               </button>
             </>
           )}
