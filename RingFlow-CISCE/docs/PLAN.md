@@ -181,10 +181,19 @@ Verified by a 20-check suite plus phases 1–4.
 ---
 
 ## Phase 6 — Stager attendance (optional feature)
-- [ ] 6.1 `category_entries.attendance` (`unknown | present | absent | withdrawn`), plus who set it and when.
-- [ ] 6.2 Stager board: a quick tap per athlete. It is never required.
-- [ ] 6.3 Moderator bout view: show a hint when an athlete is marked absent. The moderator decides
+- [x] 6.1 `category_entries.attendance` (`unknown | present | absent | withdrawn`), plus who set it and when.
+- [x] 6.2 Stager board: a quick tap per athlete. It is never required.
+- [x] 6.3 Moderator bout view: show a hint when an athlete is marked absent. The moderator decides
   whether to call Kiken.
+
+**Status (2026-10-02): done.** Stored in its own table `category_attendance` (category, athlete, status,
+set_by, set_at; migration 13) rather than on `category_entries`, because athletes also reach a category
+through `athletes.category_id` (`lib/roster/categoryAthletes.ts` merges both). Stager board: an
+attendance icon per category card opens `AttendanceModal` (one tap per athlete, tap again to clear).
+Admin and stager mark; moderators read; organisers and the public don't see it, per the role matrix.
+The desk shows `AttendanceHint` for absent/withdrawn athletes in the current bout; nothing is blocked.
+Audited as `ATTENDANCE_SET`; changes go out on the staff feed only. Verified by a 17-check suite.
+Also fixed: category cards showed "UNDEFINED-UNDEFINED" for categories without age limits.
 
 ---
 

@@ -7,6 +7,7 @@ import { getBalancingAssignments } from "@/actions/balancing";
 import StagerStatusIndicator from "@/components/ui/StagerStatusIndicator";
 import { PdfViewerModal } from "@/components/ui/PdfViewerModal";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
+import { AttendanceModal } from "@/components/stager/AttendanceModal";
 import { SegmentedProgressBar } from "@/components/ui/SegmentedProgressBar";
 import BuiltByCrux from "@/components/layout/BuiltByCrux";
 import HeaderSearchBar from "@/components/layout/HeaderSearchBar";
@@ -83,6 +84,7 @@ export default function StagerBalancingClient({
   // first, with the whole tournament one tap away.
   const [drawsScope, setDrawsScope] = useState<"queue" | "all">("queue");
   const [bracketCategory, setBracketCategory] = useState<{ id: string; name: string } | null>(null);
+  const [attendanceCategory, setAttendanceCategory] = useState<{ id: string; name: string } | null>(null);
 
   /** Blob URLs we created must be released, or the tab leaks a file each time. */
   const closePdfViewer = () => {
@@ -312,7 +314,7 @@ export default function StagerBalancingClient({
           <div className="px-3 py-2 border-b border-[#E1DDCF]/60 flex items-center justify-between bg-[#ECE9DF]/60">
             <span className="text-[10px] font-bold tracking-wider uppercase text-[#68645A] truncate">
               {cat.age_bracket ||
-                (cat.age_min !== null && cat.age_max !== null
+                (cat.age_min != null && cat.age_max != null
                   ? `${cat.age_min}-${cat.age_max}`
                   : "")}{" "}
               | {cat.weight_class || cat.belt || "–"}
@@ -361,6 +363,19 @@ export default function StagerBalancingClient({
                   style={{ fontVariationSettings: "'FILL' 0" }}
                 >
                   account_tree
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAttendanceCategory({ id: cat.id, name: cat.name });
+                  }}
+                  title="Attendance (optional)"
+                  aria-label={`Attendance for ${cat.name}`}
+                  className="material-symbols-outlined text-[15px] text-[var(--ink-500)] hover:text-[var(--ink-900)] transition-colors shrink-0 cursor-pointer"
+                  style={{ fontVariationSettings: "'FILL' 0" }}
+                >
+                  how_to_reg
                 </button>
                 {cat.doc_url && (
                   <button
@@ -463,7 +478,7 @@ export default function StagerBalancingClient({
         <div className="flex justify-between items-center mb-1.5">
           <span className="text-[9.5px] font-bold uppercase tracking-wider text-[#68645A]">
             {cat.age_bracket ||
-              (cat.age_min !== null && cat.age_max !== null
+              (cat.age_min != null && cat.age_max != null
                 ? `${cat.age_min}-${cat.age_max}`
                 : "")}{" "}
             | {cat.weight_class || cat.belt || "–"}
@@ -481,6 +496,19 @@ export default function StagerBalancingClient({
               style={{ fontVariationSettings: "'FILL' 0" }}
             >
               account_tree
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAttendanceCategory({ id: cat.id, name: cat.name });
+              }}
+              title="Attendance (optional)"
+              aria-label={`Attendance for ${cat.name}`}
+              className="material-symbols-outlined text-[15px] text-[var(--ink-500)] hover:text-[var(--ink-900)] transition-colors shrink-0 cursor-pointer"
+              style={{ fontVariationSettings: "'FILL' 0" }}
+            >
+              how_to_reg
             </button>
             {cat.doc_url && (
               <button
@@ -803,6 +831,14 @@ export default function StagerBalancingClient({
                             <span className="material-symbols-outlined text-[15px]">account_tree</span>
                             Bracket
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setAttendanceCategory({ id: cat.id, name: cat.name })}
+                            className="flex min-h-[36px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--line)] bg-white px-2 text-[11px] font-bold text-[var(--ink-700)] transition-colors hover:bg-[var(--canvas)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                          >
+                            <span className="material-symbols-outlined text-[15px]">how_to_reg</span>
+                            Attendance
+                          </button>
                         </div>
                       </div>
                     );
@@ -938,7 +974,7 @@ export default function StagerBalancingClient({
                           <div className="flex justify-between items-center">
                             <span className="text-[10px] font-bold text-secondary uppercase tracking-wider">
                               {cat.age_bracket ||
-                                (cat.age_min !== null && cat.age_max !== null
+                                (cat.age_min != null && cat.age_max != null
                                   ? `${cat.age_min}-${cat.age_max}`
                                   : "")}{" "}
                               | {cat.weight_class || cat.belt || "-"}
@@ -1178,6 +1214,16 @@ export default function StagerBalancingClient({
           categoryName={bracketCategory.name}
           isOpen={Boolean(bracketCategory)}
           onClose={() => setBracketCategory(null)}
+        />
+      )}
+
+      {/* Optional call-area attendance for a category */}
+      {attendanceCategory && (
+        <AttendanceModal
+          categoryId={attendanceCategory.id}
+          categoryName={attendanceCategory.name}
+          tournamentId={tournamentId}
+          onClose={() => setAttendanceCategory(null)}
         />
       )}
 

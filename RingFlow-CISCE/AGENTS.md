@@ -51,7 +51,7 @@ Local DB: `docker compose up -d db`. Env template: `.env.example`.
 |---|---|---|
 | Admin | email + password (`/login/admin`) | only tournaments where `tournaments.admin_id` = self |
 | Organiser | event code + admin approval | **read-only**, one tournament |
-| Stager | stager code + admin approval | one tournament; marks categories calling/ready |
+| Stager | stager code + admin approval | one tournament; marks categories calling/ready, optional attendance |
 | Moderator | tatami access code + admin approval | one tatami; runs the queue AND scores bouts |
 | Judge | tatami QR/PIN + moderator approval | one tatami seat; votes on the open kata bout only |
 | Public / Scoreboard | none | read-only, controlled by the event's public toggles |

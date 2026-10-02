@@ -928,7 +928,7 @@ export default function CategoriesClient({
                   {previewCategories.map((cat, i) => (
                     <tr key={i} className="border-b border-outline-variant/30 hover:bg-surface-container-highest/30 transition-colors">
                       <td className="py-2 font-bold text-primary">{cat.name}</td>
-                      <td className="py-2">{cat.age_bracket || (cat.age_min !== null && cat.age_max !== null ? `${cat.age_min}-${cat.age_max}` : "-")}</td>
+                      <td className="py-2">{cat.age_bracket || (cat.age_min != null && cat.age_max != null ? `${cat.age_min}-${cat.age_max}` : "-")}</td>
                       <td className="py-2">{cat.weight_class || "-"}</td>
                       <td className="py-2">{cat.sex || "-"}</td>
                       <td className="py-2">{cat.belt || "-"}</td>

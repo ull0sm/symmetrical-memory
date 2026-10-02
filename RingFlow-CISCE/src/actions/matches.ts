@@ -4,6 +4,7 @@ import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
   categoryAssignments,
+  categoryAttendance,
   categories,
   matches,
   matchSlots,
@@ -296,6 +297,17 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
     ).map(publicKataScore);
     boutResult.currentMatch.kataScores = scores;
     (boutResult as Record<string, unknown>).kataScores = scores;
+  }
+
+  // Call-area hints for the desk (absent / withdrawn), staff only.
+  if (staff) {
+    const marks = await db
+      .select({ athleteId: categoryAttendance.athleteId, status: categoryAttendance.status, setBy: categoryAttendance.setBy, setAt: categoryAttendance.setAt })
+      .from(categoryAttendance)
+      .where(and(eq(categoryAttendance.categoryId, cat.id), inArray(categoryAttendance.status, ["absent", "withdrawn"])));
+    (boutResult as Record<string, unknown>).attendance = Object.fromEntries(
+      marks.map((m) => [m.athleteId, { status: m.status, setBy: m.setBy, setAt: m.setAt.toISOString() }])
+    );
   }
 
   return boutResult;
