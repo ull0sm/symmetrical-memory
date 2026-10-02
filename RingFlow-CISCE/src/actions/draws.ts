@@ -30,6 +30,7 @@ import type { DrawGraph } from "@/engine/draw-engine/types";
 import { getTournamentStaff } from "@/lib/auth/guards";
 import { tournamentIdForCategory } from "@/lib/auth/scope";
 import { isValidUuid } from "@/lib/utils";
+import { broadcastLiveEvent } from "@/lib/realtime/bus";
 
 /**
  * Staff of this category's event may always open a full bracket. The public
@@ -95,7 +96,7 @@ export async function setCategoryDrawOption(
   bronzeMedals: 0 | 1 | 2 | 3 | null
 ) {
   const [cat] = await db
-    .select({ tournamentId: categories.tournamentId })
+    .select({ tournamentId: categories.tournamentId, drawProfile: categories.drawProfile })
     .from(categories)
     .where(eq(categories.id, categoryId));
 
@@ -116,10 +117,16 @@ export async function setCategoryDrawOption(
     .from(draws)
     .where(eq(draws.categoryId, categoryId));
   const [tournament] = await db
-    .select({ defaultBronzeMedals: tournaments.defaultBronzeMedals })
+    .select({ defaultBronzeMedals: tournaments.defaultBronzeMedals, drawProfile: tournaments.drawProfile })
     .from(tournaments)
     .where(eq(tournaments.id, cat.tournamentId));
-  const effective = bronzeMedals ?? tournament?.defaultBronzeMedals ?? 2;
+  // What the next draw would use, profile included: an official event ignores this setting.
+  const effective = resolveDrawRules({
+    tournamentProfile: tournament?.drawProfile,
+    categoryProfile: cat.drawProfile,
+    categoryBronze: bronzeMedals,
+    tournamentBronze: tournament?.defaultBronzeMedals,
+  }).bronzeMedals;
   const drawOutdated = existing !== undefined && existing.bronzeMedals !== effective;
 
   await audit({
@@ -300,6 +307,9 @@ export async function swapDrawAthletes(categoryId: string, slotIdA: string, slot
   try {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
   } catch {}
+
+  // Open brackets (admin, stager, public) re-read the draw.
+  broadcastLiveEvent({ table: "draws", op: "UPDATE", id: categoryId, tournamentId: cat.tournamentId });
 
   return { success: true, version: outcome.version };
 }

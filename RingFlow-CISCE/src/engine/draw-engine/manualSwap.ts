@@ -1,5 +1,6 @@
 import { checksumOf } from './canonical';
-import type { DrawGraph } from './types';
+import { groupKeyOf } from './separation';
+import type { DrawGraph, DrawWarning, Participant, SeparationOptions } from './types';
 
 export type ManualSwapErrorCode =
   | 'SAME_SLOT'
@@ -32,7 +33,12 @@ export interface SwapResult {
  * the shape of the draw rather than who fills it. The graph is returned with a
  * fresh checksum, ready to be stored as the next version.
  */
-export function swapFirstRoundAthletes(graph: DrawGraph, slotIdA: string, slotIdB: string): SwapResult {
+export function swapFirstRoundAthletes(
+  graph: DrawGraph,
+  slotIdA: string,
+  slotIdB: string,
+  separation?: { participants: readonly Participant[]; options: SeparationOptions },
+): SwapResult {
   if (graph.pools.length > 0 || graph.flightDraw !== undefined) {
     throw new ManualSwapError('NOT_A_BRACKET', 'only an elimination bracket can be edited by hand');
   }
@@ -72,10 +78,45 @@ export function swapFirstRoundAthletes(graph: DrawGraph, slotIdA: string, slotId
   );
 
   const { checksum: _previous, ...rest } = graph;
-  const body = { ...rest, slots };
+  const body = { ...rest, slots, warnings: warningsAfterSwap(graph, slots, separation) };
 
   return {
     graph: { ...body, checksum: checksumOf(body) },
     swapped: [slotA.registrationId, slotB.registrationId],
   };
+}
+
+/**
+ * The draw's warnings after a swap. A club-clash warning describes the arrangement that was
+ * just changed, so it is recomputed from the new first round rather than carried over; when
+ * the caller gives no club information it is dropped, not left to claim something stale.
+ */
+function warningsAfterSwap(
+  graph: DrawGraph,
+  slots: readonly DrawGraph['slots'][number][],
+  separation?: { participants: readonly Participant[]; options: SeparationOptions },
+): DrawWarning[] {
+  const kept = graph.warnings.filter((warning) => warning.code !== 'SEPARATION_IMPOSSIBLE');
+  if (separation === undefined) return kept;
+
+  const byRegistration = new Map(separation.participants.map((p) => [p.registrationId, p]));
+  const clashing: string[] = [];
+
+  for (const match of graph.matches.filter((m) => m.roundNo === 0 && m.bracketType === 'MAIN')) {
+    const pair = slots.filter((slot) => slot.matchId === match.id && slot.slotType === 'ATHLETE' && slot.registrationId !== null);
+    if (pair.length !== 2) continue;
+
+    const [first, second] = pair.map((slot) => groupKeyOf(byRegistration.get(slot.registrationId as string), separation.options));
+    if (first !== null && first === second) clashing.push(...pair.map((slot) => slot.registrationId as string));
+  }
+
+  if (clashing.length > 0) {
+    kept.push({
+      code: 'SEPARATION_IMPOSSIBLE',
+      message: `${clashing.length / 2} first-round club clash(es) remain`,
+      registrationIds: clashing,
+    });
+  }
+
+  return kept;
 }

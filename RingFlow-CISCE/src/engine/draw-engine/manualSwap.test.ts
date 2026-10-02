@@ -75,3 +75,34 @@ describe('swapFirstRoundAthletes', () => {
     expect(() => swapFirstRoundAthletes(kata, 'x', 'y')).toThrow(ManualSwapError);
   });
 });
+
+describe('swapFirstRoundAthletes — club warnings', () => {
+  const separation = (clubs: Record<string, string>) => ({
+    participants: people(8).map((p) => ({ ...p, clubId: clubs[p.registrationId] ?? p.clubId })),
+    options: { by: 'CLUB', rule: 'FIRST_ROUND' } as const,
+  });
+
+  it('adds a warning when the swap creates a same-club first-round bout, and drops it when fixed', () => {
+    const graph = bracket(8);
+    const slots = firstRoundSlots(graph);
+    const first = slots[0] as { id: string; registrationId: string | null };
+    const partner = slots[1] as { id: string; registrationId: string | null };
+    const elsewhere = slots[2] as { id: string; registrationId: string | null };
+
+    // Make the athlete in slot 0 and the one in slot 2 club-mates, then swap slot 2 into slot 0's bout.
+    const clubs = { [first.registrationId as string]: 'same', [elsewhere.registrationId as string]: 'same' };
+    const clash = swapFirstRoundAthletes(graph, partner.id, elsewhere.id, separation(clubs));
+    expect(clash.graph.warnings.map((w) => w.code)).toContain('SEPARATION_IMPOSSIBLE');
+
+    // Swapping back separates them again: the warning is gone.
+    const fixed = swapFirstRoundAthletes(clash.graph, partner.id, elsewhere.id, separation(clubs));
+    expect(fixed.graph.warnings.map((w) => w.code)).not.toContain('SEPARATION_IMPOSSIBLE');
+  });
+
+  it('drops an old clash warning rather than carrying it over when no club information is given', () => {
+    const graph = { ...bracket(8), warnings: [{ code: 'SEPARATION_IMPOSSIBLE' as const, message: 'old' }] };
+    const [a, b] = firstRoundSlots(graph) as [{ id: string }, { id: string }];
+
+    expect(swapFirstRoundAthletes(graph, a.id, b.id).graph.warnings).toEqual([]);
+  });
+});

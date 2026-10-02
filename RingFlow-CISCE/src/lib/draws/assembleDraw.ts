@@ -95,6 +95,8 @@ export async function assembleCategoryDraw(
     athleteId?: string | null;
     /** The draw as drawn: no scores, winners or advancement from fought bouts. For the printed draw sheet. */
     ignoreResults?: boolean;
+    /** The tournament's athletes, when the caller already has them (avoids a read per category). */
+    athletes?: (typeof athletes.$inferSelect)[];
   }
 ) {
   const useResults = !options?.ignoreResults;
@@ -157,15 +159,19 @@ export async function assembleCategoryDraw(
       )
     );
 
-  // Later-round slots only hold athletes because earlier bouts were fought.
+  // Later-round slots only hold athletes because earlier bouts were fought. That includes a kata
+  // flight's medal bouts: their ENTRY slots are written from the pool standings.
+  const medalMatchIds = new Set(dbMatches.filter((m) => m.poolGroup === "Final Flight").map((m) => m.id));
   const dbSlots = useResults
     ? storedSlots
-    : storedSlots.map((s) => (s.slotType === "ATHLETE" || s.slotType === "ENTRY" ? s : { ...s, athleteId: null }));
+    : storedSlots.map((s) =>
+        (s.slotType === "ATHLETE" || s.slotType === "ENTRY") && !medalMatchIds.has(s.matchId) ? s : { ...s, athleteId: null }
+      );
 
   // Athletes of this tournament only, for name mapping.
-  const athleteList = category
-    ? await db.select().from(athletes).where(eq(athletes.tournamentId, category.tournamentId))
-    : [];
+  const athleteList =
+    options?.athletes ??
+    (category ? await db.select().from(athletes).where(eq(athletes.tournamentId, category.tournamentId)) : []);
   const athleteMap = new Map(athleteList.map((a) => [a.id, a]));
 
   // Map outcomes if matches were completed

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { categories, tournaments } from "@/db/schema";
+import { athletes, categories, tournaments } from "@/db/schema";
 import { assembleCategoryDraw } from "@/lib/draws/assembleDraw";
 import { resolveDrawRules } from "@/lib/draws/drawRules";
 import { generateCategoryDrawPdfBytes } from "@/lib/pdf/drawPdfGenerator";
@@ -74,12 +74,15 @@ export async function buildAllCategoryDrawPdfs(tournamentId: string) {
     .from(categories)
     .where(eq(categories.tournamentId, tournamentId));
 
+  // One read of the tournament's athletes for every sheet, not one per category.
+  const tournamentAthletes = await db.select().from(athletes).where(eq(athletes.tournamentId, tournamentId));
+
   const zip = new JSZip();
   let includedCount = 0;
 
   for (const cat of allCats) {
     try {
-      const drawData = await assembleCategoryDraw(cat.id, { ignoreResults: true });
+      const drawData = await assembleCategoryDraw(cat.id, { ignoreResults: true, athletes: tournamentAthletes });
       if (!drawData || !drawData.draw || drawData.matches.length === 0) continue;
 
       const pdfBytes = await generateCategoryDrawPdfBytes({

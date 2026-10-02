@@ -24,26 +24,42 @@ import { isKataCategory } from "@/lib/categories/eventType";
 
 export type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+/** Bouts fought or running, per category: what a redraw would destroy. One query, for one category or many. */
+export async function readBoutStats(executor: DbExecutor, categoryIds: readonly string[]) {
+  const stats = new Map<string, { confirmed: number; live: number; total: number }>();
+  if (categoryIds.length === 0) return stats;
+
+  const rows = await executor
+    .select({
+      categoryId: matches.categoryId,
+      confirmed: sql<number>`count(*) filter (where ${matches.status} = 'CONFIRMED')`,
+      live: sql<number>`count(*) filter (where ${matches.status} = 'LIVE')`,
+      total: sql<number>`count(*)`,
+    })
+    .from(matches)
+    .where(inArray(matches.categoryId, [...categoryIds]))
+    .groupBy(matches.categoryId);
+
+  for (const row of rows) {
+    stats.set(row.categoryId, {
+      confirmed: Number(row.confirmed ?? 0),
+      live: Number(row.live ?? 0),
+      total: Number(row.total ?? 0),
+    });
+  }
+  return stats;
+}
+
 /** What stands between a category and a redraw: a lock, or bouts already fought. */
 export async function readProtection(executor: DbExecutor, categoryId: string) {
   const [existingDraw] = await executor.select().from(draws).where(eq(draws.categoryId, categoryId));
-
-  const [matchStats] = await executor
-    .select({
-      confirmed: sql<number>`count(*) filter (where ${matches.status} = 'CONFIRMED')`,
-      live: sql<number>`count(*) filter (where ${matches.status} = 'LIVE')`,
-    })
-    .from(matches)
-    .where(eq(matches.categoryId, categoryId));
-
-  const confirmedCount = Number(matchStats?.confirmed ?? 0);
-  const liveCount = Number(matchStats?.live ?? 0);
+  const { confirmed, live } = (await readBoutStats(executor, [categoryId])).get(categoryId) ?? { confirmed: 0, live: 0 };
 
   return {
     isLocked: existingDraw?.state === "LOCKED",
-    confirmedCount,
-    liveCount,
-    activeBoutCount: confirmedCount + liveCount,
+    confirmedCount: confirmed,
+    liveCount: live,
+    activeBoutCount: confirmed + live,
   };
 }
 
@@ -77,6 +93,11 @@ class DrawRefusedError extends Error {
   constructor(readonly refusal: NonNullable<ReturnType<typeof refusalFor>>) {
     super(refusal.error);
   }
+}
+
+/** Code-unit order: the same on every machine, unlike localeCompare, so a draw reproduces from its seed anywhere. */
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /** A fresh 32-bit seed, stored with the draw; deterministic from there, but not guessable from the clock. */
@@ -182,7 +203,7 @@ export async function performCategoryDraw(
   // 2. The category's roster, with any seeds the admin set
   // A stable order, so the same seed and roster always give the same draw whatever order the database answers in.
   const participantList = (await loadCategoryRoster(db, categoryId)).sort(
-    (a, b) => a.name.localeCompare(b.name) || a.athleteId.localeCompare(b.athleteId)
+    (a, b) => compareText(a.name, b.name) || compareText(a.athleteId, b.athleteId)
   );
 
   if (participantList.length < 2) {
@@ -413,22 +434,7 @@ export async function performGenerateAllTournamentDraws(
 
   const drawByCat = new Map(allDraws.map((d) => [d.categoryId, d]));
 
-  const matchCounts = await db
-    .select({
-      categoryId: matches.categoryId,
-      confirmed: sql<number>`count(*) filter (where ${matches.status} = 'CONFIRMED')`,
-      live: sql<number>`count(*) filter (where ${matches.status} = 'LIVE')`,
-    })
-    .from(matches)
-    .where(inArray(matches.categoryId, catIds))
-    .groupBy(matches.categoryId);
-
-  const matchStatsByCat = new Map(
-    matchCounts.map((m) => [
-      m.categoryId,
-      { confirmed: Number(m.confirmed ?? 0), live: Number(m.live ?? 0) },
-    ])
-  );
+  const matchStatsByCat = await readBoutStats(db, catIds);
 
   let generatedCount = 0;
   let protectedCount = 0;
@@ -438,7 +444,7 @@ export async function performGenerateAllTournamentDraws(
 
   for (const cat of allCats) {
     const existingDraw = drawByCat.get(cat.id);
-    const stats = matchStatsByCat.get(cat.id) || { confirmed: 0, live: 0 };
+    const stats = matchStatsByCat.get(cat.id) ?? { confirmed: 0, live: 0, total: 0 };
     const hasActiveMatches = stats.confirmed > 0 || stats.live > 0;
     const isLocked = existingDraw?.state === "LOCKED";
 
@@ -531,27 +537,7 @@ export async function performGetTournamentDrawPreflight(
 
   const drawByCat = new Map(allDraws.map((d) => [d.categoryId, d]));
 
-  const matchCounts = await db
-    .select({
-      categoryId: matches.categoryId,
-      confirmed: sql<number>`count(*) filter (where ${matches.status} = 'CONFIRMED')`,
-      live: sql<number>`count(*) filter (where ${matches.status} = 'LIVE')`,
-      total: sql<number>`count(*)`,
-    })
-    .from(matches)
-    .where(inArray(matches.categoryId, catIds))
-    .groupBy(matches.categoryId);
-
-  const matchStatsByCat = new Map(
-    matchCounts.map((m) => [
-      m.categoryId,
-      {
-        confirmed: Number(m.confirmed ?? 0),
-        live: Number(m.live ?? 0),
-        total: Number(m.total ?? 0),
-      },
-    ])
-  );
+  const matchStatsByCat = await readBoutStats(db, catIds);
 
   const toGenerate: DrawPreflightItem[] = [];
   const protectedItems: DrawPreflightItem[] = [];

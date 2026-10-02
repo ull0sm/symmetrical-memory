@@ -169,6 +169,14 @@ async function main() {
     const finalSlots = await db.select().from(matchSlots).where(eq(matchSlots.matchId, finalMatch!.id));
     assert.equal(finalSlots.filter((sl) => sl.athleteId).length, 2, "the gold bout gets its two finalists");
 
+    // The printed draw sheet shows the draw as drawn: finalists written in by the pool results stay out of it.
+    const { assembleCategoryDraw } = await import("../src/lib/draws/assembleDraw");
+    const live = await assembleCategoryDraw(kataCat.id);
+    const sheet = await assembleCategoryDraw(kataCat.id, { ignoreResults: true });
+    const goldIn = (view: typeof live) => view?.matches.find((m) => m.bracketType === "MAIN" && m.poolGroup === "Final Flight");
+    assert.ok(goldIn(live)?.aka.id && goldIn(live)?.ao.id, "the live view shows the finalists");
+    assert.ok(!goldIn(sheet)?.aka.id && !goldIn(sheet)?.ao.id, "the draw-only view does not");
+
     console.log("draw setup: all checks passed");
   } finally {
     await db.delete(tournaments).where(eq(tournaments.id, tournament.id));

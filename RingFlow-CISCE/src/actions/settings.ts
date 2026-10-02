@@ -69,8 +69,9 @@ export async function updateTournamentSettings(
     ? (rawBronze as 0 | 1 | 2 | 3)
     : 2;
 
-  const drawProfile = data.draw_profile === "OFFICIAL" ? "OFFICIAL" : "LOCAL";
-  const drawSeparation = data.draw_separation === "OFF" ? "OFF" : "CLUB";
+  // An omitted field keeps what is stored: a caller that does not know about draw settings must not reset them.
+  const drawProfile = (data.draw_profile ?? beforeRow?.drawProfile) === "OFFICIAL" ? "OFFICIAL" : "LOCAL";
+  const drawSeparation = (data.draw_separation ?? beforeRow?.drawSeparation) === "OFF" ? "OFF" : "CLUB";
 
   await db
     .update(tournaments)

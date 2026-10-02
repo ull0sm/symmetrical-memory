@@ -3,7 +3,7 @@ import { athletes, categories, draws, drawVersions, matchSlots, tournaments } fr
 import { ManualSwapError, swapFirstRoundAthletes } from "@/engine/draw-engine/manualSwap";
 import type { DrawGraph } from "@/engine/draw-engine/types";
 import { resolveDrawRules } from "@/lib/draws/drawRules";
-import { readProtection, refusalFor } from "@/lib/draws/generateDraws";
+import { clubKey, loadCategoryRoster, readProtection, refusalFor } from "@/lib/draws/generateDraws";
 import { eq, inArray, sql } from "drizzle-orm";
 
 /**
@@ -49,7 +49,21 @@ export async function performDrawSwap(categoryId: string, slotIdA: string, slotI
 
     let swap;
     try {
-      swap = swapFirstRoundAthletes(latest.graph as unknown as DrawGraph, slotIdA, slotIdB);
+      const participants =
+        rules.separation === "CLUB"
+          ? (await loadCategoryRoster(tx, categoryId)).map((a) => ({
+              registrationId: a.athleteId,
+              displayName: a.name,
+              clubId: clubKey(a.athleteId, a.school, a.dojo),
+              districtId: null,
+            }))
+          : null;
+      swap = swapFirstRoundAthletes(
+        latest.graph as unknown as DrawGraph,
+        slotIdA,
+        slotIdB,
+        participants ? { participants, options: { by: "CLUB", rule: "FIRST_ROUND" } } : undefined
+      );
     } catch (err) {
       if (err instanceof ManualSwapError) return { error: `Cannot swap: ${err.message}.` };
       throw err;

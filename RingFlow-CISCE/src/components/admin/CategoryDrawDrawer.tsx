@@ -521,26 +521,16 @@ export function CategoryDrawDrawer({
                         className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2.5 py-1.5 text-xs font-data-mono font-bold focus:border-[#0E9C7C] outline-none"
                       />
                       <span className="text-[10px] text-[#8C877C] block mt-0.5">
-                        WKF recommendation: 6-8 per pool
+                        WKF recommendation: 6-8 per pool. A flight uses two pools at most, so a bigger field gets bigger pools.
                       </span>
                     </div>
 
                     <div>
-                      <label className="text-[11px] font-bold text-[#1B1815] block mb-1">
-                        Advancers per Group
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={16}
-                        disabled={lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED" || isSavingKata}
-                        value={advancePerPool}
-                        onChange={(e) => setAdvancePerPool(parseInt(e.target.value, 10) || 2)}
-                        className="w-full bg-[#FAF9F5] border border-[#E1DDCF] rounded-lg px-2.5 py-1.5 text-xs font-data-mono font-bold focus:border-[#0E9C7C] outline-none"
-                      />
-                      <span className="text-[10px] text-[#8C877C] block mt-0.5">
-                        Default: Top 2 advance (Q)
-                      </span>
+                      <span className="text-[11px] font-bold text-[#1B1815] block mb-1">Who reaches the medal flight</span>
+                      <p className="text-[10px] text-[#8C877C] leading-snug">
+                        Fixed by the medal flight, not a setting: pool winners meet for gold, and runners-up and
+                        third places take the bronze bouts (see the bronze format).
+                      </p>
                     </div>
                   </div>
                 </div>
