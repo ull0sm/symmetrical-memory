@@ -16,7 +16,7 @@ interface Props {
   onChanged: () => void;
 }
 
-const PROFILE_LABEL = { OFFICIAL: "Official (WKF)", LOCAL: "Local" } as const;
+const PROFILE_LABEL = { OFFICIAL: "Official (WKF)", LOCAL: "Local / Unofficial" } as const;
 
 /**
  * How a category will be (or was) drawn: its profile, the seed behind the
@@ -113,14 +113,14 @@ export function DrawSetupPanel({ categoryId, seedable, locked, reloadKey, onChan
         >
           <option value="inherit">Inherit event ({PROFILE_LABEL[setup.tournamentProfile]})</option>
           <option value="OFFICIAL">Official (WKF)</option>
-          <option value="LOCAL">Local</option>
+          <option value="LOCAL">Local / Unofficial rules</option>
         </select>
       </label>
 
       <p className="text-on-surface-variant leading-snug">
         {rules.profile === "OFFICIAL"
-          ? "WKF procedure: repechage with two bronzes, club-mates kept apart. Local tweaks are ignored."
-          : `Local: ${rules.bronzeMedals} bronze format, club separation ${rules.separation === "CLUB" ? "on" : "off"}.`}
+          ? "WKF procedure: repechage with two bronzes, club-mates kept apart. Local / unofficial tweaks are ignored."
+          : `Local / unofficial rules: ${rules.bronzeMedals} bronze format, club separation ${rules.separation === "CLUB" ? "on" : "off"}.`}
       </p>
 
       {draw ? (

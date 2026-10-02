@@ -353,7 +353,7 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                   <div className="flex-1">
                     <label className="font-label-caps text-[11px] font-bold text-primary">DRAW PROFILE</label>
                     <p className="text-body-xs text-on-surface-variant max-w-xl mt-1">
-                      Official events follow WKF procedure strictly. Local events use WKF as a base and let you tweak
+                      Official events follow WKF procedure strictly. Local / unofficial events use WKF as a base and let you tweak
                       it. A single category can override this from its draw panel.
                     </p>
                   </div>
@@ -362,7 +362,7 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {[
                     { value: "OFFICIAL", title: "Official (WKF)", desc: "Repechage with two bronzes and club-mates kept apart. Bronze and separation settings below are ignored." },
-                    { value: "LOCAL", title: "Local", desc: "WKF rules as a base; you choose the bronze format and whether clubs are kept apart." },
+                    { value: "LOCAL", title: "Local / Unofficial rules", desc: "WKF rules as a base; you choose the bronze format and whether clubs are kept apart." },
                   ].map((option) => (
                     <button
                       key={option.value}

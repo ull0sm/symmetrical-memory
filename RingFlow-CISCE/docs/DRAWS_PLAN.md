@@ -12,7 +12,7 @@ offline.
 Two tournament modes (decided by the user):
 - **Official** — strict WKF procedure: direct elimination with repechage, two bronzes, optional
   ranking seeds, electronic draw.
-- **Local** — WKF rules as a base, tweaked for local constraints (1 bronze bout, joint bronze,
+- **Local / Unofficial rules** — WKF rules as a base, tweaked for local constraints (1 bronze bout, joint bronze,
   no bronze; organiser-chosen seeding; looser separation).
 
 ## 2. Research summary (sources)
@@ -74,7 +74,7 @@ state sheet. Kata gets a real pool-sheet layout with pagination. Stop calling su
 
 ## 5. Phases (each leaves the app working; tests first for engine work)
 1. **Safety & correctness** — F1, F2, F7, F8; tests for the guard. **Done (2026-10-02):** force flag removed; redraw refused server-side for locked/fought categories, re-checked inside the transaction under a row lock; flush needs typed `FLUSH` + reason (audited, with counts and checksum); assembleDraw counts only CONFIRMED bouts; bronze-setting change reports an outdated draw. Verified with `scripts/verify-draw-guard.ts` on :55432 and `npm test`.
-2. **Draw model** — draw seed stored/viewable, F3/F4, seeding UI + import column, profile plumbing, F13. **Done (2026-10-02):** engine keeps club-mates apart as long as the bracket allows (best of 24 seeds derived from the stored one, scored by how early same-club pairs meet); unseeded entrants drawn at random around explicit seeds; club names normalised and club-less athletes never grouped; real random seed stored with the draw and shown in the draw panel with the checksum; Official/Local profile per tournament with a per-category override (migration 15); seeds editable in the draw panel; invalid seeds reported instead of thrown. Not done: import column for seeds, manual swap, round-robin (next).
+2. **Draw model** — draw seed stored/viewable, F3/F4, seeding UI + import column, profile plumbing, F13. **Done (2026-10-02):** engine keeps club-mates apart as long as the bracket allows (best of 24 seeds derived from the stored one, scored by how early same-club pairs meet); unseeded entrants drawn at random around explicit seeds; club names normalised and club-less athletes never grouped; real random seed stored with the draw and shown in the draw panel with the checksum; Official vs Local/Unofficial profile per tournament with a per-category override (migration 15); seeds editable in the draw panel; invalid seeds reported instead of thrown. Not done: import column for seeds, manual swap, round-robin (next).
 3. **Kata on the shared model** — F5, F6; pool count by `poolSize`; final-flight slots; seeded RNG.
 4. **PDF rebuild** — F9–F12.
 5. **Docs + verification** — update role docs/AGENTS.md, run unit tests, HTTP suite (on :55432 only,

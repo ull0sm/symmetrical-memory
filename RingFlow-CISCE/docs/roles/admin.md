@@ -20,7 +20,7 @@ staff, and watch every tatami live.
 | Moderator approvals / revoke | dashboard widget, rings page | `moderator.ts` |
 | Categories, definitions, presets, kata settings, category PDFs | `/admin/event/[id]/categories` | `categories.ts`, `categoryDefinitions.ts`, `categoryDocs.ts` |
 | Athletes: add, bulk import, move, delete | `/admin/event/[id]/athletes` | `athletes.ts`, `officialImport.ts` |
-| Draws: preflight, generate, lock/unlock, seeds, draw profile (Official/Local), flush, draw-sheet PDFs (admin only) | categories page / draw drawer | `draws.ts`, `drawPdfs.ts` |
+| Draws: preflight, generate, lock/unlock, seeds, draw profile (Official / Local-unofficial rules), flush, draw-sheet PDFs (admin only) | categories page / draw drawer | `draws.ts`, `drawPdfs.ts` |
 | Ring balancing (assign + order categories per tatami) | `/admin/event/[id]/rings/balance` | `balancing.ts` |
 | Live dashboard: all tatamis, pause/resume one or all, activity feed | `/admin/event/[id]/dashboard` | `admin.ts`, `rings.ts`, `clock.ts` |
 | Results export (CSV, PDF) | dashboard / settings | `resultsExport.ts` |
@@ -33,7 +33,7 @@ staff, and watch every tatami live.
 ## Workflow
 1. Create the tournament, then rings, then load category definitions (preset or custom).
 2. Import athletes. Categories sync automatically.
-3. Choose the draw profile (Official WKF or Local) in settings, optionally seed athletes, generate draws, check them, then lock them. A draw is never regenerated over fought bouts; the only way past them is an audited flush with a reason.
+3. Choose the draw profile (Official WKF or Local / Unofficial rules) in settings, optionally seed athletes, generate draws, check them, then lock them. A draw is never regenerated over fought bouts; the only way past them is an audited flush with a reason.
 4. Balance categories across tatamis.
 5. Share codes. Approve the organiser(s), stagers, and one moderator per tatami.
 6. Event day: monitor the dashboard, handle emergencies and assistance requests, pause or resume tatamis.

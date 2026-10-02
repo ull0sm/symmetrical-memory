@@ -3,7 +3,7 @@
  *
  * OFFICIAL follows WKF procedure and ignores local tweaks: repechage with two
  * bronzes, club-mates kept apart, no hand edits to the drawn bracket.
- * LOCAL uses the same rules as a base but lets the organiser choose the bronze
+ * LOCAL ("Local / Unofficial rules" in the UI) uses the same rules as a base but lets the organiser choose the bronze
  * format, switch club separation off, and fix up a drawn bracket by hand.
  */
 
