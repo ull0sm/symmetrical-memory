@@ -72,7 +72,7 @@ async function main() {
         }))
       );
 
-      const drawn = await performCategoryDraw(category.id);
+      const drawn = await performCategoryDraw(category.id, { randomSeed: 20261012 });
       assert.equal(drawn.success, true, `${plan.label}: draw succeeds (${(drawn as { error?: string }).error ?? ""})`);
       if (plan.lock) await db.update(draws).set({ state: "LOCKED" }).where(eq(draws.categoryId, category.id));
 

@@ -141,6 +141,8 @@ export async function performCategoryDraw(
   options?: {
     bronzeMedals?: 0 | 1 | 2 | 3;
     separateByClub?: boolean;
+    /** Reproduce a draw: the same seed and roster give the same bracket. Default: a fresh random seed. */
+    randomSeed?: number;
   }
 ) {
   // 1. Fetch category
@@ -178,7 +180,10 @@ export async function performCategoryDraw(
   const separate = rules.separation === "CLUB" && !(rules.profile === "LOCAL" && options?.separateByClub === false);
 
   // 2. The category's roster, with any seeds the admin set
-  const participantList = await loadCategoryRoster(db, categoryId);
+  // A stable order, so the same seed and roster always give the same draw whatever order the database answers in.
+  const participantList = (await loadCategoryRoster(db, categoryId)).sort(
+    (a, b) => a.name.localeCompare(b.name) || a.athleteId.localeCompare(b.athleteId)
+  );
 
   if (participantList.length < 2) {
     return {
@@ -214,7 +219,7 @@ export async function performCategoryDraw(
   const ruleset = isKata ? WKF_KATA_2026 : WKF_KUMITE_2026;
 
   // 5. Run draw engine. The seed is stored with the draw so it can be explained and reproduced.
-  const randomSeed = newRandomSeed();
+  const randomSeed = options?.randomSeed !== undefined ? options.randomSeed >>> 0 : newRandomSeed();
   const isKataPools = isKata && cat.kataFormat === "GROUP_POOLS";
   let graph: DrawGraph;
   try {
