@@ -144,12 +144,16 @@ await sql`insert into category_assignments (ring_id, category_id, queue_order) v
 const queueB = await sql`select category_id, part, queue_order from category_assignments where ring_id=${ringB.id} order by queue_order`;
 check("tatami B holds two pool cards and one plain category without clashes", new Set(queueB.map((q) => q.queue_order)).size === queueB.length, JSON.stringify(queueB.map((q) => q.queue_order)));
 
-// The board sends whole categories only: the split category's finals card on tatami A, the plain one on B.
-const saved = await call(A, "saveAssignments", [T1, [
-  { category_id: category.id, ring_id: ringA.id, queue_order: 0 },
-  { category_id: plain.id, ring_id: ringB.id, queue_order: 1 },
-]], admin);
-check("the board saves with a split category on it", saved.value?.success === true, JSON.stringify(saved.value));
+// The board lists every card of a split category: its pools and its finals, each on its own tatami.
+const boardRows = (await sql`select id, part, ring_id, queue_order from category_assignments where category_id=${category.id} order by ring_id, queue_order`);
+const asBoard = (rows) => rows.map((c, i) => ({ category_id: category.id, part: c.part, ring_id: c.ring_id, queue_order: i }));
+const perTatami = new Map();
+for (const row of boardRows) perTatami.set(row.ring_id, [...(perTatami.get(row.ring_id) ?? []), row]);
+const reordered = [];
+for (const [ring, rows] of perTatami) rows.slice().reverse().forEach((row, i) => reordered.push({ category_id: category.id, part: row.part, ring_id: ring, queue_order: i }));
+reordered.push({ category_id: plain.id, ring_id: ringB.id, queue_order: perTatami.get(ringB.id).length });
+const saved = await call(A, "saveAssignments", [T1, reordered], admin);
+check("the board saves every card of a split category", saved.value?.success === true, JSON.stringify(saved.value));
 
 const after = await sql`select category_id, part, ring_id, queue_order from category_assignments where category_id = any(${[category.id, plain.id]}) order by ring_id, queue_order`;
 check("the pools are still on their tatamis", after.filter((c) => c.part.startsWith("POOL")).map((c) => c.part).sort().join() === "POOL:1,POOL:2,POOL:3,POOL:4");
@@ -157,6 +161,16 @@ const perRing = new Map();
 for (const row of after) perRing.set(row.ring_id, [...(perRing.get(row.ring_id) ?? []), row.queue_order]);
 check("every tatami's queue has distinct positions", [...perRing.values()].every((o) => new Set(o).size === o.length));
 check("the split category's finals stay a single finals card", after.filter((c) => c.part === "FINALS").length === 1);
+const firstOnA = after.filter((c) => c.ring_id === ringA.id && c.category_id === category.id).sort((x, y) => x.queue_order - y.queue_order)[0];
+const lastBefore = boardRows.filter((c) => c.ring_id === ringA.id).sort((x, y) => y.queue_order - x.queue_order)[0];
+check("a pool card can be reordered within its tatami", firstOnA.part === lastBefore.part, `${firstOnA.part} vs ${lastBefore.part}`);
+
+// A pool or the finals cannot change tatami through a save, and a stale board is told to reload.
+const swapped = asBoard(boardRows).map((c) => (c.part === "POOL:1" ? { ...c, ring_id: ringB.id } : c));
+const refusedMove = await call(A, "saveAssignments", [T1, swapped], admin);
+check("moving a pool through a save is refused", refusedMove.value?.success === false && /PART_MOVE_USES_ROUTING/.test(refusedMove.value?.error ?? ""), JSON.stringify(refusedMove.value));
+const staleBoard = await call(A, "saveAssignments", [T1, [{ category_id: category.id, ring_id: ringA.id, queue_order: 0 }]], admin);
+check("a board still showing the whole category is told it changed", staleBoard.value?.success === false && /LAYOUT_CHANGED/.test(staleBoard.value?.error ?? ""), JSON.stringify(staleBoard.value));
 
 const unassign = await call(A, "saveAssignments", [T1, [{ category_id: category.id, ring_id: null, queue_order: 0 }]], admin);
 check("the board cannot unassign a split category", unassign.value?.success === false, JSON.stringify(unassign.value));
@@ -164,8 +178,21 @@ const [stillSplit] = await sql`select count(*)::int as n from category_assignmen
 check("and the split is intact", stillSplit.n === 5);
 
 // ── Changing it later ──────────────────────────────────────────────────────────────────────────
+const ringsNow = async () => (await sql`select part, ring_id from category_assignments where category_id=${category.id}`);
 const routeNow = async (pools, finals) => call(A, "setCategoryRouting", [category.id, { kind: "SPLIT", poolRingIds: pools, finalsRingId: finals }], admin);
 const [liveNow] = await sql`select count(*)::int as n from matches where category_id=${category.id} and status='LIVE'`;
+// A bout left LIVE on a pool that went back to the queue is not running, so the pool can still move.
+const pool3Now = (await sql`select id, ring_id from category_assignments where category_id=${category.id} and part='POOL:3'`)[0];
+if (liveNow.n > 0) {
+  const before = await ringsNow();
+  const ringOfPart = (rows, part) => rows.find((r) => r.part === part).ring_id;
+  const otherRing = pool3Now.ring_id === ringA.id ? ringB.id : ringA.id;
+  const staleMove = await routeNow([1, 2, 3, 4].map((n) => (n === 3 ? otherRing : ringOfPart(before, `POOL:${n}`))), ringOfPart(before, "FINALS"));
+  check("a stale live bout on a queued pool does not stop it moving", staleMove.value?.success === true, JSON.stringify(staleMove.value));
+  const back = await routeNow([1, 2, 3, 4].map((n) => ringOfPart(before, `POOL:${n}`)), ringOfPart(before, "FINALS"));
+  check("and it moves back", back.value?.success === true, JSON.stringify(back.value));
+  await sql`update category_assignments set status='running' where id=${pool3Now.id}`;
+}
 const routeInfo = await call(A, "getCategoryRouting", [category.id], admin);
 check("the routing screen says which cards are locked and why", routeInfo.value?.cards?.some((c) => c.lockReason) === (liveNow.n > 0), JSON.stringify(routeInfo.value?.cards?.map((c) => [c.part, c.lockReason])));
 

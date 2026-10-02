@@ -4,6 +4,9 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { saveAssignments, getBalancingAssignments } from "@/actions/balancing";
+import { setCategoryRouting } from "@/actions/categoryRouting";
+import { SplitCardBadge } from "@/components/draw/SplitCardBadge";
+import { cardKey, layoutSignature, projectBoard } from "@/lib/draws/boardCards";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
@@ -14,7 +17,6 @@ import HeaderSearchBar from "@/components/layout/HeaderSearchBar";
 import BuiltByCrux from "@/components/layout/BuiltByCrux";
 import { matchesCategorySearch } from "@/lib/searchUtils";
 import CategoryRoutingDialog from "@/components/admin/CategoryRoutingDialog";
-import { describePart } from "@/lib/draws/partFilter";
 
 type Category = {
   id: string;
@@ -29,6 +31,10 @@ type Category = {
   sex?: string | null;
   day?: string | null;
   doc_url?: string | null;
+  /** On a board card: the category it belongs to, and which part of it the card is. */
+  category_id?: string;
+  part?: string;
+  athletes_unit?: "athletes" | "pool winners";
 };
 
 type Ring = {
@@ -60,57 +66,22 @@ interface Props {
   readOnly?: boolean;
 }
 
-type PoolCard = {
-  category_id: string;
-  part: string;
-  ring_id: string;
-  status: string;
-  queue_order: number;
-  athletes: number | null;
-  bouts: number | null;
-};
-
-const isPrimaryPart = (part?: string) => !part || part === "ALL" || part === "FINALS";
-
-type PoolCardRow = {
-  category_id: string;
-  part?: string;
-  ring_id: string;
-  status?: string;
-  queue_order?: number;
-  part_athletes?: number | null;
-  part_matches?: number | null;
-  partAthletes?: number | null;
-  partMatches?: number | null;
-};
-
-const poolCardsOf = (rows: PoolCardRow[]): PoolCard[] =>
-  rows
-    .filter((row) => !isPrimaryPart(row.part))
-    .map((row) => ({
-      category_id: row.category_id,
-      part: row.part as string,
-      ring_id: row.ring_id,
-      status: row.status || "pending",
-      queue_order: row.queue_order ?? 0,
-      athletes: row.part_athletes ?? row.partAthletes ?? null,
-      bouts: row.part_matches ?? row.partMatches ?? null,
-    }));
-
 export default function RingBalancingClient({
   tournamentId,
   tournamentName,
-  initialCategories,
+  initialCategories: realCategories,
   initialRings,
   initialAssignments: allInitialAssignments,
   completedTimes,
   readOnly = false,
 }: Props) {
   const router = useRouter();
-  // The board has one card per category: its whole-category card, or its finals once split. The
-  // pools of a split category are shown on their tatamis as read-only chips.
-  const initialAssignments = useMemo(() => allInitialAssignments.filter((a) => isPrimaryPart(a.part)), [allInitialAssignments]);
-  const [poolCards, setPoolCards] = useState<PoolCard[]>(() => poolCardsOf(allInitialAssignments));
+  // The board lists cards: a whole category is one card, a split category is a card per pool plus its
+  // finals, each on the tatami that runs it. See `projectBoard`.
+  const board = useMemo(() => projectBoard(realCategories, allInitialAssignments), [realCategories, allInitialAssignments]);
+  const initialCategories = board.cards;
+  const initialAssignments = board.assignments;
+  const layoutKey = useMemo(() => layoutSignature(allInitialAssignments), [allInitialAssignments]);
   const [splitDialogFor, setSplitDialogFor] = useState<{ id: string; name: string } | null>(null);
   // State structure:
   // We need a list for "unassigned" and a list for each ring.
@@ -130,7 +101,7 @@ export default function RingBalancingClient({
   const [confirmText, setConfirmText] = useState("");
   const [viewingPdf, setViewingPdf] = useState<{ url: string; title: string } | null>(null);
   // Which category's live draw is open on top of the board.
-  const [bracketCategory, setBracketCategory] = useState<{ id: string; name: string } | null>(null);
+  const [bracketCategory, setBracketCategory] = useState<{ id: string; name: string; part: string | null } | null>(null);
 
   /**
    * One small draw button, used on every card in this screen (idle pool, queue
@@ -142,7 +113,7 @@ export default function RingBalancingClient({
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        setBracketCategory({ id: cat.id, name: cat.name });
+        setBracketCategory({ id: cat.category_id ?? cat.id, name: cat.name, part: cat.part && cat.part !== "ALL" ? cat.part : null });
       }}
       title="View live draw"
       aria-label={`View live draw for ${cat.name}`}
@@ -155,9 +126,13 @@ export default function RingBalancingClient({
     </button>
   );
 
-  /** Split / split-state control for a category already on a tatami; admin only. */
+  const realNameOf = (cat: Category) => realCategories.find((c) => c.id === (cat.category_id ?? cat.id))?.name ?? cat.name;
+  const tatamiName = (ringId: string | undefined) =>
+    initialRings.find((r) => r.id === ringId)?.name?.replace(/Ring/i, "Tatami") ?? "a tatami";
+
+  /** Where this category's pools and finals run, and who waits for whom; admin can change it. */
   const renderSplitControl = (cat: Category) => {
-    const isSplit = poolCards.some((card) => card.category_id === cat.id);
+    const isSplit = Boolean(cat.part && cat.part !== "ALL");
     if (readOnly && !isSplit) return null;
     return (
       <button
@@ -165,10 +140,10 @@ export default function RingBalancingClient({
         disabled={readOnly}
         onClick={(e) => {
           e.stopPropagation();
-          setSplitDialogFor({ id: cat.id, name: cat.name });
+          setSplitDialogFor({ id: cat.category_id ?? cat.id, name: realNameOf(cat) });
         }}
-        title={isSplit ? "Pools run on different tatamis" : "Run pools on different tatamis"}
-        aria-label={`${isSplit ? "Manage" : "Split"} pools of ${cat.name} across tatamis`}
+        title={isSplit ? "Change where the pools and finals run" : "Run pools on different tatamis"}
+        aria-label={`${isSplit ? "Manage" : "Split"} pools of ${realNameOf(cat)} across tatamis`}
         className={`material-symbols-outlined transition-colors shrink-0 ${readOnly ? "cursor-default" : "cursor-pointer"} ${
           isSplit ? "text-[#0E9C7C]" : "text-outline hover:text-[#0E9C7C]"
         } text-[13px]`}
@@ -179,17 +154,15 @@ export default function RingBalancingClient({
     );
   };
 
-  /** On a split category's card: that this is its finals, and where its pools run. */
-  const renderSplitBadge = (cat: Category) => {
-    const pools = poolCards.filter((card) => card.category_id === cat.id);
-    if (pools.length === 0) return null;
-    const tatamis = Array.from(new Set(pools.map((card) => initialRings.find((r) => r.id === card.ring_id)?.name ?? "Tatami")));
-    return (
-      <div className="mb-1.5 text-[10px] leading-snug rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 px-2 py-1">
-        <span className="font-bold">Finals here</span> · {pools.length} pools on {tatamis.join(", ")}
-      </div>
-    );
-  };
+  /** On a pool or finals card: where the winner goes, or which pools the finals wait for. */
+  const renderSplitBadge = (cat: Category) => (
+    <SplitCardBadge
+      card={cat}
+      cards={initialCategories}
+      statusOf={(id) => assignmentsMap[id]?.status}
+      tatamiOf={(id) => tatamiName(assignmentsMap[id]?.ring_id)}
+    />
+  );
 
   // History popover state
   const [historyOpenForRing, setHistoryOpenForRing] = useState<string | null>(null);
@@ -279,6 +252,11 @@ export default function RingBalancingClient({
   // Realtime assignments map for live match count, status, queue_order and stager status tracking
   const [assignmentsMap, setAssignmentsMap] = useState<Record<string, { matches_completed: number; status: string; ring_id: string; queue_order: number; stager_status: string | null; stager_name: string | null }>>({});
 
+  // What the server says is where, to notice a category being split, merged or moved from elsewhere.
+  const latestRows = React.useRef<{ category_id: string; part?: string; ring_id: string }[]>([]);
+  const [serverSignature, setServerSignature] = useState<string | null>(null);
+  const reloadedFor = React.useRef<string | null>(null);
+
   useEffect(() => {
     const map: Record<string, { matches_completed: number; status: string; ring_id: string; queue_order: number; stager_status: string | null; stager_name: string | null }> = {};
     initialAssignments.forEach(a => {
@@ -302,10 +280,8 @@ export default function RingBalancingClient({
     try {
       const data = await getBalancingAssignments(ringIds);
       const map: Record<string, { matches_completed: number; status: string; ring_id: string; queue_order: number; stager_status: string | null; stager_name: string | null }> = {};
-      setPoolCards(poolCardsOf(data ?? []));
       for (const row of data ?? []) {
-        if (!isPrimaryPart(row.part)) continue;
-        map[row.category_id] = {
+        map[cardKey(row.category_id, row.part)] = {
           matches_completed: row.matches_completed || 0,
           status: row.status || "pending",
           ring_id: row.ring_id,
@@ -315,6 +291,8 @@ export default function RingBalancingClient({
         };
       }
       setAssignmentsMap(map);
+      latestRows.current = (data ?? []).map((row) => ({ category_id: row.category_id, part: row.part, ring_id: row.ring_id }));
+      setServerSignature(layoutSignature(latestRows.current));
     } catch (err) {
       console.error("[balancing] live refresh failed:", err);
     }
@@ -323,9 +301,11 @@ export default function RingBalancingClient({
   const { connected } = useLiveEvents({ tournamentId }, refreshAssignments, { feed: "staff" });
   useFallbackPoll(refreshAssignments, connected);
 
-  // Initialize state from props (once on mount)
+  // Build the queues from props on mount, and again whenever the cards or their tatamis change.
+  const initKey = React.useRef<string | null>(null);
   useEffect(() => {
-    if (isInitialized) return;
+    if (initKey.current === layoutKey) return;
+    initKey.current = layoutKey;
     setIsInitialized(true);
     setIsMounted(true);
     setLastSaved(new Date());
@@ -364,7 +344,56 @@ export default function RingBalancingClient({
     setUnassigned(unassignedList);
     setRingQueues(ringMap);
     setRingCompletedQueues(ringMapHistory);
-  }, [initialCategories, initialRings, initialAssignments, isInitialized]);
+  }, [initialCategories, initialRings, initialAssignments, layoutKey]);
+
+  // The cards on screen differ from the server's: reload the layout (not while a save is in flight).
+  const shownSignature = useMemo(() => {
+    const rows: { id: string; ring: string }[] = [];
+    for (const [ringId, list] of Object.entries(ringQueues)) list.forEach((c) => rows.push({ id: c.id, ring: ringId }));
+    for (const [ringId, list] of Object.entries(ringCompletedQueues)) list.forEach((c) => rows.push({ id: c.id, ring: ringId }));
+    return rows.map((r) => `${r.id}@${r.ring}`).sort().join("|");
+  }, [ringQueues, ringCompletedQueues]);
+  useEffect(() => {
+    if (!isInitialized || isSaving || serverSignature === null) return;
+    const serverShown = serverSignature;
+    if (serverShown === shownSignature || reloadedFor.current === serverShown) return;
+    reloadedFor.current = serverShown;
+    router.refresh();
+  }, [serverSignature, shownSignature, isInitialized, isSaving, router]);
+
+  const layoutChangedMessage = (msg: string) =>
+    msg.startsWith("PART_MOVE_USES_ROUTING:")
+      ? "A pool or the finals moves to another tatami through the split dialog. Nothing was changed."
+      : msg.startsWith("SPLIT_CATEGORY_CHANGED:")
+        ? "A category that runs on several tatamis cannot be taken off the board. Put it back together first. Nothing was changed."
+        : "This category was split, merged or redrawn while the board was open. The board is reloading with the current cards.";
+
+  /**
+   * A pool or the finals dropped on another tatami. Where a category runs is checked on the server (a live
+   * bout, a finished pool), so ask it first and only then place the card in the queue.
+   */
+  const movePartAcrossTatamis = async (result: DropResult) => {
+    const card = initialCategories.find((c) => c.id === result.draggableId);
+    const destination = result.destination;
+    if (!card || !card.category_id || !destination) return;
+    const destRing = destination.droppableId.startsWith("header_") ? destination.droppableId.replace("header_", "") : destination.droppableId;
+    const siblings = initialCategories.filter((c) => c.category_id === card.category_id);
+    const poolCount = siblings.filter((c) => c.part?.startsWith("POOL:")).length;
+    const ringOf = (c: Category | undefined) => (c ? (c.id === card.id ? destRing : assignmentsMap[c.id]?.ring_id) : undefined);
+    const poolRingIds = Array.from({ length: poolCount }, (_, i) => ringOf(siblings.find((c) => c.part === `POOL:${i + 1}`)));
+    const finalsRingId = ringOf(siblings.find((c) => c.part === "FINALS"));
+    if (poolRingIds.some((id) => !id) || !finalsRingId) {
+      alert("The cards of this category are out of date. Reloading.");
+      router.refresh();
+      return;
+    }
+    const res = await setCategoryRouting(card.category_id, { kind: "SPLIT", poolRingIds: poolRingIds as string[], finalsRingId });
+    if (!res.success) {
+      alert(res.error);
+      return;
+    }
+    executeDrag(result);
+  };
 
   const executeDrag = (result: DropResult) => {
     if (readOnly) return;
@@ -524,6 +553,19 @@ export default function RingBalancingClient({
       ? destination.droppableId.replace("header_", "")
       : destination.droppableId;
 
+    // A pool or the finals can go to another tatami but not off the board.
+    const dragged = initialCategories.find((c) => c.id === result.draggableId);
+    if (dragged && dragged.part && dragged.part !== "ALL") {
+      if (destDroppableId === "unassigned") {
+        alert("A category that runs on several tatamis cannot be taken off the board. Open the split dialog to put it back together.");
+        return;
+      }
+      if (sourceDroppableId !== destDroppableId) {
+        void movePartAcrossTatamis(result);
+        return;
+      }
+    }
+
     // Check if moving from one ring to another ring, or from a ring to unassigned
     if (sourceDroppableId !== "unassigned" && sourceDroppableId !== destDroppableId) {
       setPendingDragResult(result);
@@ -559,11 +601,11 @@ export default function RingBalancingClient({
 
   const handleSave = async () => {
     setIsSaving(true);
-    const payloadMap = new Map<string, { category_id: string; ring_id: string | null; queue_order: number; status?: string; completed_at?: string | null }>();
+    const payloadMap = new Map<string, { category_id: string; part?: string; ring_id: string | null; queue_order: number; status?: string; completed_at?: string | null }>();
 
     // Process unassigned
     unassigned.forEach((cat, idx) => {
-      payloadMap.set(cat.id, { category_id: cat.id, ring_id: null, queue_order: idx });
+      payloadMap.set(cat.id, { category_id: cat.category_id ?? cat.id, part: cat.part ?? "ALL", ring_id: null, queue_order: idx });
     });
 
     // Process rings - active ring assignments take precedence
@@ -572,7 +614,8 @@ export default function RingBalancingClient({
         const liveStatus = assignmentsMap[cat.id]?.status;
         const effectiveStatus = (liveStatus === "running" || liveStatus === "paused") ? liveStatus : "pending";
         payloadMap.set(cat.id, {
-          category_id: cat.id,
+          category_id: cat.category_id ?? cat.id,
+          part: cat.part ?? "ALL",
           ring_id: ringId,
           queue_order: idx,
           status: effectiveStatus,
@@ -587,7 +630,8 @@ export default function RingBalancingClient({
         if (!ringQueues[ringId]?.some(c => c.id === cat.id)) {
           const originalAssignment = initialAssignments.find(a => a.category_id === cat.id);
           payloadMap.set(cat.id, {
-            category_id: cat.id,
+            category_id: cat.category_id ?? cat.id,
+            part: cat.part ?? "ALL",
             ring_id: ringId,
             queue_order: (ringQueues[ringId]?.length || 0) + idx,
             status: "completed",
@@ -607,6 +651,9 @@ export default function RingBalancingClient({
           const catId = msg.replace("RUNNING_CATEGORY_DISPLACED:", "");
           const catName = initialCategories.find(c => c.id === catId)?.name || "A category";
           alert(`Cannot save: "${catName}" is currently running on a Tatami.\n\nA running category must stay at the top of its queue. Move it to the first position or wait for the moderator to finish it before saving.`);
+        } else if (msg.startsWith("LAYOUT_CHANGED:") || msg.startsWith("SPLIT_CATEGORY_CHANGED:") || msg.startsWith("PART_MOVE_USES_ROUTING:")) {
+          alert(layoutChangedMessage(msg));
+          router.refresh();
         } else {
           alert(`Failed to save assignments: ${msg || "Please try again."}`);
           console.error("Save error:", msg);
@@ -644,11 +691,11 @@ export default function RingBalancingClient({
 
     setIsSaving(true);
     setSaveStatusText("Auto-saving...");
-    const payloadMap = new Map<string, { category_id: string; ring_id: string | null; queue_order: number; status?: string; completed_at?: string | null }>();
+    const payloadMap = new Map<string, { category_id: string; part?: string; ring_id: string | null; queue_order: number; status?: string; completed_at?: string | null }>();
 
     // Process unassigned
     targetUnassigned.forEach((cat, idx) => {
-      payloadMap.set(cat.id, { category_id: cat.id, ring_id: null, queue_order: idx });
+      payloadMap.set(cat.id, { category_id: cat.category_id ?? cat.id, part: cat.part ?? "ALL", ring_id: null, queue_order: idx });
     });
 
     // Process rings
@@ -658,7 +705,8 @@ export default function RingBalancingClient({
         const rawStatus = liveInfo?.status;
         const effectiveStatus = (rawStatus === "running" || rawStatus === "paused") ? rawStatus : "pending";
         payloadMap.set(cat.id, {
-          category_id: cat.id,
+          category_id: cat.category_id ?? cat.id,
+          part: cat.part ?? "ALL",
           ring_id: ringId,
           queue_order: idx,
           status: effectiveStatus,
@@ -673,7 +721,8 @@ export default function RingBalancingClient({
         if (!targetRingQueues[ringId]?.some(c => c.id === cat.id)) {
           const originalAssignment = initialAssignments.find(a => a.category_id === cat.id);
           payloadMap.set(cat.id, {
-            category_id: cat.id,
+            category_id: cat.category_id ?? cat.id,
+            part: cat.part ?? "ALL",
             ring_id: ringId,
             queue_order: (targetRingQueues[ringId]?.length || 0) + idx,
             status: "completed",
@@ -703,6 +752,9 @@ export default function RingBalancingClient({
         const catId = msg.replace("RUNNING_CATEGORY_DISPLACED:", "");
         const catName = initialCategories.find(c => c.id === catId)?.name || "A category";
         alert(`Auto-save blocked & reverted: "${catName}" is currently running on a Tatami.\n\nA running category must stay at the top of its queue.`);
+      } else if (msg.startsWith("LAYOUT_CHANGED:") || msg.startsWith("SPLIT_CATEGORY_CHANGED:") || msg.startsWith("PART_MOVE_USES_ROUTING:")) {
+        alert(layoutChangedMessage(msg));
+        router.refresh();
       } else {
         alert(`Failed to save: ${msg || "Unknown error"}`);
         console.error("Auto-save error:", msg);
@@ -798,7 +850,8 @@ export default function RingBalancingClient({
 
   const calculateRingAthletes = (ringId: string) => {
     const categories = ringQueues[ringId] || [];
-    return categories.reduce((sum, cat) => sum + cat.athletes_count, 0);
+    // Pool winners in a finals card are athletes already counted in their pools.
+    return categories.reduce((sum, cat) => sum + (cat.athletes_unit === "pool winners" ? 0 : cat.athletes_count), 0);
   };
 
   const isOverloaded = (ringId: string) => {
@@ -864,7 +917,7 @@ export default function RingBalancingClient({
   const uniqueSexes = Array.from(new Set(initialCategories.map(c => c.sex).filter(Boolean)));
 
   // ── Overall Tournament Stats for Black Overview Strip ───────────────────────
-  const totalCategoriesCount = initialCategories.length;
+  const totalCategoriesCount = realCategories.length;
   
   // Track all completed categories across completed queues and live assignments
   const completedCategoryIds = new Set<string>();
@@ -874,10 +927,13 @@ export default function RingBalancingClient({
   Object.entries(assignmentsMap).forEach(([catId, info]) => {
     if (info.status === "completed") completedCategoryIds.add(catId);
   });
-  const completedCategoriesCount = completedCategoryIds.size;
+  const completedCategoriesCount = realCategories.filter((cat) => {
+    const cards = initialCategories.filter((c) => c.category_id === cat.id);
+    return cards.length > 0 && cards.every((c) => completedCategoryIds.has(c.id));
+  }).length;
 
   // Total Athletes across all categories
-  const totalAthletesCount = initialCategories.reduce(
+  const totalAthletesCount = realCategories.reduce(
     (sum, cat) => sum + (cat.athletes_count || 0),
     0
   );
@@ -1988,7 +2044,7 @@ export default function RingBalancingClient({
 {renderSplitBadge(cat)}
                                       <div className="flex items-center gap-1 text-[10px] font-data-mono text-[#68645A] mb-1.5">
                                         <span className="material-symbols-outlined text-[12px]">group</span>
-                                        <span>{cat.athletes_count} athletes</span>
+                                        <span>{cat.athletes_count} {cat.athletes_unit ?? "athletes"}</span>
                                       </div>
 
                                       {/* Exact 10-Segment Hatched Diagonal Progress Bar */}
@@ -2072,32 +2128,6 @@ export default function RingBalancingClient({
                     )}
                   </Droppable>
 
-                  {/* Pools of split categories that run on this tatami (read only) */}
-                  {poolCards.some((card) => card.ring_id === ring.id) && (
-                    <div className="border-t border-outline-variant/60 bg-surface-container-low px-3 py-2 space-y-1.5">
-                      <span className="text-[9.5px] font-bold uppercase tracking-wider text-[#68645A]">Pools running here</span>
-                      {poolCards
-                        .filter((card) => card.ring_id === ring.id)
-                        .sort((a, b) => a.queue_order - b.queue_order)
-                        .map((card) => {
-                          const cat = initialCategories.find((c) => c.id === card.category_id);
-                          return (
-                            <div
-                              key={`${card.category_id}-${card.part}`}
-                              className="flex items-center justify-between gap-2 text-[11px] border border-outline-variant/60 rounded-lg bg-white px-2 py-1.5"
-                            >
-                              <span className="font-bold text-[#1B1815] truncate">
-                                {cat?.name ?? "Category"} · {describePart(card.part)}
-                              </span>
-                              <span className="text-[#68645A] shrink-0">
-                                {card.athletes !== null ? `${card.athletes} athletes · ` : ""}
-                                {card.status}
-                              </span>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -2263,6 +2293,8 @@ export default function RingBalancingClient({
         <DrawBracketModal
           categoryId={bracketCategory.id}
           categoryName={bracketCategory.name}
+          part={bracketCategory.part}
+          lockPart={bracketCategory.part !== null}
           isOpen={Boolean(bracketCategory)}
           onClose={() => setBracketCategory(null)}
         />

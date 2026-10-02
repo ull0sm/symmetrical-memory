@@ -62,8 +62,15 @@ bouts they are waiting for.
 
 Other rules: the category must be drawn first; redrawing a split category (nothing fought) keeps its routing when
 the new draw has the same number of pools, and puts it back on one card otherwise (flushing the draw does the
-same); the balancing board moves a split category's finals card but never drops it; each tatami's moderator
-scores only its own pools. Every change is audited.
+same); each tatami's moderator scores only its own pools. Every change is audited.
+
+**On the balancing board** a split category is not one card with notes underneath: each pool and the finals is
+its own card on the tatami that runs it ("Big Kumite · Pool 3", with that pool's athletes, bouts and progress), so a
+tatami's totals (time, athletes, bouts) count exactly what runs there. A pool card says where its winner goes; the
+finals card says "Waiting for pools 2, 3" until they finish. Drag a pool or the finals card within its tatami to
+reorder it, or onto another tatami to move it (the server checks what is live first). The board cannot drop a split
+category off the tatamis; use the split dialog to put it back together. Other screens open on the same cards and
+reload their layout by themselves when a category is split, merged or moved.
 
 ## Correcting a result
 

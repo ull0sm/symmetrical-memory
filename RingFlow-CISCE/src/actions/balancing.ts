@@ -17,6 +17,8 @@ type CategoryAssignmentRow = InferSelectModel<typeof categoryAssignmentsTable>;
 
 export type AssignmentInput = {
   category_id: string;
+  /** 'ALL' (the default), or the 'POOL:n' / 'FINALS' card of a category whose pools run on different tatamis. */
+  part?: string;
   ring_id: string | null; // null means unassigned
   queue_order: number;
   status?: string;
@@ -28,15 +30,15 @@ export type SaveAssignmentsResult = {
   error?: string;
 };
 
-const isPrimaryPart = (part: string) => part === "ALL" || part === "FINALS";
 const cardKey = (categoryId: string, part: string) => `${categoryId}|${part}`;
 
 /**
- * Saves the balancing board: which tatami each whole category is on, and in what order.
+ * Saves the balancing board: which tatami each card is on, and in what order.
  *
- * A category that has been split across tatamis appears on the board as one card, its finals
- * card. Moving that card moves the finals to another tatami; the pools' own cards are changed
- * only through the routing dialog (`setCategoryRouting`), and keep their place in their tatami's queue.
+ * The board lists cards: a whole category, or, once its pools run on different tatamis, one card per
+ * pool and one for the finals. A save can reorder any card and move a whole category between tatamis.
+ * Moving a pool or the finals to another tatami changes where the category runs, so it goes through
+ * `setCategoryRouting`, which checks what is live; a save that tries it is refused.
  */
 export async function saveAssignments(
   tournamentId: string,
@@ -55,10 +57,11 @@ export async function saveAssignments(
       return { success: false, error: "Invalid assignment list" };
     }
 
-    // 1. Deduplicate payload by category_id (latest entry wins)
+    // 1. Deduplicate payload by card (latest entry wins)
+    const partOfInput = (a: AssignmentInput) => a.part || "ALL";
     const dedupedMap = new Map<string, AssignmentInput>();
     for (const a of assignments) {
-      dedupedMap.set(a.category_id, a);
+      dedupedMap.set(cardKey(a.category_id, partOfInput(a)), a);
     }
     const cleanAssignments = Array.from(dedupedMap.values());
     const validAssignments = cleanAssignments.filter((a) => a.ring_id !== null);
@@ -96,33 +99,37 @@ export async function saveAssignments(
         .where(inArray(categoryAssignmentsTable.ringId, ringIds));
     }
 
-    // A board card stands for its category's primary card: the whole category, or its finals.
-    const primaryOf = new Map<string, CategoryAssignmentRow>();
-    for (const a of currentAssignments) {
-      if (isPrimaryPart(a.part)) primaryOf.set(a.categoryId, a);
-    }
+    const currentCard = new Map<string, CategoryAssignmentRow>();
+    for (const a of currentAssignments) currentCard.set(cardKey(a.categoryId, a.part), a);
     const splitCategoryIds = new Set(currentAssignments.filter((a) => a.part !== "ALL").map((a) => a.categoryId));
-    const partOf = (categoryId: string) => primaryOf.get(categoryId)?.part ?? "ALL";
 
-    // A split category cannot be unassigned from the board; route it back to one tatami first.
+    // The board has to be showing the cards that exist. If the category was split, merged or redrawn since
+    // the board loaded, ask it to reload rather than guess.
     for (const a of cleanAssignments) {
-      if (a.ring_id === null && splitCategoryIds.has(a.category_id)) {
-        return { success: false, error: `SPLIT_CATEGORY_CHANGED:${a.category_id}` };
+      const part = partOfInput(a);
+      const isSplit = splitCategoryIds.has(a.category_id);
+      if (a.ring_id === null && isSplit) return { success: false, error: `SPLIT_CATEGORY_CHANGED:${a.category_id}` };
+      if (a.ring_id === null) continue;
+      if (part === "ALL" && isSplit) return { success: false, error: `LAYOUT_CHANGED:${a.category_id}` };
+      if (part !== "ALL") {
+        const current = currentCard.get(cardKey(a.category_id, part));
+        if (!current) return { success: false, error: `LAYOUT_CHANGED:${a.category_id}` };
+        if (current.ringId !== a.ring_id) return { success: false, error: `PART_MOVE_USES_ROUTING:${a.category_id}` };
       }
     }
 
     const currentMap = new Map<string, { status: string; matchesCompleted: number; completedAt: Date | null }>();
-    primaryOf.forEach((a, categoryId) => {
-      currentMap.set(categoryId, {
+    currentCard.forEach((a, key) => {
+      currentMap.set(key, {
         status: a.status,
         matchesCompleted: a.matchesCompleted ?? 0,
         completedAt: a.completedAt,
       });
     });
 
-    // 4. Guard: reject if a running/paused category is displaced from queue_order 0
+    // 4. Guard: reject if a running/paused card is displaced from queue_order 0
     for (const a of validAssignments) {
-      const live = currentMap.get(a.category_id);
+      const live = currentMap.get(cardKey(a.category_id, partOfInput(a)));
       if (live && (live.status === "running" || live.status === "paused")) {
         if (a.queue_order !== 0) {
           return { success: false, error: `RUNNING_CATEGORY_DISPLACED:${a.category_id}` };
@@ -132,12 +139,12 @@ export async function saveAssignments(
 
     // 5. Atomic database transaction
     await db.transaction(async (tx) => {
-      // Remove categories that were moved out of all rings (now unassigned). A split category is
+      // Remove whole categories that were moved out of all rings (now unassigned). A split category is
       // never dropped by a save.
-      const incomingCategoryIds = new Set(validAssignments.map((a) => a.category_id));
-      const toDelete = Array.from(currentMap.keys()).filter(
-        (catId) => !incomingCategoryIds.has(catId) && !splitCategoryIds.has(catId)
-      );
+      const incomingKeys = new Set(validAssignments.map((a) => cardKey(a.category_id, partOfInput(a))));
+      const toDelete = Array.from(currentCard.values())
+        .filter((a) => a.part === "ALL" && !incomingKeys.has(cardKey(a.categoryId, a.part)))
+        .map((a) => a.categoryId);
 
       if (toDelete.length > 0) {
         await tx
@@ -153,12 +160,13 @@ export async function saveAssignments(
 
       if (validAssignments.length > 0) {
         const rows = validAssignments.map((a) => {
-          const live = currentMap.get(a.category_id);
+          const part = partOfInput(a);
+          const live = currentMap.get(cardKey(a.category_id, part));
           const isExplicitRevert = a.status === "pending" && live?.status === "completed";
           return {
             ringId: a.ring_id!,
             categoryId: a.category_id,
-            part: partOf(a.category_id),
+            part,
             queueOrder: a.queue_order,
             status:
               isExplicitRevert || a.status === "pending"
@@ -178,18 +186,15 @@ export async function saveAssignments(
           };
         });
 
-        const existingRows = rows.filter((r) => currentMap.has(r.categoryId));
-        const newRows = rows.filter((r) => !currentMap.has(r.categoryId));
-        const placedIds = new Set(rows.map((r) => r.categoryId));
+        const existingRows = rows.filter((r) => currentMap.has(cardKey(r.categoryId, r.part)));
+        const newRows = rows.filter((r) => !currentMap.has(cardKey(r.categoryId, r.part)));
+        const placedKeys = new Set(rows.map((r) => cardKey(r.categoryId, r.part)));
         const touchedRings = new Set(rows.map((r) => r.ringId));
 
-        // Cards this save does not mention but that share a tatami with ones it places (the pools
-        // of split categories) keep their place relative to the placed cards.
+        // Cards this save does not mention but that share a tatami with ones it places keep their
+        // place relative to the placed cards.
         const stillHere = currentAssignments.filter(
-          (a) =>
-            touchedRings.has(a.ringId) &&
-            !deleted.has(a.categoryId) &&
-            !(placedIds.has(a.categoryId) && isPrimaryPart(a.part))
+          (a) => touchedRings.has(a.ringId) && !deleted.has(a.categoryId) && !placedKeys.has(cardKey(a.categoryId, a.part))
         );
 
         const finalOrder = new Map<string, number>();
@@ -265,7 +270,7 @@ export async function saveAssignments(
       actor: admin,
       action: "ASSIGNMENTS_SAVED",
       before: currentAssignments.map((a) => ({ categoryId: a.categoryId, part: a.part, ringId: a.ringId, queueOrder: a.queueOrder, status: a.status })),
-      after: validAssignments.map((a) => ({ categoryId: a.category_id, ringId: a.ring_id, queueOrder: a.queue_order })),
+      after: validAssignments.map((a) => ({ categoryId: a.category_id, part: partOfInput(a), ringId: a.ring_id, queueOrder: a.queue_order })),
     });
 
     // Broadcast immediately so Mod, Organiser, Stager receive updates with zero latency

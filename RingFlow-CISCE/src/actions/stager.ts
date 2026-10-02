@@ -381,7 +381,9 @@ export async function logoutStager() {
 export async function updateCategoryStagerStatus(
   categoryId: string,
   tournamentId: string,
-  newStatus: "calling" | "ready" | null
+  newStatus: "calling" | "ready" | null,
+  /** Which card of the category: 'POOL:n' or 'FINALS' for a split category; the whole category otherwise. */
+  part?: string
 ): Promise<{ success: boolean; error?: string }> {
   let actor;
   try {
@@ -394,6 +396,7 @@ export async function updateCategoryStagerStatus(
     return { success: false, error: "Invalid status" };
   }
   if (!isValidUuid(categoryId)) return { success: false, error: "Category not found" };
+  if (part !== undefined && !/^(ALL|FINALS|POOL:[1-9]\d{0,2})$/.test(part)) return { success: false, error: "Unknown part" };
 
   const [assignment] = await db
     .select({
@@ -403,7 +406,12 @@ export async function updateCategoryStagerStatus(
     })
     .from(categoryAssignments)
     .innerJoin(rings, eq(categoryAssignments.ringId, rings.id))
-    .where(and(eq(categoryAssignments.categoryId, categoryId), inArray(categoryAssignments.part, ["ALL", "FINALS"])))
+    .where(
+      and(
+        eq(categoryAssignments.categoryId, categoryId),
+        part ? eq(categoryAssignments.part, part) : inArray(categoryAssignments.part, ["ALL", "FINALS"])
+      )
+    )
     .limit(1);
 
   if (!assignment) return { success: false, error: "Category is not assigned to any ring yet." };
@@ -418,7 +426,7 @@ export async function updateCategoryStagerStatus(
       stagerName: newStatus ? actor.name : null,
       stagerActionAt: newStatus ? new Date() : null,
     })
-    .where(eq(categoryAssignments.categoryId, categoryId));
+    .where(eq(categoryAssignments.id, assignment.id));
 
   await audit({
     tournamentId,

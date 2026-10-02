@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { updateCategoryStagerStatus, logoutStager } from "@/actions/stager";
 import { getBalancingAssignments } from "@/actions/balancing";
@@ -15,6 +15,8 @@ import BackNavigationGuard from "@/components/common/BackNavigationGuard";
 import LogoutConfirmModal from "@/components/ui/LogoutConfirmModal";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { useFallbackPoll } from "@/hooks/useFallbackPoll";
+import { SplitCardBadge } from "@/components/draw/SplitCardBadge";
+import { cardKey, layoutSignature, projectBoard } from "@/lib/draws/boardCards";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +33,10 @@ type Category = {
   sex?: string | null;
   day?: string | null;
   doc_url?: string | null;
+  /** On a board card: the category it belongs to, and which part of it the card is. */
+  category_id?: string;
+  part?: string;
+  athletes_unit?: "athletes" | "pool winners";
 };
 
 type Ring = {
@@ -41,6 +47,7 @@ type Ring = {
 
 type Assignment = {
   category_id: string;
+  part?: string;
   ring_id: string;
   queue_order: number;
   status?: string;
@@ -65,12 +72,18 @@ export default function StagerBalancingClient({
   tournamentId,
   tournamentName,
   stagerName,
-  initialCategories,
+  initialCategories: realCategories,
   initialRings,
-  initialAssignments,
+  initialAssignments: allInitialAssignments,
   completedTimes,
 }: Props) {
   const router = useRouter();
+  // The call area lists cards: a whole category is one card, a split category is a card per pool plus its
+  // finals, each on the tatami that runs it, so athletes are called to the tatami they will fight on.
+  const board = useMemo(() => projectBoard(realCategories, allInitialAssignments), [realCategories, allInitialAssignments]);
+  const initialCategories = board.cards;
+  const initialAssignments = board.assignments;
+  const layoutKey = useMemo(() => layoutSignature(allInitialAssignments), [allInitialAssignments]);
   const [currentStagerName, setCurrentStagerName] = useState(stagerName);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -84,7 +97,7 @@ export default function StagerBalancingClient({
   // The queue is the job: show the categories this board is actually running
   // first, with the whole tournament one tap away.
   const [drawsScope, setDrawsScope] = useState<"queue" | "all">("queue");
-  const [bracketCategory, setBracketCategory] = useState<{ id: string; name: string } | null>(null);
+  const [bracketCategory, setBracketCategory] = useState<{ id: string; name: string; part?: string | null } | null>(null);
   const [attendanceCategory, setAttendanceCategory] = useState<{ id: string; name: string } | null>(null);
 
   /** Blob URLs we created must be released, or the tab leaks a file each time. */
@@ -124,6 +137,10 @@ export default function StagerBalancingClient({
   const [ringCompletedQueues, setRingCompletedQueues] = useState<Record<string, Category[]>>({});
 
   const [isInitialized, setIsInitialized] = useState(false);
+  const initKey = useRef<string | null>(null);
+  const latestRows = useRef<{ category_id: string; part?: string; ring_id: string }[]>([]);
+  const [serverSignature, setServerSignature] = useState<string | null>(null);
+  const reloadedFor = useRef<string | null>(null);
 
   // Action loading state: key is categoryId + action
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -148,7 +165,8 @@ export default function StagerBalancingClient({
 
   // ── Initialize from props ──────────────────────────────────────────────────
   useEffect(() => {
-    if (isInitialized) return;
+    if (initKey.current === layoutKey) return;
+    initKey.current = layoutKey;
     setIsInitialized(true);
 
     const map: Record<string, any> = {};
@@ -192,7 +210,21 @@ export default function StagerBalancingClient({
 
     setRingQueues(ringMap);
     setRingCompletedQueues(ringMapHistory);
-  }, [initialCategories, initialRings, initialAssignments, isInitialized]);
+  }, [initialCategories, initialRings, initialAssignments, layoutKey]);
+
+  // The cards on screen differ from the server's (a category was split, merged or moved elsewhere): reload them.
+  const shownSignature = useMemo(() => {
+    const rows: string[] = [];
+    for (const [ringId, list] of Object.entries(ringQueues)) list.forEach((c) => rows.push(`${c.id}@${ringId}`));
+    for (const [ringId, list] of Object.entries(ringCompletedQueues)) list.forEach((c) => rows.push(`${c.id}@${ringId}`));
+    return rows.sort().join("|");
+  }, [ringQueues, ringCompletedQueues]);
+  useEffect(() => {
+    if (!isInitialized || serverSignature === null) return;
+    if (serverSignature === shownSignature || reloadedFor.current === serverSignature) return;
+    reloadedFor.current = serverSignature;
+    router.refresh();
+  }, [serverSignature, shownSignature, isInitialized, router]);
 
   // Live board: a category starting, finishing, pausing or moving between mats
   // shows up here the moment it happens.
@@ -203,9 +235,7 @@ export default function StagerBalancingClient({
       const data = await getBalancingAssignments(ringIds);
       const map: Record<string, any> = {};
       for (const row of data ?? []) {
-        // One entry per category: a split category's pool cards belong to the moderators' desks.
-        if (row.part !== "ALL" && row.part !== "FINALS") continue;
-        map[row.category_id] = {
+        map[cardKey(row.category_id, row.part)] = {
           matches_completed: row.matches_completed || 0,
           status: row.status || "pending",
           ring_id: row.ring_id,
@@ -215,6 +245,8 @@ export default function StagerBalancingClient({
         };
       }
       setAssignmentsMap(map);
+      latestRows.current = (data ?? []).map((row) => ({ category_id: row.category_id, part: row.part, ring_id: row.ring_id }));
+      setServerSignature(layoutSignature(latestRows.current));
     } catch (err) {
       console.error("[stager] live refresh failed:", err);
     }
@@ -244,7 +276,9 @@ export default function StagerBalancingClient({
       }));
 
       try {
-        const res = await updateCategoryStagerStatus(categoryId, tournamentId, newStatus);
+        // `categoryId` is the card key: the category id, plus '::<part>' for a pool or the finals.
+        const [realCategoryId, part] = categoryId.split("::");
+        const res = await updateCategoryStagerStatus(realCategoryId, tournamentId, newStatus, part);
         if (!res.success) {
           // Rollback on failure
           setAssignmentsMap((prev) => ({
@@ -354,7 +388,7 @@ export default function StagerBalancingClient({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setBracketCategory({ id: cat.id, name: cat.name });
+                    setBracketCategory({ id: cat.category_id ?? cat.id, name: cat.name, part: cat.part && cat.part !== "ALL" ? cat.part : null });
                   }}
                   title="View live draw"
                   aria-label={`View live draw for ${cat.name}`}
@@ -367,7 +401,7 @@ export default function StagerBalancingClient({
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setAttendanceCategory({ id: cat.id, name: cat.name });
+                    setAttendanceCategory({ id: cat.category_id ?? cat.id, name: cat.name });
                   }}
                   title="Attendance (optional)"
                   aria-label={`Attendance for ${cat.name}`}
@@ -393,9 +427,15 @@ export default function StagerBalancingClient({
               </div>
             </div>
 
+            <SplitCardBadge
+          card={cat}
+          cards={initialCategories}
+          statusOf={(id) => assignmentsMap[id]?.status}
+          tatamiOf={(id) => (initialRings.find((r) => r.id === assignmentsMap[id]?.ring_id)?.name ?? "a tatami").replace(/Ring/i, "Tatami")}
+        />
             <div className="flex items-center gap-1 text-[10px] font-data-mono text-[#68645A] mb-2">
               <span className="material-symbols-outlined text-[12px]">group</span>
-              <span>{cat.athletes_count} athletes</span>
+              <span>{cat.athletes_count} {cat.athletes_unit ?? "athletes"}</span>
             </div>
 
             {/* Exact 10-Segment Hatched Diagonal Progress Bar */}
@@ -487,7 +527,7 @@ export default function StagerBalancingClient({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setBracketCategory({ id: cat.id, name: cat.name });
+                setBracketCategory({ id: cat.category_id ?? cat.id, name: cat.name, part: cat.part && cat.part !== "ALL" ? cat.part : null });
               }}
               title="View live draw"
               aria-label={`View live draw for ${cat.name}`}
@@ -500,7 +540,7 @@ export default function StagerBalancingClient({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setAttendanceCategory({ id: cat.id, name: cat.name });
+                setAttendanceCategory({ id: cat.category_id ?? cat.id, name: cat.name });
               }}
               title="Attendance (optional)"
               aria-label={`Attendance for ${cat.name}`}
@@ -533,6 +573,12 @@ export default function StagerBalancingClient({
         </div>
 
         <h5 className="text-xs font-bold text-[#1B1815] mb-1.5 leading-snug">{cat.name}</h5>
+        <SplitCardBadge
+          card={cat}
+          cards={initialCategories}
+          statusOf={(id) => assignmentsMap[id]?.status}
+          tatamiOf={(id) => (initialRings.find((r) => r.id === assignmentsMap[id]?.ring_id)?.name ?? "a tatami").replace(/Ring/i, "Tatami")}
+        />
 
         <div className="flex justify-between items-center text-[10px] font-data-mono text-[#68645A] mb-2.5">
           <span className="flex items-center gap-1">
@@ -731,7 +777,7 @@ export default function StagerBalancingClient({
                 <p className="text-xs font-black uppercase tracking-wider text-[#1B1815]">Draw sheets</p>
                 <p className="text-[11px] text-[#68645A]">
                   {queuedDrawCategories.length} in the queue
-                  {drawsScope === "all" ? ` of ${initialCategories.length} categories` : ""} · open a bracket to see who
+                  {drawsScope === "all" ? ` of ${initialCategories.length} on the board` : ""} · open a bracket to see who
                   is next
                 </p>
               </div>
@@ -817,14 +863,14 @@ export default function StagerBalancingClient({
                             {cat.name}
                           </h5>
                           <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#8C877C]">
-                            {ring ? ring.name.replace(/Ring/i, "Tatami") : "Not on a mat"} · {cat.athletes_count} athletes
+                            {ring ? ring.name.replace(/Ring/i, "Tatami") : "Not on a mat"} · {cat.athletes_count} {cat.athletes_unit ?? "athletes"}
                           </p>
                         </div>
 
                         <div className="flex gap-2">
                           <button
                             type="button"
-                            onClick={() => setBracketCategory({ id: cat.id, name: cat.name })}
+                            onClick={() => setBracketCategory({ id: cat.category_id ?? cat.id, name: cat.name, part: cat.part && cat.part !== "ALL" ? cat.part : null })}
                             className="flex min-h-[36px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#0E9C7C] bg-[#E3F6F0] px-2 text-[11px] font-bold text-[#0B7C63] transition-colors hover:bg-[#d3f0e7] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0E9C7C]"
                           >
                             <span className="material-symbols-outlined text-[15px]">account_tree</span>
@@ -832,7 +878,7 @@ export default function StagerBalancingClient({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setAttendanceCategory({ id: cat.id, name: cat.name })}
+                            onClick={() => setAttendanceCategory({ id: cat.category_id ?? cat.id, name: cat.name })}
                             className="flex min-h-[36px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--line)] bg-white px-2 text-[11px] font-bold text-[var(--ink-700)] transition-colors hover:bg-[var(--canvas)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                           >
                             <span className="material-symbols-outlined text-[15px]">how_to_reg</span>
@@ -856,13 +902,11 @@ export default function StagerBalancingClient({
           const isHistoryView = historyOpenForRing === ring.id;
 
           const runningCat = activeQueue.find((c) => {
-            const assignment = initialAssignments.find((a) => a.category_id === c.id);
-            return assignment?.status === "running";
+            return assignmentsMap[c.id]?.status === "running";
           });
           const pausedCat = !runningCat
             ? activeQueue.find((c) => {
-                const assignment = initialAssignments.find((a) => a.category_id === c.id);
-                return assignment?.status === "paused";
+                return assignmentsMap[c.id]?.status === "paused";
               })
             : null;
           const isRingRunning = Boolean(runningCat);
@@ -1211,6 +1255,8 @@ export default function StagerBalancingClient({
         <DrawBracketModal
           categoryId={bracketCategory.id}
           categoryName={bracketCategory.name}
+          part={bracketCategory.part ?? null}
+          lockPart={Boolean(bracketCategory.part)}
           isOpen={Boolean(bracketCategory)}
           onClose={() => setBracketCategory(null)}
         />

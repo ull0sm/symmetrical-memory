@@ -60,13 +60,7 @@ export default async function StagerBalancePage({
       db
         .select()
         .from(categoryAssignmentsTable)
-        .where(
-          and(
-            inArray(categoryAssignmentsTable.ringId, ringIds),
-            // The call area lists whole categories; a split category shows once, at its finals tatami.
-            inArray(categoryAssignmentsTable.part, ["ALL", "FINALS"])
-          )
-        ),
+        .where(inArray(categoryAssignmentsTable.ringId, ringIds)),
       db
         .select({
           categoryId: eventLogTable.categoryId,
