@@ -24,7 +24,7 @@ Audit and fix every RBAC role, the half-built features and the hardcoding, follo
 | `fix/phase4-judges` | Phase 4: judge rebuild | ✅ done (4.5 partly) |
 | `fix/phase5-online` | Phase 5: online deployment | ✅ done |
 | `fix/phase6-attendance` | Phase 6: stager attendance | ✅ done |
-| `fix/phase7-quality` | Phase 7: code quality | 7.1✅ 7.2✅ 7.6✅ 7.8✅ · 7.3-7.5⏳ 7.7⏳ 7.9⏳ |
+| `fix/phase7-quality` | Phase 7: code quality | 7.1✅ 7.2✅ 7.6✅ 7.7✅ 7.8✅ · 7.3-7.5⏳ 7.9⏳ |
 
 All phases are stacked into `fix/phase7-quality`. Merging to master is the user's call.
 
@@ -66,12 +66,15 @@ All phases are stacked into `fix/phase7-quality`. Merging to master is the user'
    offline. User can decide later if bundling makes sense.
 4. **Branch merging:** User will handle merging to master themselves. Phases remain stacked.
 
-## Phase 7 progress this session
-- ✅ **7.9** `silver-meme/` deleted (dead prototype)
-- ✅ **7.5** Started: fixed types in critical paths (matches.ts, balancing.ts, categories.ts)
-  - Replaced 8 `any` with proper database row types in matches.ts
+## Phase 7 progress this session (session 3)
+- ✅ **7.7** Migration consolidation
+  - Archived legacy migrations 2-7 (historical upgrade path only)
+  - Kept 0000 (schema source of truth) and migrations 8+ (supplemental triggers/backfills)
+  - Added `db/migrations/README.md` with clear deployment workflow
+  - Fresh installs: `db:push` + `db:migrate`; upgrades: same commands (idempotent)
+- ✅ **7.5** (from session 2) Fixed types in critical paths: matches.ts, balancing.ts, categories.ts
+  - Replaced 8 `any` with proper database row types
   - Reduced `any` count from 286 → 259 (mostly comments and drag-drop libraries remain)
-  - Changed `catch(err: any)` to `catch(err: unknown)` with type guards
 
 ## Remaining work in Phase 7
 - **7.3** Design tokens: replace ~1,354 inline hex colours with Tailwind CSS tokens (file by file, when touched).
@@ -79,8 +82,7 @@ All phases are stacked into `fix/phase7-quality`. Merging to master is the user'
   risky to split; better as a follow-up change.
 - **7.5** More type fixes: component files and remaining `any` in less critical paths. Most remaining are in
   comments or library-imposed constraints (drag-drop library).
-- **7.7** Consolidate drizzle migration history (`supabase/` → `db/` done; need schema/migration collapse).
-  **User decision pending.**
+- **7.7** ✅ Migration consolidation: archived legacy migrations 2-7 to `legacy/`, kept 0000 (schema) and 8+ (supplemental), added `db/migrations/README.md` with deployment workflow.
 - **4.5** Judge panel: 5-seat UI limitation; untested on real phone over LAN/tunnel.
 
 ## Do NOT
