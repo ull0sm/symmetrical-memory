@@ -308,6 +308,40 @@ export const eventLog = pgTable('event_log', {
     .defaultNow(),
 });
 
+/**
+ * Official record of who did what. Append-only (a trigger refuses UPDATE);
+ * rows only disappear when their tournament is deleted. Written through
+ * `src/lib/audit.ts`, never directly.
+ */
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    tournamentId: uuid('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    ringId: uuid('ring_id'),
+    categoryId: uuid('category_id'),
+    matchId: text('match_id'),
+    actorRole: text('actor_role').notNull(), // 'admin' | 'organiser' | 'stager' | 'moderator' | 'judge' | 'system'
+    actorId: text('actor_id'),
+    actorName: text('actor_name'),
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+    action: text('action').notNull(),
+    targetType: text('target_type'),
+    targetId: text('target_id'),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('audit_log_tournament_created_idx').on(table.tournamentId, table.createdAt),
+    index('audit_log_match_idx').on(table.matchId),
+  ]
+);
+
 // =========================================================================
 // 2. Decoupled Registration & Category Setup (Official & Festival Support)
 // =========================================================================

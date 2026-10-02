@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
   rings as ringsTable,
@@ -30,8 +31,9 @@ export async function saveAssignments(
 ): Promise<SaveAssignmentsResult> {
   try {
     // Only the event's admin assigns categories to tatamis.
+    let admin;
     try {
-      await requireTournamentAdmin(tournamentId);
+      admin = await requireTournamentAdmin(tournamentId);
     } catch {
       return { success: false, error: "Unauthorized: Only administrators can assign categories to Tatamis." };
     }
@@ -176,6 +178,14 @@ export async function saveAssignments(
           await tx.insert(categoryAssignmentsTable).values(newRows);
         }
       }
+    });
+
+    await audit({
+      tournamentId,
+      actor: admin,
+      action: "ASSIGNMENTS_SAVED",
+      before: currentAssignments.map((a) => ({ categoryId: a.categoryId, ringId: a.ringId, queueOrder: a.queueOrder, status: a.status })),
+      after: validAssignments.map((a) => ({ categoryId: a.category_id, ringId: a.ring_id, queueOrder: a.queue_order })),
     });
 
     // Broadcast immediately so Mod, Organiser, Stager receive updates with zero latency

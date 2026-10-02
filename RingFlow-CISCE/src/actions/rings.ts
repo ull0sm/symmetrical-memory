@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { rings, moderatorRequests } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -12,7 +13,7 @@ import { elapsedMs as elapsedFor, normalizeClock } from "@/lib/matchClock";
 import { persistRingClock, readRingClockRow } from "@/lib/ringClockStore";
 
 export async function addRing(tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const existingRings = await db
     .select({ ringOrder: rings.ringOrder, name: rings.name })
@@ -40,6 +41,7 @@ export async function addRing(tournamentId: string) {
     })
     .returning();
 
+  await audit({ tournamentId, ringId: newRing.id, actor: admin, action: "RING_ADDED", targetType: "ring", targetId: newRing.id, after: { name: newRing.name } });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return {
     id: newRing.id,
@@ -50,7 +52,7 @@ export async function addRing(tournamentId: string) {
 }
 
 export async function regenerateRingCode(ringId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const newCode = await uniqueRingAccessCode();
   await db
@@ -68,12 +70,17 @@ export async function regenerateRingCode(ringId: string, tournamentId: string) {
       )
     );
 
+  await audit({ tournamentId, ringId, actor: admin, action: "RING_CODE_REGENERATED", targetType: "ring", targetId: ringId });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true, access_code: newCode };
 }
 
 export async function deleteRing(ringId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
+  const [doomed] = await db.select({ name: rings.name }).from(rings).where(and(eq(rings.id, ringId), eq(rings.tournamentId, tournamentId)));
+  if (doomed) {
+    await audit({ tournamentId, actor: admin, action: "RING_DELETED", targetType: "ring", targetId: ringId, before: doomed });
+  }
 
   await db
     .delete(rings)

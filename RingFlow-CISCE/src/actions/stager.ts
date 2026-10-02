@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { tournaments, stagerRequests, categoryAssignments, rings } from "@/db/schema";
 import { eq, and, inArray, desc } from "drizzle-orm";
@@ -8,7 +9,7 @@ import { headers } from "next/headers";
 import { normalizeAccessCode, generateUnambiguousCode, isValidUuid } from "@/lib/utils";
 import { serializeStagerRequest } from "@/lib/serializers";
 import { isOfflineMode } from "@/lib/offline";
-import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, clientAddress, isBlocked, recordFailure } from "@/lib/rateLimit";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from "@/lib/auth/cookies";
 import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
@@ -43,7 +44,8 @@ export async function requestStagerAccess(
     }
   }
 
-  if (!(await allowAttempt([{ key: `access-code:stager:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }]))) {
+  const codeLimits = [{ key: `access-code:stager:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }];
+  if (isBlocked(codeLimits)) {
     return { success: false, error: TOO_MANY_ATTEMPTS };
   }
 
@@ -84,6 +86,7 @@ export async function requestStagerAccess(
   }
 
   if (!matchedTournament) {
+    recordFailure(codeLimits);
     return { success: false, error: "Invalid stager access code. Please check with the tournament director." };
   }
 
@@ -172,7 +175,7 @@ async function loadRequestInTournament(requestId: string, tournamentId: string) 
 }
 
 export async function approveStagerRequest(requestId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   const target = await loadRequestInTournament(requestId, tournamentId);
   if (target.status !== "pending") throw new Error(`Request is already ${target.status}`);
 
@@ -207,12 +210,13 @@ export async function approveStagerRequest(requestId: string, tournamentId: stri
   });
 
   broadcastLiveEvent({ table: "stager_requests", op: "UPDATE", id: requestId, tournamentId, status: "approved" });
+  await audit({ tournamentId, actor: admin, action: "STAGER_APPROVED", targetType: "stager_request", targetId: requestId });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true };
 }
 
 export async function rejectStagerRequest(requestId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   await loadRequestInTournament(requestId, tournamentId);
 
   await db
@@ -221,12 +225,13 @@ export async function rejectStagerRequest(requestId: string, tournamentId: strin
     .where(eq(stagerRequests.id, requestId));
 
   broadcastLiveEvent({ table: "stager_requests", op: "UPDATE", id: requestId, tournamentId, status: "rejected" });
+  await audit({ tournamentId, actor: admin, action: "STAGER_REJECTED", targetType: "stager_request", targetId: requestId });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true };
 }
 
 export async function revokeStagerSession(requestId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   await loadRequestInTournament(requestId, tournamentId);
 
   await db
@@ -235,6 +240,7 @@ export async function revokeStagerSession(requestId: string, tournamentId: strin
     .where(eq(stagerRequests.id, requestId));
 
   broadcastLiveEvent({ table: "stager_requests", op: "UPDATE", id: requestId, tournamentId, status: "revoked" });
+  await audit({ tournamentId, actor: admin, action: "STAGER_REVOKED", targetType: "stager_request", targetId: requestId });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true };
 }
@@ -243,7 +249,7 @@ export async function revokeStagerSession(requestId: string, tournamentId: strin
 
 /** Generates N new unique 6-char stager codes and appends them to stager_codes. */
 export async function generateStagerCodes(tournamentId: string, count: number) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   const n = Math.floor(Number(count));
   if (!Number.isFinite(n) || n < 1 || n > 50) {
     throw new Error("Count must be between 1 and 50.");
@@ -281,13 +287,14 @@ export async function generateStagerCodes(tournamentId: string, count: number) {
   const merged = [...existing, ...newCodes];
   await db.update(tournaments).set({ stagerCodes: merged }).where(eq(tournaments.id, tournamentId));
 
+  await audit({ tournamentId, actor: admin, action: "STAGER_CODES_GENERATED", after: { labels: newCodes.map((c) => c.label) } });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true, stager_codes: merged };
 }
 
 /** Remove a stager code. Sessions opened with it are revoked too. */
 export async function removeStagerCode(tournamentId: string, code: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const [t] = await db
     .select({ stagerCodes: tournaments.stagerCodes })
@@ -313,6 +320,7 @@ export async function removeStagerCode(tournamentId: string, code: string) {
       .where(inArray(stagerRequests.id, holderIds));
   }
 
+  await audit({ tournamentId, actor: admin, action: "STAGER_CODE_REMOVED", after: { revokedSessions: holderIds.length } });
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   return { success: true, stager_codes: updated };
 }
@@ -407,6 +415,17 @@ export async function updateCategoryStagerStatus(
       stagerActionAt: newStatus ? new Date() : null,
     })
     .where(eq(categoryAssignments.categoryId, categoryId));
+
+  await audit({
+    tournamentId,
+    ringId: assignment.ringId,
+    categoryId,
+    actor,
+    action: "STAGER_STATUS",
+    targetType: "category_assignment",
+    targetId: assignment.id,
+    after: { stagerStatus: newStatus },
+  });
 
   broadcastLiveEvent({
     table: "category_assignments",

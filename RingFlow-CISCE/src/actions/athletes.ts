@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { athletes, categories, categoryEntries } from "@/db/schema";
 import { eq, and, sql, or, inArray } from "drizzle-orm";
@@ -24,7 +25,7 @@ export type AthleteInput = {
 };
 
 export async function addAthlete(tournamentId: string, rawInput: AthleteInput) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   const input = parseInput(athleteInputSchema, rawInput, "athlete");
 
   const name = (input.name || "").trim().slice(0, 200);
@@ -92,13 +93,18 @@ export async function addAthlete(tournamentId: string, rawInput: AthleteInput) {
     dojo: input.school?.trim().slice(0, 200) || null,
   });
 
+  await audit({ tournamentId, categoryId: targetCategoryId, actor: admin, action: "ATHLETE_ADDED", targetType: "athlete", after: { name, chestNumber } });
   await syncTournamentCategoryCounts(tournamentId);
   revalidatePath(`/admin/event/${tournamentId}/athletes`);
   revalidatePath(`/admin/event/${tournamentId}/categories`);
 }
 
 export async function deleteAthlete(athleteId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
+  const [gone] = await db.select({ name: athletes.name, chestNumber: athletes.chestNumber, categoryId: athletes.categoryId }).from(athletes).where(and(eq(athletes.id, athleteId), eq(athletes.tournamentId, tournamentId)));
+  if (gone) {
+    await audit({ tournamentId, categoryId: gone.categoryId, actor: admin, action: "ATHLETE_DELETED", targetType: "athlete", targetId: athleteId, before: gone });
+  }
 
   await db
     .delete(athletes)
@@ -116,7 +122,7 @@ export async function updateAthleteCategory(
   categoryId: string | null,
   tournamentId: string
 ) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   if (categoryId) {
     const [cat] = await db
@@ -170,6 +176,7 @@ export async function updateAthleteCategory(
     }
   });
 
+  await audit({ tournamentId, categoryId, actor: admin, action: "ATHLETE_MOVED", targetType: "athlete", targetId: athleteId, before: { categoryId: athlete.categoryId }, after: { categoryId } });
   await syncTournamentCategoryCounts(tournamentId);
   revalidatePath(`/admin/event/${tournamentId}/athletes`);
   revalidatePath(`/admin/event/${tournamentId}/categories`);
@@ -181,7 +188,7 @@ export async function bulkAddAthletes(
   categoryName: string,
   rawList: { no: string; name: string }[]
 ) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   // Blank spreadsheet rows are skipped, not an error.
   const rawAthletes = parseInput(simpleRosterSchema, rawList, "athlete list").filter((a) => a.name);
   categoryName = String(categoryName ?? "").trim().slice(0, 200);
@@ -235,6 +242,7 @@ export async function bulkAddAthletes(
     await db.insert(athletes).values(toInsert);
   }
 
+  await audit({ tournamentId, categoryId, actor: admin, action: "ATHLETES_IMPORTED", after: { source: "category list", category: categoryName, count: toInsert.length } });
   await syncTournamentCategoryCounts(tournamentId);
   revalidatePath(`/admin/event/${tournamentId}/athletes`);
   revalidatePath(`/admin/event/${tournamentId}/categories`);
@@ -245,7 +253,7 @@ export async function bulkAddMasterAthletes(
   tournamentId: string,
   rawList: unknown[]
 ) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   // Blank spreadsheet rows are skipped, not an error.
   const rawAthletes = parseInput(masterRosterSchema, rawList, "athlete list").filter((a) => a.name);
 
@@ -325,6 +333,7 @@ export async function bulkAddMasterAthletes(
     await db.insert(athletes).values(toInsert);
   }
 
+  await audit({ tournamentId, actor: admin, action: "ATHLETES_IMPORTED", after: { source: "master list", count: toInsert.length, uncategorized: toInsert.filter((a) => !a.categoryId).length } });
   await syncTournamentCategoryCounts(tournamentId);
   revalidatePath(`/admin/event/${tournamentId}/athletes`);
   revalidatePath(`/admin/event/${tournamentId}/categories`);

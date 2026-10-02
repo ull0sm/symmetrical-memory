@@ -96,19 +96,31 @@ suite plus the 72-check Phase 1 suite.
 ## Phase 3 — Audit log (official record)
 Goal: every official action can be traced to a person, so results can be defended to the governing body.
 
-- [ ] **3.1 Table `audit_log`** (append-only): `id, tournament_id, ring_id?, category_id?, match_id?,
+- [x] **3.1 Table `audit_log`** (append-only): `id, tournament_id, ring_id?, category_id?, match_id?,
   actor_role, actor_id, actor_name, session_id, ip, user_agent, action, target_type, target_id,
   before jsonb, after jsonb, reason?, created_at`. Index it on `(tournament_id, created_at)`.
-- [ ] **3.2 Write audit entries automatically** from the Phase 2 action wrapper for every write
+- [x] **3.2 Write audit entries automatically** from the Phase 2 action wrapper for every write
   action. Cover approvals, score changes, results, overrides, draw generate/lock/flush, queue
   changes, settings, and deletes.
-- [ ] **3.3 Result correction flow.** The admin (only) can reopen a confirmed bout with a mandatory
+- [x] **3.3 Result correction flow.** The admin (only) can reopen a confirmed bout with a mandatory
   reason. Downstream bouts are invalidated or flagged, and the whole thing is audited.
-- [ ] **3.4 Audit viewer** for the admin, plus a read-only view for organisers: filter by tatami,
+- [x] **3.4 Audit viewer** for the admin, plus a read-only view for organisers: filter by tatami,
   category, actor and action.
-- [ ] **3.5 Official results PDF** includes, for each bout, the officiating moderator's name and
+- [x] **3.5 Official results PDF** includes, for each bout, the officiating moderator's name and
   every correction or override.
-- [ ] **3.6** Keep `event_log` for the operational feed and ETA calculations. Fill in its actor fields as well.
+- [x] **3.6** Keep `event_log` for the operational feed and ETA calculations. Fill in its actor fields as well.
+
+---
+
+**Status (2026-10-02): done.** `audit_log` is append-only (a trigger rejects UPDATE and DELETE;
+`migration11_audit_log.sql`). `lib/audit.ts` is called from every official action (approvals, scores,
+results, draws, queue, settings, roster). Re-confirming a CONFIRMED bout needs a reason. Admins correct
+kumite bouts after the category leaves the mat from the bracket view (`ResultCorrectionDialog` →
+`correctBoutResult`); reversing a winner whose later bouts were fought needs an explicit rollback.
+The Official Record page (admin and organiser) holds the audit viewer and the results export, and
+exports list who confirmed each bout plus any corrections. `event_log` keeps the actor in its metadata.
+Rate limits now count only failed attempts. Verified by a 19-check suite, with the Phase 1 (72) and
+Phase 2 (22) suites re-passed, and the correction dialog exercised in the browser.
 
 ---
 

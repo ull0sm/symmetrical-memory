@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
@@ -50,7 +51,7 @@ function documentUrl(categoryId: string, version: number) {
  * stored in Postgres and served to staff only; re-uploading replaces the old one.
  */
 export async function uploadCategoryPDFs(tournamentId: string, formData: FormData): Promise<PDFUploadResult> {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const tournamentCategories = await db
     .select({ id: categories.id, name: categories.name })
@@ -99,6 +100,16 @@ export async function uploadCategoryPDFs(tournamentId: string, formData: FormDat
         .set({ docUrl })
         .where(and(eq(categories.id, matchedCategory.id), eq(categories.tournamentId, tournamentId)));
 
+      await audit({
+        tournamentId,
+        categoryId: matchedCategory.id,
+        actor: admin,
+        action: "CATEGORY_PDF_UPLOADED",
+        targetType: "category",
+        targetId: matchedCategory.id,
+        after: { filename: file.name, sizeBytes: bytes.length },
+      });
+
       result.matched.push({
         filename: file.name,
         categoryName: matchedCategory.name,
@@ -116,7 +127,7 @@ export async function uploadCategoryPDFs(tournamentId: string, formData: FormDat
 
 /** Remove a category's PDF. */
 export async function removeCategoryPDF(tournamentId: string, categoryId: string): Promise<void> {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const [cat] = await db
     .select({ id: categories.id })
@@ -127,6 +138,7 @@ export async function removeCategoryPDF(tournamentId: string, categoryId: string
 
   await db.delete(categoryDocuments).where(eq(categoryDocuments.categoryId, categoryId));
   await db.update(categories).set({ docUrl: null }).where(eq(categories.id, categoryId));
+  await audit({ tournamentId, categoryId, actor: admin, action: "CATEGORY_PDF_REMOVED", targetType: "category", targetId: categoryId });
 
   revalidatePath(`/admin/event/${tournamentId}/categories`);
 }

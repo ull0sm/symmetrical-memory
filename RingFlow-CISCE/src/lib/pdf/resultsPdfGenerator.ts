@@ -19,6 +19,11 @@ export interface ResultRow {
   senshu: string | null;
   winnerName: string | null;
   decisionMethod: string | null;
+  /** Official who confirmed the result as it stands. */
+  confirmedBy?: string | null;
+  /** Times the confirmed result was changed afterwards. */
+  corrections?: number;
+  correctionReason?: string | null;
 }
 
 export interface ResultsPdfData {

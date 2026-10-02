@@ -195,6 +195,18 @@ export default function OrganiserSidebar({ initialCounts }: { initialCounts?: Si
       count: tournamentData.athletesCount || 0,
       isLive: false,
     },
+    {
+      name: "Official Record",
+      href: `/organiser/event/${id}/record`,
+      icon: (
+        <svg className="w-[22px] h-[22px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" />
+          <path d="M14 3v5h5M9 13h6M9 17h6" />
+        </svg>
+      ),
+      count: null,
+      isLive: false,
+    },
   ];
 
   return (

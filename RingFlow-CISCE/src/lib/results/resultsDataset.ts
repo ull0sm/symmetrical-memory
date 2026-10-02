@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { athletes, categories, matchSlots, matches, tournaments } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
 import type { ResultRow } from "@/lib/pdf/resultsPdfGenerator";
+import { getBoutOfficials } from "@/lib/results/officials";
 export interface TournamentResults {
   tournamentId: string;
   tournamentName: string;
@@ -78,6 +79,7 @@ export async function buildTournamentResults(tournamentId: string): Promise<Tour
     ? await db.select().from(athletes).where(inArray(athletes.id, athleteIds))
     : [];
   const athleteById = new Map(athleteRows.map((a) => [a.id, a]));
+  const officials = await getBoutOfficials(tournamentId);
 
   const slotsByMatch = new Map<string, typeof slots>();
   for (const slot of slots) {
@@ -118,6 +120,12 @@ export async function buildTournamentResults(tournamentId: string): Promise<Tour
           ? ao?.name ?? null
           : null;
 
+    // Kata bouts carry their score in the judge totals, kumite in points.
+    const isKataScore = match.akaScoreTotal !== null || match.aoScoreTotal !== null;
+    const akaScore = isKataScore ? Number(match.akaScoreTotal ?? 0) : match.akaScore;
+    const aoScore = isKataScore ? Number(match.aoScoreTotal ?? 0) : match.aoScore;
+    const official = officials.get(match.id);
+
     rows.push({
       categoryName: category?.name ?? "Unknown category",
       roundName: match.roundName,
@@ -127,16 +135,19 @@ export async function buildTournamentResults(tournamentId: string): Promise<Tour
       akaName: aka?.name ?? "TBD",
       akaChest: aka?.chestNumber ?? null,
       akaSchool: aka?.school || aka?.dojo || null,
-      akaScore: match.akaScore,
+      akaScore,
       akaPenalties: match.akaPenalties,
       aoName: ao?.name ?? "TBD",
       aoChest: ao?.chestNumber ?? null,
       aoSchool: ao?.school || ao?.dojo || null,
-      aoScore: match.aoScore,
+      aoScore,
       aoPenalties: match.aoPenalties,
       senshu: match.senshu,
       winnerName,
       decisionMethod: match.decisionMethod,
+      confirmedBy: official?.confirmedBy ?? null,
+      corrections: official?.corrections ?? 0,
+      correctionReason: official?.lastCorrectionReason ?? null,
     });
 
     // "Bouts played" means bouts actually contested and decided. A bracket slot
@@ -161,8 +172,8 @@ export async function buildTournamentResults(tournamentId: string): Promise<Tour
 
         entry.bouts += 1;
         if (match.winnerId === fighter.id) entry.wins += 1;
-        entry.pointsFor += side === "AKA" ? match.akaScore : match.aoScore;
-        entry.pointsAgainst += side === "AKA" ? match.aoScore : match.akaScore;
+        entry.pointsFor += side === "AKA" ? akaScore : aoScore;
+        entry.pointsAgainst += side === "AKA" ? aoScore : akaScore;
         totals.set(fighter.id, entry);
       }
     }
@@ -214,6 +225,9 @@ export function rowsToCsv(results: TournamentResults): string {
     "Senshu",
     "Winner",
     "Decision",
+    "Confirmed by",
+    "Corrections",
+    "Correction reason",
   ];
 
   const lines = [header.join(",")];
@@ -238,6 +252,9 @@ export function rowsToCsv(results: TournamentResults): string {
         row.senshu,
         row.winnerName,
         row.decisionMethod,
+        row.confirmedBy,
+        row.corrections,
+        row.correctionReason,
       ]
         .map(csvCell)
         .join(",")

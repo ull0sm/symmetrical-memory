@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { categories } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -11,7 +12,7 @@ import { inferEventType, isEventType } from "@/lib/categories/eventType";
 import { categoryInputSchema, parseInput } from "@/lib/validation";
 
 export async function addCategory(tournamentId: string, rawInput: CategoryInput) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   const input = parseInput(categoryInputSchema, rawInput, "category");
 
   const name = (input.name || "").trim().slice(0, 200);
@@ -37,13 +38,14 @@ export async function addCategory(tournamentId: string, rawInput: CategoryInput)
     })
     .returning();
 
+  await audit({ tournamentId, categoryId: newCat.id, actor: admin, action: "CATEGORY_ADDED", targetType: "category", targetId: newCat.id, after: { name } });
   await syncTournamentCategoryCounts(tournamentId);
   revalidatePath(`/admin/event/${tournamentId}/categories`);
   return newCat;
 }
 
 export async function bulkAddCategories(tournamentId: string, inputCategories: Record<string, unknown>[]) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   if (!Array.isArray(inputCategories) || inputCategories.length > 2000) {
     throw new Error("Provide at most 2000 categories");
   }
@@ -76,6 +78,7 @@ export async function bulkAddCategories(tournamentId: string, inputCategories: R
   const named = toInsert.filter((c) => c.name.length > 0);
   if (named.length > 0) {
     await db.insert(categories).values(named);
+    await audit({ tournamentId, actor: admin, action: "CATEGORIES_BULK_ADDED", after: { count: named.length, names: named.map((c) => c.name).slice(0, 200) } });
     await syncTournamentCategoryCounts(tournamentId);
   }
 
@@ -88,7 +91,7 @@ export async function updateCategory(
   tournamentId: string,
   updates: Partial<CategoryInput> & { expected_matches?: number }
 ) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const patch: Record<string, any> = {};
   if (updates.name !== undefined) {
@@ -109,6 +112,12 @@ export async function updateCategory(
     patch.expectedMatches = Math.max(0, Math.min(10000, Math.floor(Number(updates.expected_matches) || 0)));
   }
   if (Object.keys(patch).length === 0) return;
+  const [beforeCat] = await db
+    .select({ name: categories.name, ageBracket: categories.ageBracket, weightClass: categories.weightClass, athletesCount: categories.athletesCount, expectedMatches: categories.expectedMatches })
+    .from(categories)
+    .where(and(eq(categories.id, categoryId), eq(categories.tournamentId, tournamentId)));
+  if (!beforeCat) throw new Error("Category not found in this tournament");
+  await audit({ tournamentId, categoryId, actor: admin, action: "CATEGORY_UPDATED", targetType: "category", targetId: categoryId, before: beforeCat, after: patch });
 
   await db
     .update(categories)
@@ -121,7 +130,13 @@ export async function updateCategory(
 }
 
 export async function deleteCategory(categoryId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
+  const [beforeCat] = await db
+    .select({ name: categories.name })
+    .from(categories)
+    .where(and(eq(categories.id, categoryId), eq(categories.tournamentId, tournamentId)));
+  if (!beforeCat) throw new Error("Category not found in this tournament");
+  await audit({ tournamentId, actor: admin, action: "CATEGORY_DELETED", targetType: "category", targetId: categoryId, before: beforeCat });
 
   await db
     .delete(categories)
@@ -142,7 +157,7 @@ export async function updateCategoryKataSettings(
     advancePerPool?: number;
   }
 ) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const patch: Record<string, any> = {};
   if (settings.kataFormat !== undefined) {
@@ -171,6 +186,7 @@ export async function updateCategoryKataSettings(
       and(eq(categories.id, categoryId), eq(categories.tournamentId, tournamentId))
     );
 
+  await audit({ tournamentId, categoryId, actor: admin, action: "CATEGORY_KATA_SETTINGS", targetType: "category", targetId: categoryId, after: patch });
   revalidatePath(`/admin/event/${tournamentId}/categories`);
   return { success: true };
 }

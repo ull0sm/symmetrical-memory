@@ -40,4 +40,8 @@ staff, and watch every tatami live.
 7. Afterwards: export results and the official record. Set the tournament status to `completed`.
 
 ## Known gaps (see [PLAN.md](../PLAN.md))
-- Phase 3: no audit viewer and no admin "correct a confirmed result" flow yet.
+- Corrections after a category leaves the mat: Categories → bracket → "Correct result" on a decided
+  kumite bout (`ResultCorrectionDialog` → `correctBoutResult`, admin only, reason required). Kata
+  corrections are still re-finalized by the moderator while the category is on the mat.
+  Reversing a winner whose later bouts are already fought is refused until the admin confirms a
+  rollback; those bouts are then re-filled and reset, and the audit entry records it.

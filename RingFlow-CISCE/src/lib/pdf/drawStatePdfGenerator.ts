@@ -1,5 +1,6 @@
 import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import type { BracketMatchView } from "@/lib/draws/assembleDraw";
+import type { BoutOfficial } from "@/lib/results/officials";
 
 /**
  * The results document: not a results table, but the state of every draw as it
@@ -12,6 +13,8 @@ export interface CategoryDrawState {
   tournamentSize?: number;
   bronzeMedals?: number;
   matches: BracketMatchView[];
+  /** Per bout: who confirmed it and any corrections (keyed by match id). */
+  officials?: Record<string, BoutOfficial>;
 }
 
 export interface DrawStatePdfData {
@@ -182,8 +185,19 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
     }
     y -= 38;
 
-    // Round groups: main bracket in order, then repechage, then bronze.
+    // Kata pools first (one group per pool), then the main bracket in order,
+    // then repechage, then bronze.
     const groups: Array<{ label: string; matches: BracketMatchView[] }> = [];
+    const pools = new Map<string, BracketMatchView[]>();
+    for (const m of category.matches.filter((m) => m.bracketType === "POOL")) {
+      const key = m.poolGroup || "Pool";
+      const list = pools.get(key) ?? [];
+      list.push(m);
+      pools.set(key, list);
+    }
+    for (const key of Array.from(pools.keys()).sort()) {
+      groups.push({ label: key, matches: (pools.get(key) ?? []).sort((a, b) => a.matchNo - b.matchNo) });
+    }
     const mainRounds = new Map<number, BracketMatchView[]>();
     for (const m of category.matches.filter((m) => m.bracketType === "MAIN")) {
       const list = mainRounds.get(m.roundNo) ?? [];
@@ -266,15 +280,18 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
         });
 
         // Points, in the corner colour of the fighter they belong to.
+        // Kata bouts show the judges' total instead of kumite points.
+        const akaPoints = match.akaScoreTotal ?? String(match.akaScore ?? 0);
+        const aoPoints = match.aoScoreTotal ?? String(match.aoScore ?? 0);
         const scoreX = nameX + nameW + 16;
-        page.drawText(`AKA ${match.akaScore ?? 0}`, {
+        page.drawText(`AKA ${akaPoints}`, {
           x: scoreX,
           y: y - 2,
           size: 9,
           font: bold,
           color: AKA,
         });
-        page.drawText(`AO ${match.aoScore ?? 0}`, {
+        page.drawText(`AO ${aoPoints}`, {
           x: scoreX,
           y: y - 13,
           size: 9,
@@ -295,11 +312,29 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
 
         page.drawText(ellipsize(detail, regular, 8, 108), {
           x: scoreX + 62,
-          y: y - 8,
+          y: y - 4,
           size: 8,
           font: regular,
           color: decidedMatch ? MUTED : rgb(0.7, 0.7, 0.7),
         });
+
+        // Accountability: who confirmed it, and whether it was corrected.
+        const official = category.officials?.[match.matchId];
+        if (official?.confirmedBy || official?.corrections) {
+          const note = [
+            official.confirmedBy ? `by ${official.confirmedBy}` : null,
+            official.corrections ? `corrected ${official.corrections}x` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          page.drawText(ellipsize(note, regular, 7, 108), {
+            x: scoreX + 62,
+            y: y - 13,
+            size: 7,
+            font: regular,
+            color: official.corrections ? AKA : MUTED,
+          });
+        }
 
         const schools = [aka.school, ao.school].filter(Boolean).join(" / ");
         if (schools) {

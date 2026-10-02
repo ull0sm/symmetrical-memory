@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
   categoryAssignments,
@@ -21,7 +22,10 @@ import {
   getTournamentStaff,
   requireMatchModerator,
   requireRingModerator,
+  requireTournamentAdmin,
 } from "@/lib/auth/guards";
+import { scopeForMatch, type MatchScope } from "@/lib/auth/scope";
+import type { Principal } from "@/lib/auth/principal";
 import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
@@ -305,7 +309,7 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
  */
 export async function setActiveBout(ringId: string, matchId: string) {
   await requireRingModerator(ringId);
-  const { scope } = await requireMatchModerator(matchId);
+  const { moderator, scope } = await requireMatchModerator(matchId);
   if (scope.ringId !== ringId) {
     throw new Error("That bout belongs to a different tatami.");
   }
@@ -316,6 +320,17 @@ export async function setActiveBout(ringId: string, matchId: string) {
   if (match && match.status !== "CONFIRMED" && match.status !== "BYE" && match.status !== "WALKOVER") {
     await db.update(matches).set({ status: "LIVE" }).where(eq(matches.id, matchId));
   }
+
+  await audit({
+    tournamentId: scope.tournamentId,
+    ringId,
+    categoryId: scope.categoryId,
+    matchId,
+    actor: moderator,
+    action: "BOUT_STARTED",
+    targetType: "match",
+    targetId: matchId,
+  });
 
   try {
     revalidatePath(`/moderator/ring/${ringId}/current`);
@@ -354,12 +369,22 @@ export async function updateLiveMatchState(
     senshu?: "AKA" | "AO" | null;
   }
 ) {
-  const { scope } = await requireMatchModerator(matchId);
+  const { moderator, scope } = await requireMatchModerator(matchId);
   if (scope.ringId !== ringId) {
     throw new Error("That bout belongs to a different tatami.");
   }
 
-  const [current] = await db.select({ status: matches.status }).from(matches).where(eq(matches.id, matchId));
+  const [current] = await db
+    .select({
+      status: matches.status,
+      akaScore: matches.akaScore,
+      aoScore: matches.aoScore,
+      akaPenalties: matches.akaPenalties,
+      aoPenalties: matches.aoPenalties,
+      senshu: matches.senshu,
+    })
+    .from(matches)
+    .where(eq(matches.id, matchId));
   if (current?.status === "CONFIRMED") {
     return { success: false, error: "This bout is already confirmed. Use Correct Result to change it." };
   }
@@ -376,6 +401,23 @@ export async function updateLiveMatchState(
     .update(matches)
     .set({ ...next, status: "LIVE" })
     .where(eq(matches.id, matchId));
+
+  if (current) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { status: _status, ...before } = current;
+    await audit({
+      tournamentId: scope.tournamentId,
+      ringId,
+      categoryId: scope.categoryId,
+      matchId,
+      actor: moderator,
+      action: "BOUT_SCORE",
+      targetType: "match",
+      targetId: matchId,
+      before,
+      after: next,
+    });
+  }
 
   try {
     revalidatePath(`/scoreboard/${ringId}`);
@@ -414,13 +456,115 @@ export async function confirmBoutResult(
     senshu?: "AKA" | "AO" | null;
     method?: string;
     allowRollback?: boolean;
+    /** Required when changing an already confirmed result. */
+    reason?: string;
   }
 ) {
-  const { moderator } = await requireMatchModerator(matchId);
-  return commitBoutResult(matchId, winnerId, {
+  const { moderator, scope } = await requireMatchModerator(matchId);
+  return recordResult({ matchId, winnerId, details, actor: moderator, scope, isAdminCorrection: false });
+}
+
+/**
+ * Admin correction of a confirmed result, e.g. after the category has left
+ * the mat or on appeal. A reason is mandatory and the change is audited;
+ * bouts already fought downstream need explicit `allowRollback`.
+ */
+export async function correctBoutResult(
+  matchId: string,
+  winnerId: string,
+  reason: string,
+  details?: {
+    side?: "AKA" | "AO";
+    akaPoints?: number;
+    aoPoints?: number;
+    akaPenalties?: number;
+    aoPenalties?: number;
+    senshu?: "AKA" | "AO" | null;
+    method?: string;
+    allowRollback?: boolean;
+  }
+) {
+  const scope = await scopeForMatch(matchId);
+  const admin = await requireTournamentAdmin(scope.tournamentId);
+  return recordResult({ matchId, winnerId, details: { ...details, reason }, actor: admin, scope, isAdminCorrection: true });
+}
+
+const MIN_REASON_LENGTH = 5;
+
+async function recordResult(params: {
+  matchId: string;
+  winnerId: string;
+  details?: Parameters<typeof commitBoutResult>[2];
+  actor: Principal;
+  scope: MatchScope;
+  isAdminCorrection: boolean;
+}) {
+  const { matchId, winnerId, details, actor, scope, isAdminCorrection } = params;
+
+  const [before] = await db
+    .select({
+      status: matches.status,
+      winnerId: matches.winnerId,
+      winnerSide: matches.winnerSide,
+      akaScore: matches.akaScore,
+      aoScore: matches.aoScore,
+      akaPenalties: matches.akaPenalties,
+      aoPenalties: matches.aoPenalties,
+      senshu: matches.senshu,
+      decisionMethod: matches.decisionMethod,
+    })
+    .from(matches)
+    .where(eq(matches.id, matchId));
+  if (!before) return { success: false as const, error: "Match not found" };
+
+  const isCorrection = before.status === "CONFIRMED";
+  const reason = (details?.reason || "").trim().slice(0, 1000);
+  if (isAdminCorrection && !isCorrection) {
+    return { success: false as const, error: "Only confirmed results can be corrected here." };
+  }
+  if (isCorrection && reason.length < MIN_REASON_LENGTH) {
+    return {
+      success: false as const,
+      requiresReason: true,
+      error: "This result is already confirmed. Give a reason for the correction (it goes in the official record).",
+    };
+  }
+
+  const res = await commitBoutResult(matchId, winnerId, {
     ...details,
-    actor: describePrincipal(moderator),
+    reason: reason || undefined,
+    actor: describePrincipal(actor),
   });
+
+  if (res.success) {
+    const [after] = await db
+      .select({
+        winnerId: matches.winnerId,
+        winnerSide: matches.winnerSide,
+        akaScore: matches.akaScore,
+        aoScore: matches.aoScore,
+        akaPenalties: matches.akaPenalties,
+        aoPenalties: matches.aoPenalties,
+        senshu: matches.senshu,
+        decisionMethod: matches.decisionMethod,
+      })
+      .from(matches)
+      .where(eq(matches.id, matchId));
+    await audit({
+      tournamentId: scope.tournamentId,
+      ringId: scope.ringId,
+      categoryId: scope.categoryId,
+      matchId,
+      actor,
+      action: isCorrection ? "BOUT_CORRECTED" : "BOUT_CONFIRMED",
+      targetType: "match",
+      targetId: matchId,
+      before,
+      after: { ...after, rollbackApplied: Boolean(details?.allowRollback) },
+      reason: reason || null,
+    });
+  }
+  return res;
 }
 
 /**

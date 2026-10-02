@@ -5,8 +5,10 @@ import { rings, judgeRequests } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { revalidatePath } from "next/cache";
-import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, clientAddress, isBlocked, recordFailure } from "@/lib/rateLimit";
 import { requireRingOperator } from "@/lib/auth/guards";
+import { tournamentIdForRing } from "@/lib/auth/scope";
+import { audit } from "@/lib/audit";
 
 /** Judge requests as the moderator desk sees them: no device tokens. */
 function publicJudgeRequest(r: typeof judgeRequests.$inferSelect) {
@@ -18,8 +20,8 @@ function publicJudgeRequest(r: typeof judgeRequests.$inferSelect) {
 async function loadJudgeRequestForOperator(requestId: string) {
   const [current] = await db.select().from(judgeRequests).where(eq(judgeRequests.id, requestId)).limit(1);
   if (!current) return null;
-  await requireRingOperator(current.ringId);
-  return current;
+  const operator = await requireRingOperator(current.ringId);
+  return { ...current, operator, tournamentId: await tournamentIdForRing(current.ringId) };
 }
 
 /**
@@ -50,13 +52,14 @@ export async function requestJudgeAccess(params: {
     return { success: false, error: "Tatami not found" };
   }
 
-  const pinAllowed = await allowAttempt([
+  const pinLimits = [
     { key: `judge-pin:ring:${ringId}`, ...RATE_LIMITS.judgePinPerRing },
     { key: `judge-pin:addr:${await clientAddress()}`, ...RATE_LIMITS.judgePinPerAddress },
-  ]);
-  if (!pinAllowed) return { success: false, error: TOO_MANY_ATTEMPTS };
+  ];
+  if (isBlocked(pinLimits)) return { success: false, error: TOO_MANY_ATTEMPTS };
 
   if (ring.judgePin.trim() !== String(pin ?? "").trim()) {
+    recordFailure(pinLimits);
     return { success: false, error: "Invalid Tatami PIN" };
   }
 
@@ -213,6 +216,16 @@ export async function approveJudgeRequest(requestId: string, assignedSeat?: numb
     data: { seatNumber: updated.seatNumber },
   });
 
+  await audit({
+    tournamentId: current.tournamentId,
+    ringId: current.ringId,
+    actor: current.operator,
+    action: "JUDGE_APPROVED",
+    targetType: "judge_request",
+    targetId: requestId,
+    after: { judge: current.judgeName, seat: updated.seatNumber },
+  });
+
   try {
     revalidatePath(`/moderator/ring/${current.ringId}/current`);
     revalidatePath(`/judge/ring/${current.ringId}`);
@@ -238,6 +251,16 @@ export async function rejectJudgeRequest(requestId: string) {
       updatedAt: new Date(),
     })
     .where(eq(judgeRequests.id, requestId));
+
+  await audit({
+    tournamentId: current.tournamentId,
+    ringId: current.ringId,
+    actor: current.operator,
+    action: "JUDGE_REJECTED",
+    targetType: "judge_request",
+    targetId: requestId,
+    after: { judge: current.judgeName, seat: current.seatNumber },
+  });
 
   broadcastLiveEvent({
     table: "judge_requests",

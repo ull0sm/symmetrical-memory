@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
   categoryAssignments,
@@ -15,7 +16,7 @@ import { normalizeAccessCode, isValidUuid } from "@/lib/utils";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { serializeCategoryAssignment } from "@/lib/serializers";
 import { isOfflineMode } from "@/lib/offline";
-import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, clientAddress, isBlocked, recordFailure } from "@/lib/rateLimit";
 import {
   SESSION_COOKIES,
   clearCookies,
@@ -30,20 +31,20 @@ import {
   requireTournamentStaff,
 } from "@/lib/auth/guards";
 import { tournamentIdForRing } from "@/lib/auth/scope";
-import { getModeratorPrincipal } from "@/lib/auth/principal";
+import { getModeratorPrincipal, type ModeratorPrincipal } from "@/lib/auth/principal";
 
 const MODERATOR_SESSION_SECONDS = 24 * 60 * 60;
 
 // ─── Admin: approve / reject / revoke ────────────────────────────────────────
 
 export async function approveModeratorRequest(requestId: string, ringId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   if ((await tournamentIdForRing(ringId)) !== tournamentId) {
     throw new Error("Tatami not found in this tournament");
   }
 
   const [request] = await db
-    .select({ id: moderatorRequests.id, status: moderatorRequests.status })
+    .select({ id: moderatorRequests.id, status: moderatorRequests.status, name: moderatorRequests.moderatorName })
     .from(moderatorRequests)
     .where(and(eq(moderatorRequests.id, requestId), eq(moderatorRequests.ringId, ringId)))
     .limit(1);
@@ -76,6 +77,15 @@ export async function approveModeratorRequest(requestId: string, ringId: string,
     tournamentId,
     status: "approved",
   });
+  await audit({
+    tournamentId,
+    ringId,
+    actor: admin,
+    action: "MODERATOR_APPROVED",
+    targetType: "moderator_request",
+    targetId: requestId,
+    after: { moderator: request.name },
+  });
 
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   revalidatePath(`/admin/event/${tournamentId}/dashboard`);
@@ -83,7 +93,7 @@ export async function approveModeratorRequest(requestId: string, ringId: string,
 }
 
 export async function rejectModeratorRequest(requestId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const [req] = await db
     .select({ id: moderatorRequests.id, ringId: moderatorRequests.ringId, tournamentId: rings.tournamentId })
@@ -109,6 +119,14 @@ export async function rejectModeratorRequest(requestId: string, tournamentId: st
     tournamentId,
     status: "rejected",
   });
+  await audit({
+    tournamentId,
+    ringId: req.ringId,
+    actor: admin,
+    action: "MODERATOR_REJECTED",
+    targetType: "moderator_request",
+    targetId: requestId,
+  });
 
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   revalidatePath(`/admin/event/${tournamentId}/dashboard`);
@@ -116,7 +134,7 @@ export async function rejectModeratorRequest(requestId: string, tournamentId: st
 }
 
 export async function revokeActiveModeratorSession(ringId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   if ((await tournamentIdForRing(ringId)) !== tournamentId) {
     throw new Error("Tatami not found in this tournament");
   }
@@ -133,6 +151,7 @@ export async function revokeActiveModeratorSession(ringId: string, tournamentId:
     tournamentId,
     status: "revoked",
   });
+  await audit({ tournamentId, ringId, actor: admin, action: "MODERATOR_REVOKED", targetType: "ring", targetId: ringId });
 
   revalidatePath(`/admin/event/${tournamentId}/rings`);
   revalidatePath(`/admin/event/${tournamentId}/dashboard`);
@@ -175,7 +194,8 @@ export async function requestModeratorAccess(
     ip,
   };
 
-  if (!(await allowAttempt([{ key: `access-code:moderator:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }]))) {
+  const codeLimits = [{ key: `access-code:moderator:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }];
+  if (isBlocked(codeLimits)) {
     return { success: false, error: TOO_MANY_ATTEMPTS };
   }
 
@@ -199,6 +219,7 @@ export async function requestModeratorAccess(
   }
 
   if (!ring) {
+    recordFailure(codeLimits);
     return { success: false, error: "Invalid access code." };
   }
 
@@ -305,7 +326,23 @@ async function logAndBroadcast(params: {
   action: string;
   status?: string;
   metadata?: Record<string, unknown>;
+  /** Official-record entry for this change. */
+  audit?: { actor: ModeratorPrincipal; action: string; before?: unknown; after?: unknown };
 }) {
+  if (params.audit) {
+    await audit({
+      tournamentId: params.tournamentId,
+      ringId: params.ringId,
+      categoryId: params.categoryId ?? null,
+      actor: params.audit.actor,
+      action: params.audit.action,
+      targetType: "category_assignment",
+      targetId: params.assignmentId ?? null,
+      before: params.audit.before,
+      after: params.audit.after,
+    });
+  }
+
   try {
     await db.insert(eventLog).values({
       tournamentId: params.tournamentId,
@@ -375,6 +412,7 @@ export async function startCategory(assignmentId: string, ringId: string) {
     action: "START_CATEGORY",
     status: "running",
     metadata: { moderator: moderator.name },
+    audit: { actor: moderator, action: "CATEGORY_STARTED", before: { status: assignment.status }, after: { status: "running" } },
   });
 
   revalidateDesk(ringId);
@@ -428,6 +466,12 @@ export async function adjustMatchCount(assignmentId: string, ringId: string, del
     assignmentId,
     action: step > 0 ? "MATCH_COMPLETED_INCREMENT" : "MATCH_COMPLETED_DECREMENT",
     metadata: { delta: step, moderator: moderator.name },
+    audit: {
+      actor: moderator,
+      action: "MATCH_COUNT_ADJUSTED",
+      before: { matchesCompleted: assignment.matchesCompleted },
+      after: { matchesCompleted: newCount },
+    },
   });
 
   return { success: true, matches_completed: newCount };
@@ -452,6 +496,7 @@ export async function finishCategory(assignmentId: string, ringId: string) {
     action: "FINISH_CATEGORY",
     status: "completed",
     metadata: { moderator: moderator.name },
+    audit: { actor: moderator, action: "CATEGORY_FINISHED", before: { status: assignment.status }, after: { status: "completed" } },
   });
 
   revalidateDesk(ringId);
@@ -479,6 +524,12 @@ export async function setRingStatus(assignmentId: string, ringId: string, isPaus
     action: isPaused ? "PAUSE_RING" : "RESUME_RING",
     status: isPaused ? "paused" : "running",
     metadata: { moderator: moderator.name },
+    audit: {
+      actor: moderator,
+      action: isPaused ? "CATEGORY_PAUSED" : "CATEGORY_RESUMED",
+      before: { status: assignment.status },
+      after: { status: isPaused ? "paused" : "running" },
+    },
   });
 
   revalidateDesk(ringId);
@@ -527,6 +578,14 @@ export async function logRingEvent(
     })
     .returning();
 
+  await audit({
+    tournamentId: moderator.tournamentId,
+    ringId,
+    actor: moderator,
+    action: "RING_ALERT",
+    after: { ...safeMetadata, alert: actionName },
+  });
+
   broadcastLiveEvent({
     table: "event_log",
     op: "INSERT",
@@ -564,6 +623,7 @@ export async function returnCategoryToQueue(assignmentId: string, ringId: string
     action: "RETURNED_TO_QUEUE",
     status: "pending",
     metadata: { moderator: moderator.name },
+    audit: { actor: moderator, action: "CATEGORY_RETURNED", before: { status: assignment.status }, after: { status: "pending" } },
   });
 
   revalidateDesk(ringId);
@@ -600,6 +660,18 @@ export async function reorderCategory(assignmentId: string, ringId: string, dire
     await tx.update(categoryAssignments).set({ queueOrder: Number(parking) }).where(eq(categoryAssignments.id, curr.id));
     await tx.update(categoryAssignments).set({ queueOrder: curr.queueOrder }).where(eq(categoryAssignments.id, other.id));
     await tx.update(categoryAssignments).set({ queueOrder: other.queueOrder }).where(eq(categoryAssignments.id, curr.id));
+  });
+
+  await audit({
+    tournamentId: moderator.tournamentId,
+    ringId,
+    categoryId: curr.categoryId,
+    actor: moderator,
+    action: "QUEUE_REORDERED",
+    targetType: "category_assignment",
+    targetId: curr.id,
+    before: { queueOrder: curr.queueOrder },
+    after: { queueOrder: other.queueOrder, direction },
   });
 
   broadcastLiveEvent({

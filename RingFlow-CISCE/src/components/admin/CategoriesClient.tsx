@@ -1171,6 +1171,7 @@ export default function CategoriesClient({
           categoryName={bracketModalCategory.name}
           isOpen={Boolean(bracketModalCategory)}
           onClose={() => setBracketModalCategory(null)}
+          allowCorrections={!readOnly}
         />
       )}
 

@@ -6,6 +6,8 @@ import { downloadCategoryDrawPdf } from "@/actions/drawPdfs";
 import { DrawBracket } from "./DrawBracket";
 import { KataPoolTableDraw } from "./KataPoolTableDraw";
 import { useRouter } from "next/navigation";
+import { ResultCorrectionDialog } from "@/components/admin/ResultCorrectionDialog";
+import type { BracketMatchView } from "@/lib/draws/assembleDraw";
 
 interface Props {
   categoryId: string;
@@ -20,6 +22,8 @@ interface Props {
   subtitle?: string;
   /** Draw sheets are an official artifact; the public side does not get them. */
   allowPdf?: boolean;
+  /** Admin only: confirmed kumite bouts get a "Correct result" button (reason required). */
+  allowCorrections?: boolean;
 }
 
 export function DrawBracketModal({
@@ -32,12 +36,15 @@ export function DrawBracketModal({
   athleteId,
   subtitle,
   allowPdf = true,
+  allowCorrections = false,
 }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [drawData, setDrawData] = useState<any>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isTogglingLock, setIsTogglingLock] = useState(false);
+  const [correcting, setCorrecting] = useState<BracketMatchView | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const isKata =
     categoryName?.toLowerCase().includes("kata") ||
     drawData?.categoryName?.toLowerCase()?.includes("kata") ||
@@ -76,7 +83,7 @@ export function DrawBracketModal({
     return () => {
       mounted = false;
     };
-  }, [categoryId, isOpen, athleteId]);
+  }, [categoryId, isOpen, athleteId, reloadKey]);
 
   const handleDownloadPdf = async () => {
     try {
@@ -277,6 +284,7 @@ export function DrawBracketModal({
               activeMatchId={activeMatchId}
               onDownloadPdf={allowPdf ? handleDownloadPdf : undefined}
               isDownloadingPdf={isDownloadingPdf}
+              onCorrectMatch={allowCorrections && !isKata ? setCorrecting : undefined}
               onSelectMatch={
                 onSelectMatch
                   ? (m) => {
@@ -289,6 +297,17 @@ export function DrawBracketModal({
           )}
         </div>
       </div>
+      {correcting && (
+        <ResultCorrectionDialog
+          match={correcting}
+          onClose={() => setCorrecting(null)}
+          onCorrected={() => {
+            setCorrecting(null);
+            setReloadKey((k) => k + 1);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

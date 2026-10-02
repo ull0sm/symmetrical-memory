@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
   rings,
@@ -242,6 +243,17 @@ export async function submitJudgeVote(params: {
       });
 
     await recomputeKataTallies(matchId);
+    await audit({
+      tournamentId: scope.tournamentId,
+      ringId: scope.ringId,
+      categoryId: scope.categoryId,
+      matchId,
+      actor: { role: "judge", id: judge.id, name: `Judge seat ${judgeSeat}` },
+      action: "KATA_VOTE",
+      targetType: "match",
+      targetId: matchId,
+      after: { seat: judgeSeat, side: targetSide, flagVote: flagVote ?? null, numericScore: numeric },
+    });
     broadcastKataChange(matchId, scope.ringId, scope.tournamentId);
     return { success: true };
   } catch (err) {
@@ -256,8 +268,30 @@ export async function voidJudgeVote(params: {
   judgeSeat: number;
   targetSide?: "AKA" | "AO" | "BOTH";
 }) {
-  const { scope } = await requireMatchModerator(params.matchId);
+  const { moderator, scope } = await requireMatchModerator(params.matchId);
   const targetSide = params.targetSide === "AO" || params.targetSide === "BOTH" ? params.targetSide : "AKA";
+
+  const [voided] = await db
+    .select({ flagVote: kataScores.flagVote, numericScore: kataScores.numericScore })
+    .from(kataScores)
+    .where(
+      and(
+        eq(kataScores.matchId, params.matchId),
+        eq(kataScores.judgeSeat, params.judgeSeat),
+        eq(kataScores.targetSide, targetSide)
+      )
+    );
+  await audit({
+    tournamentId: scope.tournamentId,
+    ringId: scope.ringId,
+    categoryId: scope.categoryId,
+    matchId: params.matchId,
+    actor: moderator,
+    action: "KATA_VOTE_VOIDED",
+    targetType: "match",
+    targetId: params.matchId,
+    before: voided ? { seat: params.judgeSeat, side: targetSide, ...voided } : { seat: params.judgeSeat, side: targetSide },
+  });
 
   await db
     .delete(kataScores)
@@ -291,6 +325,19 @@ export async function finalizeKataBout(params: {
     decisionMethod: (params.decisionMethod || "FLAGS").slice(0, 40),
     actor: describePrincipal(moderator),
   });
+  if (res.success) {
+    await audit({
+      tournamentId: scope.tournamentId,
+      ringId: scope.ringId,
+      categoryId: scope.categoryId,
+      matchId: params.matchId,
+      actor: moderator,
+      action: "BOUT_CONFIRMED",
+      targetType: "match",
+      targetId: params.matchId,
+      after: { winnerSide: params.winnerSide, winnerId: res.winnerId, discipline: "kata" },
+    });
+  }
 
   revalidateRing(scope.ringId);
   return res;
@@ -298,7 +345,7 @@ export async function finalizeKataBout(params: {
 
 /** Set the tatami's judge PIN: its moderator or the event's admin. */
 export async function updateRingJudgePin(ringId: string, newPin: string) {
-  await requireRingOperator(ringId);
+  const operator = await requireRingOperator(ringId);
 
   const cleanPin = (newPin || "").trim();
   if (!/^\d{4,8}$/.test(cleanPin)) {
@@ -306,6 +353,8 @@ export async function updateRingJudgePin(ringId: string, newPin: string) {
   }
 
   await db.update(rings).set({ judgePin: cleanPin }).where(eq(rings.id, ringId));
+
+  await audit({ tournamentId: await tournamentIdForRing(ringId), ringId, actor: operator, action: "JUDGE_PIN_CHANGED", targetType: "ring", targetId: ringId });
 
   broadcastLiveEvent({
     table: "rings",
@@ -465,6 +514,25 @@ export async function submitModeratorManualKataMarks(params: {
       await db.update(matches).set(updatePayload).where(eq(matches.id, matchId));
     }
 
+    await audit({
+      tournamentId: scope.tournamentId,
+      ringId: scope.ringId,
+      categoryId: scope.categoryId,
+      matchId,
+      actor: moderator,
+      action: "KATA_MARKS_SAVED",
+      targetType: "match",
+      targetId: matchId,
+      after: {
+        akaJudgeMarks: params.akaJudgeMarks ?? null,
+        aoJudgeMarks: params.aoJudgeMarks ?? null,
+        judgeScores: params.judgeScores ?? null,
+        akaTotal: finalAkaScore,
+        aoTotal: finalAoScore,
+        kata: { aka: akaLabel ?? null, ao: aoLabel ?? null },
+      },
+    });
+
     let resolvedWinnerSide: "AKA" | "AO" | undefined =
       params.winnerSide === "AKA" || params.winnerSide === "AO" ? params.winnerSide : flagWinner;
     if (!resolvedWinnerSide && finalAkaScore !== null && finalAoScore !== null && finalAkaScore !== finalAoScore) {
@@ -482,6 +550,17 @@ export async function submitModeratorManualKataMarks(params: {
         actor: describePrincipal(moderator),
       });
       if (!res.success) return res;
+      await audit({
+        tournamentId: scope.tournamentId,
+        ringId: scope.ringId,
+        categoryId: scope.categoryId,
+        matchId,
+        actor: moderator,
+        action: "BOUT_CONFIRMED",
+        targetType: "match",
+        targetId: matchId,
+        after: { winnerSide: resolvedWinnerSide, winnerId: res.winnerId, discipline: "kata" },
+      });
     }
 
     broadcastKataChange(matchId, scope.ringId, scope.tournamentId);

@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { tournaments } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -26,7 +27,21 @@ export async function updateTournamentSettings(
     tunnelUrl?: string | null;
   }
 ) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
+  const [beforeRow] = await db
+    .select({
+      name: tournaments.name,
+      eventDate: tournaments.eventDate,
+      status: tournaments.status,
+      venue: tournaments.venue,
+      city: tournaments.city,
+      showPublicDraws: tournaments.showPublicDraws,
+      showPublicScoreboard: tournaments.showPublicScoreboard,
+      defaultBronzeMedals: tournaments.defaultBronzeMedals,
+      tunnelUrl: tournaments.tunnelUrl,
+    })
+    .from(tournaments)
+    .where(eq(tournaments.id, tournamentId));
 
   const name = String(data.name ?? "").trim().slice(0, 200);
   if (!name) return { success: false, error: "Tournament name is required." };
@@ -63,6 +78,26 @@ export async function updateTournamentSettings(
       updatedAt: new Date(),
     })
     .where(eq(tournaments.id, tournamentId));
+
+  await audit({
+    tournamentId,
+    actor: admin,
+    action: "SETTINGS_UPDATED",
+    targetType: "tournament",
+    targetId: tournamentId,
+    before: beforeRow,
+    after: {
+      name,
+      eventDate,
+      status,
+      venue: data.venue,
+      city: data.city,
+      showPublicDraws: data.show_public_draws ?? true,
+      showPublicScoreboard: data.show_public_scoreboard ?? false,
+      defaultBronzeMedals,
+      tunnelUrl: cleanTunnel,
+    },
+  });
 
   try {
     revalidatePath(`/admin/event/${tournamentId}/settings`);

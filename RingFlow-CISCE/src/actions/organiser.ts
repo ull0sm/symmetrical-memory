@@ -1,5 +1,6 @@
 "use server";
 
+import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import { organiserRequests, tournaments } from "@/db/schema";
 import { and, eq, isNotNull, ne, sql, desc } from "drizzle-orm";
@@ -9,7 +10,7 @@ import { normalizeAccessCode, isValidUuid } from "@/lib/utils";
 import { uniqueOrganiserCode } from "@/lib/accessCodes";
 import { serializeOrganiserRequest } from "@/lib/serializers";
 import { isOfflineMode } from "@/lib/offline";
-import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, clientAddress, isBlocked, recordFailure } from "@/lib/rateLimit";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from "@/lib/auth/cookies";
 import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
@@ -52,7 +53,8 @@ export async function requestOrganiserAccess(
     }
   }
 
-  if (!(await allowAttempt([{ key: `access-code:organiser:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }]))) {
+  const codeLimits = [{ key: `access-code:organiser:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }];
+  if (isBlocked(codeLimits)) {
     return { success: false, error: TOO_MANY_ATTEMPTS };
   }
 
@@ -86,6 +88,7 @@ export async function requestOrganiserAccess(
   }
 
   if (!matchedTournament) {
+    recordFailure(codeLimits);
     return { success: false, error: "Invalid organiser access code. Please check with the administrator." };
   }
 
@@ -175,7 +178,7 @@ async function loadRequestInTournament(requestId: string, tournamentId: string) 
 
 /** Admin approves an organiser. Several organisers may be approved at once. */
 export async function approveOrganiserRequest(requestId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   const request = await loadRequestInTournament(requestId, tournamentId);
   if (request.status !== "pending") throw new Error(`Request is already ${request.status}`);
 
@@ -190,12 +193,13 @@ export async function approveOrganiserRequest(requestId: string, tournamentId: s
     .where(eq(organiserRequests.id, requestId));
 
   broadcastLiveEvent({ table: "organiser_requests", op: "UPDATE", id: requestId, tournamentId, status: "approved" });
+  await audit({ tournamentId, actor: admin, action: "ORGANISER_APPROVED", targetType: "organiser_request", targetId: requestId });
   revalidatePath(`/admin/event/${tournamentId}/settings`);
   return { success: true };
 }
 
 export async function rejectOrganiserRequest(requestId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   await loadRequestInTournament(requestId, tournamentId);
 
   await db
@@ -204,12 +208,13 @@ export async function rejectOrganiserRequest(requestId: string, tournamentId: st
     .where(eq(organiserRequests.id, requestId));
 
   broadcastLiveEvent({ table: "organiser_requests", op: "UPDATE", id: requestId, tournamentId, status: "rejected" });
+  await audit({ tournamentId, actor: admin, action: "ORGANISER_REJECTED", targetType: "organiser_request", targetId: requestId });
   revalidatePath(`/admin/event/${tournamentId}/settings`);
   return { success: true };
 }
 
 export async function revokeOrganiserSession(requestId: string, tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
   await loadRequestInTournament(requestId, tournamentId);
 
   await db
@@ -218,6 +223,7 @@ export async function revokeOrganiserSession(requestId: string, tournamentId: st
     .where(eq(organiserRequests.id, requestId));
 
   broadcastLiveEvent({ table: "organiser_requests", op: "UPDATE", id: requestId, tournamentId, status: "revoked" });
+  await audit({ tournamentId, actor: admin, action: "ORGANISER_REVOKED", targetType: "organiser_request", targetId: requestId });
   revalidatePath(`/admin/event/${tournamentId}/settings`);
   return { success: true };
 }
@@ -236,11 +242,12 @@ export async function getOrganiserRequests(tournamentId: string) {
 }
 
 export async function regenerateOrganiserCode(tournamentId: string) {
-  await requireTournamentAdmin(tournamentId);
+  const admin = await requireTournamentAdmin(tournamentId);
 
   const newCode = await uniqueOrganiserCode();
   await db.update(tournaments).set({ organiserCode: newCode }).where(eq(tournaments.id, tournamentId));
 
+  await audit({ tournamentId, actor: admin, action: "ORGANISER_CODE_REGENERATED", targetType: "tournament", targetId: tournamentId });
   revalidatePath(`/admin/event/${tournamentId}/settings`);
   return { success: true, organiser_code: newCode };
 }
