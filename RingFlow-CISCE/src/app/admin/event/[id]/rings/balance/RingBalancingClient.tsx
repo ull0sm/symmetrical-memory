@@ -13,7 +13,7 @@ import { SegmentedProgressBar } from "@/components/ui/SegmentedProgressBar";
 import HeaderSearchBar from "@/components/layout/HeaderSearchBar";
 import BuiltByCrux from "@/components/layout/BuiltByCrux";
 import { matchesCategorySearch } from "@/lib/searchUtils";
-import SplitPoolsDialog from "@/components/admin/SplitPoolsDialog";
+import CategoryRoutingDialog from "@/components/admin/CategoryRoutingDialog";
 import { describePart } from "@/lib/draws/partFilter";
 
 type Category = {
@@ -2246,7 +2246,7 @@ export default function RingBalancingClient({
       />
 
       {splitDialogFor && (
-        <SplitPoolsDialog
+        <CategoryRoutingDialog
           categoryId={splitDialogFor.id}
           categoryName={splitDialogFor.name}
           rings={initialRings}

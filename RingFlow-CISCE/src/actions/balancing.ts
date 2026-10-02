@@ -36,7 +36,7 @@ const cardKey = (categoryId: string, part: string) => `${categoryId}|${part}`;
  *
  * A category that has been split across tatamis appears on the board as one card, its finals
  * card. Moving that card moves the finals to another tatami; the pools' own cards are changed
- * only by splitting or unsplitting, and keep their place in their tatami's queue.
+ * only through the routing dialog (`setCategoryRouting`), and keep their place in their tatami's queue.
  */
 export async function saveAssignments(
   tournamentId: string,
@@ -104,7 +104,7 @@ export async function saveAssignments(
     const splitCategoryIds = new Set(currentAssignments.filter((a) => a.part !== "ALL").map((a) => a.categoryId));
     const partOf = (categoryId: string) => primaryOf.get(categoryId)?.part ?? "ALL";
 
-    // A split category cannot be unassigned from the board; unsplit it first.
+    // A split category cannot be unassigned from the board; route it back to one tatami first.
     for (const a of cleanAssignments) {
       if (a.ring_id === null && splitCategoryIds.has(a.category_id)) {
         return { success: false, error: `SPLIT_CATEGORY_CHANGED:${a.category_id}` };

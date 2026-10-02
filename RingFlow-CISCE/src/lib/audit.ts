@@ -131,6 +131,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   DRAW_OPTION_CHANGED: "Draw option changed",
   DRAW_SEEDS_SET: "Draw seeds set",
   DRAW_ATHLETES_SWAPPED: "Draw athletes swapped by hand",
+  CATEGORY_ROUTED: "Category pools routed to tatamis",
   CATEGORY_SPLIT: "Category pools split across tatamis",
   CATEGORY_UNSPLIT: "Category pools put back together",
   ASSIGNMENTS_SAVED: "Tatami assignments saved",

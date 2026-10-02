@@ -1,6 +1,6 @@
 "use server";
 
-import { poolsFinalsWaitFor } from "@/lib/draws/splitPools";
+import { poolsFinalsWaitFor } from "@/lib/draws/partRouting";
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {

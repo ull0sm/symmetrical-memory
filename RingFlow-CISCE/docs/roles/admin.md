@@ -25,7 +25,7 @@ every tatami live.
 | Athletes: add, bulk import, move, delete | `/admin/event/[id]/athletes` | `athletes.ts`, `officialImport.ts` |
 | Draws: preflight, generate, lock, unlock, seeds, draw profile (Official / Local-unofficial rules), hand swap (local only), flush, draw-sheet PDFs | categories page and draw drawer | `draws.ts`, `drawPdfs.ts` |
 | Ring balancing: assign categories to tatamis and order each queue | `/admin/event/[id]/rings/balance` | `balancing.ts` |
-| Split a category's pools across tatamis (and put it back together) | split icon on a queued category card | `poolSplit.ts` |
+| Where a category runs: one tatami, or pools on different tatamis (split, move, put back together) | split icon on a queued category card | `categoryRouting.ts` |
 | Live dashboard: all tatamis, pause or resume one or all, activity feed, assistance requests | `/admin/event/[id]/dashboard` | `admin.ts`, `rings.ts`, `clock.ts` |
 | Official record: audit log, results export (CSV, PDF) | `/admin/event/[id]/record` | `audit.ts`, `resultsExport.ts` |
 | Judge panel override (approve, remove, rotate QR and PIN) | moderator's kata screen | `judgePanel.ts` |
@@ -41,11 +41,18 @@ A bracket of 32 or more places prints as pools of 16 (a 64-place bracket is four
 flight has Pool A and Pool B. With two tatamis you can give pools 1-2 to one and pools 3-4 to the
 other, so a pool winner does not wait for dozens of other bouts before meeting the other winners.
 
-Assign the category to a tatami, then use the split icon on its card: choose a tatami for each pool and
-one **finals tatami**. The semi-finals, final, repechage, bronze bouts and the kata medal flight run
-there, and start only once every pool has been finished by its tatami's moderator. Each part joins the
-end of its tatami's queue and shows as "Category · Pool 3" on the moderator, dashboard and public
-screens; each pool page of the draw sheet prints its tatami.
+Assign the category to a tatami, then open **Where this category runs** (the split icon on its card). Choose
+*One tatami*, or *Pools on different tatamis*: a tatami for each pool and one **finals tatami**. The
+semi-finals, final, repechage, bronze bouts and the kata medal flight run there, and start only once every
+pool has been finished by its tatami's moderator. Each part joins the end of its tatami's queue and shows as
+"Category · Pool 3" on the moderator, dashboard and public screens; each pool page of the draw sheet prints its
+tatami.
+
+You can change this whenever you like with the same dialog: move a pool or the finals to another tatami, split
+a category part-way through, or put it back together. Bouts already fought keep their results (they are stored
+on the bouts, not on the tatami), and each pool keeps the progress it had. What cannot change: a pool with a
+bout **live right now** (finish or reset that bout first; the dialog names it) and a pool that has already
+finished. A pool that is on a mat between bouts can move and returns to the queue of its new tatami.
 
 **Who is in which pool.** Once a category is drawn with pools, each pool's athletes are listed in the
 draw drawer ("Pools"), in the split dialog ("Who is in each pool"), and on the athletes roster, where
@@ -53,10 +60,10 @@ every athlete carries a "Pool 3 · Tatami 2" badge and the roster can be filtere
 view has tabs for the whole draw, each pool and the finals; the finals show "Pool 1 winner" in place of
 bouts they are waiting for.
 
-Rules: the category must be drawn first; splitting is refused once any bout is fought or the category is on
-a mat; a split category cannot be redrawn (put it back together first; flushing the draw also puts it back
-together); the balancing board moves its finals card but never drops it; each tatami's moderator scores
-only its own pools. Splitting and putting back together are audited.
+Other rules: the category must be drawn first; redrawing a split category (nothing fought) keeps its routing when
+the new draw has the same number of pools, and puts it back on one card otherwise (flushing the draw does the
+same); the balancing board moves a split category's finals card but never drops it; each tatami's moderator
+scores only its own pools. Every change is audited.
 
 ## Correcting a result
 

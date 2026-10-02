@@ -2,7 +2,6 @@ import { db } from "@/db";
 import {
   athletes,
   categories,
-  categoryAssignments,
   categoryEntries,
   draws,
   drawVersions,
@@ -17,8 +16,9 @@ import { DrawInputError } from "@/engine/draw-engine/errors";
 import { resolveDrawRules } from "@/lib/draws/drawRules";
 import type { DrawGraph, Participant, SeedAssignment } from "@/engine/draw-engine/types";
 import { foughtBoutCount } from "@/lib/draws/boutCount";
+import { reapplyRoutingAfterRedraw } from "@/lib/draws/partRouting";
 import { WKF_KATA_2026, WKF_KUMITE_2026 } from "@/engine/rules-engine";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { syncTournamentCategoryCounts, getActiveAthleteCounts } from "@/lib/categories/syncCounts";
 import { isKataCategory } from "@/lib/categories/eventType";
@@ -56,15 +56,8 @@ export async function readProtection(executor: DbExecutor, categoryId: string) {
   const [existingDraw] = await executor.select().from(draws).where(eq(draws.categoryId, categoryId));
   const { confirmed, live } = (await readBoutStats(executor, [categoryId])).get(categoryId) ?? { confirmed: 0, live: 0 };
 
-  const [splitCard] = await executor
-    .select({ id: categoryAssignments.id })
-    .from(categoryAssignments)
-    .where(and(eq(categoryAssignments.categoryId, categoryId), ne(categoryAssignments.part, "ALL")))
-    .limit(1);
-
   return {
     isLocked: existingDraw?.state === "LOCKED",
-    isSplit: splitCard !== undefined,
     confirmedCount: confirmed,
     liveCount: live,
     activeBoutCount: confirmed + live,
@@ -94,19 +87,6 @@ export function refusalFor(catName: string, protection: Awaited<ReturnType<typeo
   }
 
   return null;
-}
-
-/** A split category cannot be redrawn: the new draw has new pools, and the old split would point at bouts that are gone. */
-export function redrawRefusalFor(catName: string, protection: Awaited<ReturnType<typeof readProtection>>) {
-  const refusal = refusalFor(catName, protection);
-  if (refusal) return refusal;
-  if (!protection.isSplit) return null;
-  return {
-    success: false as const,
-    error: `"${catName}" is split across tatamis. Put it back together (unsplit) before redrawing it.`,
-    isLocked: protection.isLocked,
-    activeBoutCount: protection.activeBoutCount,
-  };
 }
 
 /** Thrown inside the generation transaction when the protection check fails. */
@@ -196,7 +176,7 @@ export async function performCategoryDraw(
   if (!cat) throw new Error("Category not found");
 
   // Fail fast; the authoritative check is repeated inside the transaction.
-  const early = redrawRefusalFor(cat.name, await readProtection(db, categoryId));
+  const early = refusalFor(cat.name, await readProtection(db, categoryId));
   if (early) return early;
 
   // Profile, bronze format and separation resolve in one place: see drawRules.ts.
@@ -299,7 +279,7 @@ export async function performCategoryDraw(
     result = await db.transaction(async (tx) => {
       // Serialise concurrent generate/confirm on this category, then re-check.
       await tx.select({ id: categories.id }).from(categories).where(eq(categories.id, categoryId)).for("update");
-      const refusal = redrawRefusalFor(cat.name, await readProtection(tx, categoryId));
+      const refusal = refusalFor(cat.name, await readProtection(tx, categoryId));
       if (refusal) throw new DrawRefusedError(refusal);
 
       // Roster size is recorded with the draw, so a refused or failed draw leaves the counts alone.
@@ -404,6 +384,10 @@ export async function performCategoryDraw(
       const foughtBouts = isKataPools ? graph.matches.length : foughtBoutCount(graph);
 
       await tx.update(categories).set({ expectedMatches: foughtBouts }).where(eq(categories.id, categoryId));
+
+      // A category whose pools run on different tatamis keeps that routing across a redraw when the
+      // new draw has the same number of pools; otherwise it goes back to one card.
+      await reapplyRoutingAfterRedraw(tx, categoryId, graph);
 
       return { drawId, matchCount: graph.matches.length, foughtBouts, version };
     });

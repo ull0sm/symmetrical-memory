@@ -33,7 +33,7 @@ For anyone (human or AI agent) changing the code. For what the product does, rea
 
 | I want to change | Look in |
 |---|---|
-| Any server behavior | `src/actions/<area>.ts` (one file per area: `admin`, `athletes`, `attendance`, `audit`, `auth`, `balancing`, `categories`, `categoryDefinitions`, `categoryDocs`, `clock`, `drawPdfs`, `draws`, `judge`, `judgePanel`, `kata`, `matches`, `moderator`, `officialImport`, `organiser`, `poolSplit`, `public`, `resultsExport`, `rings`, `settings`, `stager`, `tournament`, `turnstile`) |
+| Any server behavior | `src/actions/<area>.ts` (one file per area: `admin`, `athletes`, `attendance`, `audit`, `auth`, `balancing`, `categories`, `categoryDefinitions`, `categoryRouting`, `categoryDocs`, `clock`, `drawPdfs`, `draws`, `judge`, `judgePanel`, `kata`, `matches`, `moderator`, `officialImport`, `organiser`, `public`, `resultsExport`, `rings`, `settings`, `stager`, `tournament`, `turnstile`) |
 | Who can call what | `src/lib/auth/` ([roles/README.md](docs/roles/README.md)) |
 | Database tables | `src/db/schema/index.ts`, plus `db/migrations/` for triggers and constraints |
 | Allowed status values | `src/lib/statuses.ts` (then the schema check and a migration) |
@@ -41,7 +41,7 @@ For anyone (human or AI agent) changing the code. For what the product does, rea
 | Kumite result and bracket advancement | `src/actions/matches.ts`, `src/lib/bouts/results.ts`, `src/engine/draw-engine/resolution.ts` |
 | Kata voting, totals, pool advancement | `src/actions/kata.ts`, `src/lib/kata/` |
 | Draw generation | `src/actions/draws.ts`, `src/lib/draws/`, `src/engine/draw-engine/` |
-| Pools on different tatamis (parts, split, finals waiting) | `src/actions/poolSplit.ts`, `src/lib/draws/splitPools.ts`, `src/engine/draw-engine/parts.ts` |
+| Where a category runs (whole, or pools on different tatamis; parts, finals waiting) | `src/actions/categoryRouting.ts`, `src/lib/draws/partRouting.ts` (apply), `src/lib/draws/routingPlan.ts` (rules), `src/engine/draw-engine/parts.ts` |
 | Rules (durations, scoring, penalties) | `src/engine/rules-engine/rulesets/` |
 | Match clock | `src/actions/clock.ts`, `src/lib/matchClock.ts`, `src/lib/ringClockStore.ts`, `src/hooks/useMatchClock.ts` |
 | Live updates | `src/lib/realtime/` (`bus.ts`, `liveStream.ts`), `src/app/api/live/`, `src/hooks/useLiveEvents.ts` |

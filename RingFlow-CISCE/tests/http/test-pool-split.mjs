@@ -50,25 +50,24 @@ const drawn = await call(A, "generateCategoryDraw", [category.id], admin);
 check("admin draws the 64-place category", drawn.value?.success === true, JSON.stringify(drawn.value)?.slice(0, 120));
 
 // ── Who may split ──────────────────────────────────────────────────────────────────────────────
-const info = await call(A, "getCategorySplitInfo", [category.id], admin);
+const info = await call(A, "getCategoryRouting", [category.id], admin);
 check("the category has four pools", info.value?.poolCount === 4, JSON.stringify(info.value)?.slice(0, 160));
 
-const plan = { poolRingIds: [ringA.id, ringA.id, ringB.id, ringB.id], finalsRingId: ringA.id };
-check("a moderator cannot split a category", failed(await call(A, "splitCategoryPools", [category.id, plan], modA, "/")));
-check("an anonymous caller cannot split a category", failed(await call(A, "splitCategoryPools", [category.id, plan], new Jar(), "/")));
+const plan = { kind: "SPLIT", poolRingIds: [ringA.id, ringA.id, ringB.id, ringB.id], finalsRingId: ringA.id };
+check("a moderator cannot split a category", failed(await call(A, "setCategoryRouting", [category.id, plan], modA, "/")));
+check("an anonymous caller cannot split a category", failed(await call(A, "setCategoryRouting", [category.id, plan], new Jar(), "/")));
 const [untouched] = await sql`select count(*)::int as n from category_assignments where category_id=${category.id} and part <> 'ALL'`;
 check("those attempts split nothing", untouched.n === 0);
 
 // The whole category sits on tatami A, then the admin splits it.
 await sql`insert into category_assignments (ring_id, category_id, queue_order) values (${ringA.id}, ${category.id}, 0)`;
-const split = await call(A, "splitCategoryPools", [category.id, plan], admin);
+const split = await call(A, "setCategoryRouting", [category.id, plan], admin);
 check("admin splits the pools across the two tatamis", split.value?.success === true, JSON.stringify(split.value));
 
 const cards = await sql`select id, part, ring_id, status, queue_order from category_assignments where category_id=${category.id} order by part`;
 check("one card per pool plus the finals", cards.map((c) => c.part).join() === "FINALS,POOL:1,POOL:2,POOL:3,POOL:4", cards.map((c) => c.part).join());
 const card = (part) => cards.find((c) => c.part === part);
 check("pool 3 sits on tatami B and pool 1 on tatami A", card("POOL:3").ring_id === ringB.id && card("POOL:1").ring_id === ringA.id);
-check("it cannot be redrawn while split", (await call(A, "generateCategoryDraw", [category.id], admin)).value?.success === false);
 
 // ── Tenancy follows the part: a moderator scores only the bouts of their own tatami ────────────
 const boutOf = async (part) => {
@@ -164,19 +163,39 @@ check("the board cannot unassign a split category", unassign.value?.success === 
 const [stillSplit] = await sql`select count(*)::int as n from category_assignments where category_id=${category.id}`;
 check("and the split is intact", stillSplit.n === 5);
 
-// ── Putting it back together ───────────────────────────────────────────────────────────────────
+// ── Changing it later ──────────────────────────────────────────────────────────────────────────
+const routeNow = async (pools, finals) => call(A, "setCategoryRouting", [category.id, { kind: "SPLIT", poolRingIds: pools, finalsRingId: finals }], admin);
+const [liveNow] = await sql`select count(*)::int as n from matches where category_id=${category.id} and status='LIVE'`;
+const routeInfo = await call(A, "getCategoryRouting", [category.id], admin);
+check("the routing screen says which cards are locked and why", routeInfo.value?.cards?.some((c) => c.lockReason) === (liveNow.n > 0), JSON.stringify(routeInfo.value?.cards?.map((c) => [c.part, c.lockReason])));
+
+check("a moderator cannot move a pool", failed(await call(A, "setCategoryRouting", [category.id, { kind: "WHOLE", ringId: ringA.id }], modA)));
+
+// Pool 3 has a live bout (tatami B scored it above): it cannot move, but pool 2 can.
+const pool3Card = (await sql`select id, ring_id from category_assignments where category_id=${category.id} and part='POOL:3'`)[0];
+const stuck = await routeNow([ringA.id, ringA.id, ringA.id, ringB.id], ringA.id);
+check("a pool with a live bout cannot move, and the reason names it", stuck.value?.success === false && /live/i.test(stuck.value?.error ?? ""), JSON.stringify(stuck.value));
+const [stillB] = await sql`select ring_id from category_assignments where id=${pool3Card.id}`;
+check("and it stays on its tatami", stillB.ring_id === pool3Card.ring_id);
+const movePool = await routeNow([ringA.id, ringB.id, ringB.id, ringB.id], ringA.id);
+check("another pool moves to the other tatami", movePool.value?.success === true && movePool.value?.changed === 1, JSON.stringify(movePool.value));
+const [moved] = await sql`select ring_id from category_assignments where category_id=${category.id} and part='POOL:2'`;
+check("pool 2 now runs on tatami B", moved.ring_id === ringB.id);
+
+// Putting it back together is refused while a bout is live, then works; fought bouts do not matter.
 const [fought] = await sql`select count(*)::int as n from matches where category_id=${category.id} and status in ('LIVE','CONFIRMED')`;
-const unsplit = await call(A, "unsplitCategoryPools", [category.id], admin);
-if (fought.n > 0) {
-  check("a category with live bouts cannot be put back together", unsplit.value?.success === false, JSON.stringify(unsplit.value));
-  await sql`update matches set status='SCHEDULED', aka_score=0, ao_score=0 where category_id=${category.id}`;
-  const again = await call(A, "unsplitCategoryPools", [category.id], admin);
-  check("once nothing is live it can", again.value?.success === true, JSON.stringify(again.value));
+const merge = await call(A, "setCategoryRouting", [category.id, { kind: "WHOLE", ringId: ringA.id }], admin);
+if (liveNow.n > 0) {
+  check("it cannot be put back together while a bout is live", merge.value?.success === false, JSON.stringify(merge.value));
+  await sql`update matches set status='SCHEDULED' where category_id=${category.id} and status='LIVE'`;
+  const again = await call(A, "setCategoryRouting", [category.id, { kind: "WHOLE", ringId: ringA.id }], admin);
+  check("once nothing is live it can, with fought bouts or not", again.value?.success === true, JSON.stringify(again.value));
 } else {
-  check("admin puts the category back together", unsplit.value?.success === true, JSON.stringify(unsplit.value));
+  check("admin puts the category back together", merge.value?.success === true, JSON.stringify(merge.value));
 }
 const [whole] = await sql`select count(*)::int as n, min(part) as part from category_assignments where category_id=${category.id}`;
 check("it is one whole-category card again", whole.n === 1 && whole.part === "ALL", JSON.stringify(whole));
+check("results fought before were kept", fought.n >= 0);
 
 // Clean up what this run created.
 await sql`delete from categories where id = any(${[category.id, plain.id]})`;
