@@ -1,200 +1,122 @@
-# Quickstart Guide: Local Setup & Feature Testing
+# Quickstart: run RingFlow locally
 
-This guide walks you through running RingFlow on your local machine (`localhost`), seeding a complete realistic karate championship, and testing every major operational feature—from admin balancing and bracket generation to live WKF bout scoring and real-time arena scoreboards.
-
----
+Set up RingFlow on your machine, load a demo championship, and try every role. This setup is for
+development. For a real event see [OFFLINE_VENUE_GUIDE.md](OFFLINE_VENUE_GUIDE.md) and
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Prerequisites
 
-* **Node.js**: Version `22.0.0` or higher (`node -v`)
-* **Docker Desktop** (or a local PostgreSQL 16 installation)
+- Node.js 22 or newer (`node -v`)
+- Docker Desktop, or a local PostgreSQL 16
 
----
+## Setup
 
-## 5-Minute Quick Setup
-
-### 1. Install Dependencies
-
-From the `RingFlow-CISCE` directory:
+Run these in the `RingFlow-CISCE` folder.
 
 ```bash
 npm install
-```
-
-### 2. Configure Environment
-
-Copy the environment template:
-
-```bash
 cp .env.example .env.local
-```
-
-The default values in `.env.example` point to `127.0.0.1:5432` with username/password `event_suite:event_suite` and database `ringflow`.
-
-> [!NOTE]
-> If you are running Docker inside **WSL2** and accessing it from Windows, ensure your `DATABASE_URL` uses the reachable container or WSL IP (e.g. `postgres://event_suite:event_suite@<IP>:5432/ringflow`).
-
-### 3. Start PostgreSQL
-
-Use the provided Docker Compose service to start a dedicated PostgreSQL container:
-
-```bash
 docker compose up -d db
-```
-
-Verify that the database is healthy:
-
-```bash
-npx tsx scripts/test-db.ts
-```
-
-### 4. Push Schema & Seed Realistic Demo Championship
-
-Apply the Drizzle database schema and seed a full tournament:
-
-```bash
 npm run db:push
 npm run db:migrate
 npm run db:seed
-```
-
-The seed script creates:
-* 👤 **Administrator**: `admin@ringflow.org` / `admin123`
-* 🏆 **Tournament**: *CISCE National Karate Championship 2026* (Organiser code: `ORG001`)
-* 🥋 **4 Rings (Tatami)**:
-  * Tatami 1 (Code: `RING01`)
-  * Tatami 2 (Code: `RING02`)
-  * Tatami 3 (Code: `RING03`)
-  * Tatami 4 (Code: `RING04`)
-* 📋 **Official Categories & Roster**: Boys & Girls U14 divisions with Kata and Kumite entries
-* 🌳 **Digital Brackets**: Pre-generated single-elimination tournament draws
-* 🎛️ **Pre-Approved Ring 1 Session**: Instant testing of the live scoring pad without waiting for approval
-
-> [!TIP]
-> Need a completely fresh start at any time? Run:
-> ```bash
-> npm run db:reset
-> ```
-> This safely empties all test tables and re-seeds the clean demo championship.
-
-### 5. Start the Application
-
-Start the Next.js development server:
-
-```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Then open <http://localhost:3000>.
 
-*(Or to test in production mode: `npm run build && npm run start`)*
+- `.env.example` points `DATABASE_URL` at `127.0.0.1:5432` with user and password `event_suite` and
+  database `ringflow`, which matches `docker-compose.yml`.
+- If PostgreSQL runs inside WSL2 and the app runs on Windows, use the WSL or container IP in
+  `DATABASE_URL`.
+- `npm run db:push` creates the tables from `src/db/schema/index.ts`. `npm run db:migrate` applies
+  the SQL migrations (triggers, audit log, judge sessions, constraints) and is safe to repeat.
+- To run the production build instead: `npm run build && npm run start`.
 
----
+## What the seed creates
 
-## Feature Testing & Guided Tour
+| Item | Value |
+|---|---|
+| Admin | `admin@ringflow.org`, password `admin123` |
+| Tournament | CISCE National Karate Championship 2026 |
+| Organiser code | `ORG001` |
+| Tatamis | Tatami 1 to 4, access codes `RING01` to `RING04` |
+| Categories and athletes | Under-14 boys and girls, kata and kumite entries, chest numbers 101 and up |
+| Draws | Generated for every category |
+| Moderator session | One approved session for Tatami 1 (a browser still has to hold its token, so sign in through `/login/mod` as below) |
 
-Once the server is running, you can test every persona simultaneously by opening different browser windows or tabs.
+These credentials exist for development only. Never run the seed against a real event database.
+`npm run db:reset` wipes the data and reseeds. `npm run db:create-admin` creates a real admin.
 
-### Tour 1: Admin Command Room
-1. Go to [http://localhost:3000/login/admin](http://localhost:3000/login/admin).
-2. Sign in with:
-   * **Email**: `admin@ringflow.org`
-   * **Password**: `admin123`
-3. Click into the **CISCE National Karate Championship 2026**.
-4. Explore:
-   * **Live Ring Monitor**: View real-time status, active bouts, and progress across all 4 tatamis.
-   * **Ring Balancing**: Open `/admin/event/[id]/rings/balance` to visually drag and balance categories across rings.
-   * **Moderator Approvals**: Ring requests from table officials appear here for instant one-click approval.
+## Guided tour
 
----
+Open several browser windows or profiles, one per role. Each role keeps its own cookie, but one
+browser profile can hold several roles at once.
 
-### Tour 2: Tournament Organiser Desk
-1. Go to [http://localhost:3000/login/organiser](http://localhost:3000/login/organiser).
-2. Enter the access code: `ORG001` and your name.
-3. Submit the request (if not pre-approved, approve it from the Admin tab).
-4. In the Organiser portal:
-   * **Category Definitions**: View official age, weight, and rules presets.
-   * **Athletes Roster**: Review multi-event athletes participating in Kata and Kumite.
-   * **Draws & Brackets**: Inspect generated brackets, seeds, and byes.
-   * **PDF & Excel Export**: Download high-resolution draw sheets and tournament results.
+### 1. Admin
 
----
+1. Go to `/login/admin` and sign in with the seeded account.
+2. Open the tournament. The dashboard shows each tatami's status, current bout and activity.
+3. Open **Rings** then **Ring balance** to drag categories between tatamis and order each queue.
+4. Moderator, stager and organiser requests appear here for approval.
 
-### Tour 3: Real-Time Bout Scoring Pad & Arena Scoreboard (Side-by-Side Test)
+### 2. Moderator and scoreboard
 
-This is the core experience. Open two side-by-side browser windows:
+1. Go to `/login/mod`, enter `RING01` and a name. The request waits for approval.
+2. In the admin window, approve it from the dashboard widget.
+3. The moderator opens the queue, starts a category, and picks a bout on the **Current** screen.
+4. Open `/scoreboard/<ringId>` in another window. The moderator's tatami (and the admin) may open
+   it; the ring id is in the moderator URL. Press F11 for fullscreen.
+5. Try the pad: start the clock, add Yuko, Waza-ari and Ippon points, set senshu, add category 1 and
+   2 penalties, swap sides, then confirm a result with a decision. The bracket advances and the
+   scoreboard updates without a reload.
 
-* **Window 1 (Table Official / Moderator)**:
-  Open [http://localhost:3000/moderator/ring/f1bd9c67-1f67-4981-897f-ddf298a67533/current](http://localhost:3000/moderator/ring/f1bd9c67-1f67-4981-897f-ddf298a67533/current) (Tatami 1).
-  *(Or log in at `/login/mod` using access code `RING01`)*.
+### 3. Kata and judge phones
 
-* **Window 2 (Arena TV Scoreboard)**:
-  Open [http://localhost:3000/scoreboard/f1bd9c67-1f67-4981-897f-ddf298a67533](http://localhost:3000/scoreboard/f1bd9c67-1f67-4981-897f-ddf298a67533).
-  *(Press `F11` for broadcast fullscreen)*.
+1. As admin, set a kata category to the scoring mode you want (flag or points) and generate its draw.
+2. As moderator, start that kata category and open a bout. The kata pad has a **Judge phones** panel
+   with a QR code and PIN.
+3. Open the link on a phone (or another browser) at phone size, enter a name and a seat, and approve
+   it on the moderator pad.
+4. Open voting, vote from the phone, close voting, then finalize. You can also type marks or flags at
+   the desk without any phone.
 
-#### Interactive Actions to Test:
-1. **Clock Control**: Click **Start** on the moderator pad. Watch the timer count down with millisecond precision in both windows simultaneously!
-2. **Audio Buzzer**: Let the timer reach 0:00 or click reset/adjust to hear the ring bell buzzer sound.
-3. **Point Scoring**:
-   * Click **+1** (Yuko) for Aka (Red).
-   * Click **+2** (Waza-ari) or **+3** (Ippon) for Ao (Blue).
-   * Notice that the Scoreboard updates immediately without reloading.
-4. **Senshu Advantage**: Toggle Senshu (first-uncontested point advantage) on either athlete.
-5. **Penalties**: Click **C1** or **C2** penalty buttons and observe the visual penalty indicators on the arena board.
-6. **Side Swapping**: Click **Swap Sides** to instantly mirror the red and blue positions on the TV scoreboard to match the referee's visual orientation on the mat.
-7. **Bout Completion**: Declare a winner (Points, Hantei, Kiken, Hansoku). Confirm the result to automatically advance the bracket to the next round!
+### 4. Organiser and stager
 
----
+- Organiser: `/login/organiser`, code `ORG001`. Approve the request as admin. The organiser sees the
+  dashboard, roster, categories, ring balance and the official record, all read only.
+- Stager: the seed creates no stager codes. As admin, generate them on the Rings page, then sign in at
+  `/login/stager`, approve, and mark categories calling or ready.
 
-### Tour 4: Public Spectator & Athlete Portal
-1. Open [http://localhost:3000](http://localhost:3000) or open `/public/event/<tournament-id>`.
-2. No login is required.
-3. Search for any competitor by chest number (e.g. `101`, `102`, `201`) or athlete name (e.g. `Mohammed`, `Ananya`).
-4. View live mat assignment, estimated start time, and bracket progression.
+### 5. Public view
 
----
+Open `/`, pick the tournament, and search for an athlete by name (for example `Ananya`) or chest
+number (`101`). Brackets for everyone appear only if "show draws publicly" is on in the event
+settings; an athlete's own bracket always opens from search.
 
-## How Real-Time Synchronization Works
+## Scripts
 
-RingFlow uses a zero-delay **Server-Sent Events (SSE)** architecture:
+| Script | What it does |
+|---|---|
+| `npm run dev` | Development server on `0.0.0.0:3000` |
+| `npm run build` | Production build (also type-checks; see the known type errors in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) |
+| `npm run start` | Run the production build |
+| `npm run lint` | ESLint |
+| `npm test` | Unit tests (vitest) |
+| `npm run db:push` | Apply the schema with drizzle-kit |
+| `npm run db:migrate` | Apply the SQL migrations in `db/migrations` |
+| `npm run db:bootstrap` | Apply the base schema SQL and the migrations directly, without drizzle-kit (`scripts/bootstrap-db.ts`) |
+| `npm run db:seed` | Load the demo tournament |
+| `npm run db:reset` | Wipe and reseed |
+| `npm run db:create-admin` | Create or update an admin account |
 
-* **Endpoints**: `/api/live` (public: scoreboards, spectators, judge phones) and `/api/live/staff` (needs a staff session) connect the browser to an in-memory event bus and PostgreSQL `LISTEN/NOTIFY`.
-* **Zero Polling Overhead**: Changes made by table officials trigger immediate broadcast events to all active scoreboard, admin, and spectator clients.
-* **Resilient Fallback**: If a connection drops temporarily, the client automatically falls back to periodic validation before silently reconnecting.
+## Troubleshooting
 
----
-
-## Useful NPM Scripts
-
-| Script | Description |
-| :--- | :--- |
-| `npm run dev` | Start Next.js development server on `http://localhost:3000` |
-| `npm run build` | Compile Next.js production build with strict type-checking and standalone bundling |
-| `npm run start` | Run the compiled production application |
-| `npm run lint` | Run ESLint 9 validation |
-| `npm run db:push` | Synchronize the Drizzle schema directly to PostgreSQL |
-| `npm run db:migrate` | Apply the SQL migrations (triggers, audit log, judge sessions); safe to re-run |
-| `npm run db:seed` | Seed realistic demo tournament, rings, categories, and draws |
-| `npm run db:reset` | Cleanly wipe and re-seed the demo database |
-
----
-
-## Troubleshooting FAQ
-
-### 1. Database connection failed / Connection refused
-* Verify Docker is running: `docker compose ps`
-* Test database connectivity: `npx tsx scripts/test-db.ts`
-* If using WSL2, check that `DATABASE_URL` uses the correct IP address or `127.0.0.1`.
-
-### 2. Audio buzzer doesn't sound when timer expires
-Modern browsers block autoplaying audio until the user interacts with the page. Click anywhere on the scoreboard or moderator page once to grant browser audio permissions.
-
-### 3. Port 3000 or 5432 is already in use
-* Change the database port in `docker-compose.yml` (e.g., `"5433:5432"`) and update `DATABASE_URL` in `.env.local`.
-* To run Next.js on a different port: `npx next dev -p 3001`.
-
-### 4. Preparing for Multi-Device / Network Testing (Next Phase)
-When you are ready to test connecting other devices (tablets, TV screens, mobile phones) over your local WiFi network:
-* Find your computer's local IP address (`ipconfig` on Windows or `ifconfig` / `hostname -I` on Linux/Mac).
-* Verify that your local IP is included in `allowedDevOrigins` inside `next.config.ts`.
-* Other devices on the same WiFi can access `http://<YOUR-IP>:3000`.
+- **Cannot connect to the database**: check `docker compose ps`, and that `DATABASE_URL` matches the
+  host and port you are running.
+- **Port 3000 or 5432 in use**: change the port mapping in `docker-compose.yml` and `DATABASE_URL`,
+  or run `npx next dev -p 3001`.
+- **No bell sound**: browsers block audio until you interact. Click the page once.
+- **Opening the app from another device in development**: Next blocks dev assets from unknown
+  origins. Add your address to `allowedDevOrigins` in `next.config.ts` (private ranges are already
+  listed), then use `http://<your-ip>:3000`.
