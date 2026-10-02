@@ -63,7 +63,7 @@ export default async function StagerBalancePage({
         .where(
           and(
             inArray(categoryAssignmentsTable.ringId, ringIds),
-            // The balancing board lists one card per category; a split category's pool rows are managed by its split dialog.
+            // The call area lists whole categories; a split category shows once, at its finals tatami.
             inArray(categoryAssignmentsTable.part, ["ALL", "FINALS"])
           )
         ),

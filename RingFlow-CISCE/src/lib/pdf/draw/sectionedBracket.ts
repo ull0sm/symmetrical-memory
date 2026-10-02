@@ -33,8 +33,8 @@ export function drawSectionedBracket(ctx: SheetContext, model: SectionedModel): 
   for (let p = 0; p < numPools; p++) {
     const poolPage = pdfDoc.addPage([842, 595]);
     const { width: pWidth, height: pHeight } = poolPage.getSize();
-    const poolLetter = String.fromCharCode(65 + p);
     const poolNumber = p + 1;
+    const poolTatami = data.tatamis?.pools[poolNumber] ?? null;
 
     // Extract exact binary subtree for this pool (8, 4, 2, 1 matches)
     const r0Matches = round0MatchesAll.slice(p * 8, p * 8 + 8);
@@ -64,7 +64,7 @@ export function drawSectionedBracket(ctx: SheetContext, model: SectionedModel): 
       poolPage,
       pWidth,
       pHeight,
-      `SECTION ${poolLetter} — 16-COMPETITOR BRACKET  |  Winner advances to ${targetAdvName}`
+      `POOL ${poolNumber} — 16-COMPETITOR BRACKET${poolTatami ? `  |  ${poolTatami}` : ""}  |  Winner advances to ${targetAdvName}`
     );
 
     const topY = pHeight - 74;
@@ -89,7 +89,7 @@ export function drawSectionedBracket(ctx: SheetContext, model: SectionedModel): 
       } else if (rIdx === 2) {
         colTitle = totalRound0Slots >= 32 ? "ROUND OF 16" : "QUARTER-FINALS";
       } else {
-        colTitle = totalRound0Slots >= 32 ? `QUARTER-FINAL (SECTION ${poolLetter})` : `SEMI-FINAL ${poolNumber} (SECTION ${poolLetter})`;
+        colTitle = totalRound0Slots >= 32 ? `QUARTER-FINAL (POOL ${poolNumber})` : `SEMI-FINAL ${poolNumber} (POOL ${poolNumber})`;
       }
 
       // Column Header
@@ -269,7 +269,7 @@ export function drawSectionedBracket(ctx: SheetContext, model: SectionedModel): 
     });
 
     drawText(poolPage, 
-      `Section ${poolLetter}  ·  ${sheetLabel}  ·  RingFlow`,
+      `Pool ${poolNumber}  ·  ${sheetLabel}  ·  RingFlow`,
       {
         x: pWidth - pageMarginX - 250,
         y: 16,
@@ -283,7 +283,7 @@ export function drawSectionedBracket(ctx: SheetContext, model: SectionedModel): 
   // --- FINALS PAGE ---
   const finalsPage = pdfDoc.addPage([842, 595]);
   const { width: fWidth, height: fHeight } = finalsPage.getSize();
-  drawPageHeader(finalsPage, fWidth, fHeight, `CHAMPIONSHIP FINALS, ${medalRoundsTitle} & PODIUM`);
+  drawPageHeader(finalsPage, fWidth, fHeight, `CHAMPIONSHIP FINALS, ${medalRoundsTitle} & PODIUM${data.tatamis?.finals ? `  |  ${data.tatamis.finals}` : ""}`);
 
   const leftColW = 486;
   const rightColX = pageMarginX + leftColW + 28;
@@ -352,7 +352,7 @@ export function drawSectionedBracket(ctx: SheetContext, model: SectionedModel): 
     finalsPage.drawLine({ start: { x: branchX, y: finalCenter }, end: { x: finalBoxX, y: finalCenter }, thickness: 1.4, color: emerald });
   } else {
     // 32-entrant final: Single Grand Final bout prominently displayed
-    drawText(finalsPage, "Gold Medal Bout — Section A Winner vs Section B Winner", {
+    drawText(finalsPage, "Gold Medal Bout — Pool 1 Winner vs Pool 2 Winner", {
       x: pageMarginX + 4,
       y: finalsTopY - 26,
       size: 6.5,
@@ -481,7 +481,7 @@ export function drawSectionedBracket(ctx: SheetContext, model: SectionedModel): 
 
   const auditItems = [
     { label: "Category", val: ellipsize(data.categoryName, helveticaBold, 7, rightColW - 90) },
-    { label: "Draw Structure", val: `${numPools} Sections of 16 + Finals` },
+    { label: "Draw Structure", val: `${numPools} Pools of 16 + Finals` },
     { label: "Bracket Size", val: `${data.tournamentSize} Competitor Slots` },
     { label: "Opening Byes", val: `${data.byeCount} Byes Allocated` },
     { label: "Total Bouts", val: `${data.matches.length} Scheduled Bouts` },

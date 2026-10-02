@@ -53,13 +53,7 @@ export default async function OrganiserRingBalancingPage({ params }: { params: P
       db
         .select()
         .from(categoryAssignmentsTable)
-        .where(
-          and(
-            inArray(categoryAssignmentsTable.ringId, ringIds),
-            // The balancing board lists one card per category; a split category's pool rows are managed by its split dialog.
-            inArray(categoryAssignmentsTable.part, ["ALL", "FINALS"])
-          )
-        ),
+        .where(inArray(categoryAssignmentsTable.ringId, ringIds)),
       db
         .select({
           categoryId: eventLogTable.categoryId,

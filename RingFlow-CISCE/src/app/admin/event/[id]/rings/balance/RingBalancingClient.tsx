@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { saveAssignments, getBalancingAssignments } from "@/actions/balancing";
@@ -13,6 +13,8 @@ import { SegmentedProgressBar } from "@/components/ui/SegmentedProgressBar";
 import HeaderSearchBar from "@/components/layout/HeaderSearchBar";
 import BuiltByCrux from "@/components/layout/BuiltByCrux";
 import { matchesCategorySearch } from "@/lib/searchUtils";
+import SplitPoolsDialog from "@/components/admin/SplitPoolsDialog";
+import { describePart } from "@/lib/draws/partFilter";
 
 type Category = {
   id: string;
@@ -37,6 +39,8 @@ type Ring = {
 
 type Assignment = {
   category_id: string;
+  /** 'ALL', or 'POOL:n' / 'FINALS' once the category's pools run on different tatamis. */
+  part?: string;
   ring_id: string;
   queue_order: number;
   status?: string;
@@ -56,16 +60,36 @@ interface Props {
   readOnly?: boolean;
 }
 
+type PoolCard = { category_id: string; part: string; ring_id: string; status: string; queue_order: number };
+
+const isPrimaryPart = (part?: string) => !part || part === "ALL" || part === "FINALS";
+
+const poolCardsOf = (rows: { category_id: string; part?: string; ring_id: string; status?: string; queue_order?: number }[]): PoolCard[] =>
+  rows
+    .filter((row) => !isPrimaryPart(row.part))
+    .map((row) => ({
+      category_id: row.category_id,
+      part: row.part as string,
+      ring_id: row.ring_id,
+      status: row.status || "pending",
+      queue_order: row.queue_order ?? 0,
+    }));
+
 export default function RingBalancingClient({
   tournamentId,
   tournamentName,
   initialCategories,
   initialRings,
-  initialAssignments,
+  initialAssignments: allInitialAssignments,
   completedTimes,
   readOnly = false,
 }: Props) {
   const router = useRouter();
+  // The board has one card per category: its whole-category card, or its finals once split. The
+  // pools of a split category are shown on their tatamis as read-only chips.
+  const initialAssignments = useMemo(() => allInitialAssignments.filter((a) => isPrimaryPart(a.part)), [allInitialAssignments]);
+  const [poolCards, setPoolCards] = useState<PoolCard[]>(() => poolCardsOf(allInitialAssignments));
+  const [splitDialogFor, setSplitDialogFor] = useState<{ id: string; name: string } | null>(null);
   // State structure:
   // We need a list for "unassigned" and a list for each ring.
   const [unassigned, setUnassigned] = useState<Category[]>([]);
@@ -108,6 +132,30 @@ export default function RingBalancingClient({
       account_tree
     </button>
   );
+
+  /** Split / split-state control for a category already on a tatami; admin only. */
+  const renderSplitControl = (cat: Category) => {
+    const isSplit = poolCards.some((card) => card.category_id === cat.id);
+    if (readOnly && !isSplit) return null;
+    return (
+      <button
+        type="button"
+        disabled={readOnly}
+        onClick={(e) => {
+          e.stopPropagation();
+          setSplitDialogFor({ id: cat.id, name: cat.name });
+        }}
+        title={isSplit ? "Pools run on different tatamis" : "Run pools on different tatamis"}
+        aria-label={`${isSplit ? "Manage" : "Split"} pools of ${cat.name} across tatamis`}
+        className={`material-symbols-outlined transition-colors shrink-0 ${readOnly ? "cursor-default" : "cursor-pointer"} ${
+          isSplit ? "text-[#0E9C7C]" : "text-outline hover:text-[#0E9C7C]"
+        } text-[13px]`}
+        style={{ fontVariationSettings: isSplit ? "'FILL' 1" : "'FILL' 0" }}
+      >
+        call_split
+      </button>
+    );
+  };
 
   // History popover state
   const [historyOpenForRing, setHistoryOpenForRing] = useState<string | null>(null);
@@ -220,7 +268,9 @@ export default function RingBalancingClient({
     try {
       const data = await getBalancingAssignments(ringIds);
       const map: Record<string, { matches_completed: number; status: string; ring_id: string; queue_order: number; stager_status: string | null; stager_name: string | null }> = {};
+      setPoolCards(poolCardsOf(data ?? []));
       for (const row of data ?? []) {
+        if (!isPrimaryPart(row.part)) continue;
         map[row.category_id] = {
           matches_completed: row.matches_completed || 0,
           status: row.status || "pending",
@@ -1883,6 +1933,7 @@ export default function RingBalancingClient({
                                         <h5 className="text-xs font-bold text-[#1B1815] leading-snug line-clamp-1">{cat.name}</h5>
                                         <div className="flex items-center gap-1.5 shrink-0">
                                           {renderDrawButton(cat)}
+{renderSplitControl(cat)}
                                           {cat.doc_url && (
                                             <button
                                               type="button"
@@ -1934,6 +1985,7 @@ export default function RingBalancingClient({
                                     </span>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                       {renderDrawButton(cat)}
+{renderSplitControl(cat)}
                                       {cat.doc_url && (
                                         <button
                                           type="button"
@@ -1983,6 +2035,30 @@ export default function RingBalancingClient({
                       </div>
                     )}
                   </Droppable>
+
+                  {/* Pools of split categories that run on this tatami (read only) */}
+                  {poolCards.some((card) => card.ring_id === ring.id) && (
+                    <div className="border-t border-outline-variant/60 bg-surface-container-low px-3 py-2 space-y-1.5">
+                      <span className="text-[9.5px] font-bold uppercase tracking-wider text-[#68645A]">Pools running here</span>
+                      {poolCards
+                        .filter((card) => card.ring_id === ring.id)
+                        .sort((a, b) => a.queue_order - b.queue_order)
+                        .map((card) => {
+                          const cat = initialCategories.find((c) => c.id === card.category_id);
+                          return (
+                            <div
+                              key={`${card.category_id}-${card.part}`}
+                              className="flex items-center justify-between gap-2 text-[11px] border border-outline-variant/60 rounded-lg bg-white px-2 py-1.5"
+                            >
+                              <span className="font-bold text-[#1B1815] truncate">
+                                {cat?.name ?? "Category"} · {describePart(card.part)}
+                              </span>
+                              <span className="text-[#68645A] shrink-0">{card.status}</span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -2129,6 +2205,19 @@ export default function RingBalancingClient({
         title={viewingPdf?.title}
         onClose={() => setViewingPdf(null)}
       />
+
+      {splitDialogFor && (
+        <SplitPoolsDialog
+          categoryId={splitDialogFor.id}
+          categoryName={splitDialogFor.name}
+          rings={initialRings}
+          onClose={() => setSplitDialogFor(null)}
+          onChanged={() => {
+            // The queues changed on the server; reload the board from it.
+            window.location.reload();
+          }}
+        />
+      )}
 
       {/* Live draw for whichever category the board asked for */}
       {bracketCategory && (

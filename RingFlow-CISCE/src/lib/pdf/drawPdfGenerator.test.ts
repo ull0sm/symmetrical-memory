@@ -60,6 +60,34 @@ describe("generateCategoryDrawPdfBytes", () => {
     expect(await pageCount(bytes)).toBeGreaterThan(1);
   });
 
+  it("prints each pool's tatami on a kata sheet whose pools are split", async () => {
+    const plain = await generateCategoryDrawPdfBytes({ ...base, drawState: "LOCKED", matches: kata });
+    const split = await generateCategoryDrawPdfBytes({
+      ...base,
+      drawState: "LOCKED",
+      matches: kata,
+      tatamis: { pools: { 1: "Tatami 2" }, finals: "Tatami 1" },
+    });
+    expect(await pageCount(split)).toBe(await pageCount(plain));
+    expect(split.length).not.toBe(plain.length);
+  });
+
+  it("prints a tatami on every pool page and on the finals page of a big bracket", async () => {
+    // 32 places: two pools of 16 plus a finals page.
+    const leaves = Array.from({ length: 16 }, (_, i) =>
+      match({ matchId: `r0-${i}`, matchNo: i + 1, roundNo: 0, roundName: "Round of 32", aka: fighter(`a${i}`, `Athlete ${i}`), ao: fighter(`b${i}`, `Rival ${i}`) })
+    );
+    const rounds = [8, 4, 2, 1].flatMap((count, r) =>
+      Array.from({ length: count }, (_, i) => match({ matchId: `r${r + 1}-${i}`, matchNo: 17 + r * 8 + i, roundNo: r + 1, roundName: `Round ${r + 1}` }))
+    );
+    const big = { ...base, tournamentSize: 32, drawState: "DRAFT" as const, matches: [...leaves, ...rounds] };
+    const plain = await generateCategoryDrawPdfBytes(big);
+    const split = await generateCategoryDrawPdfBytes({ ...big, tatamis: { pools: { 1: "Tatami 1", 2: "Tatami 2" }, finals: "Tatami 1" } });
+    expect(await pageCount(plain)).toBeGreaterThanOrEqual(3);
+    expect(await pageCount(split)).toBe(await pageCount(plain));
+    expect(split.length).toBeGreaterThan(plain.length);
+  });
+
   it("does not stamp a locked draw as a draft", async () => {
     const draft = await generateCategoryDrawPdfBytes({ ...base, drawState: "DRAFT", matches: bracket });
     const locked = await generateCategoryDrawPdfBytes({ ...base, drawState: "LOCKED", matches: bracket });

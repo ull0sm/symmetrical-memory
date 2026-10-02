@@ -22,6 +22,8 @@ export type CategoryDrawPdfData = {
     bronzeRegistrationIds?: readonly string[];
   } | null;
   athletes?: Array<{ id: string; name: string; school?: string | null }>;
+  /** When the category's pools run on different tatamis: the tatami name of each pool (by number) and of the finals. */
+  tatamis?: { pools: Record<number, string>; finals?: string | null } | null;
   matches: BracketMatchView[];
 };
 

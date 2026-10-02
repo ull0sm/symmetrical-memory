@@ -102,10 +102,12 @@ export function drawKataSheet(ctx: SheetContext, poolMatches: BracketMatchView[]
     const bouts = poolMatches.filter((m) => m.poolGroup === poolName).sort((a, b) => a.matchNo - b.matchNo);
     const note = `${bouts.length} bout${bouts.length === 1 ? "" : "s"}`;
     if (y - (3 * rowH + 40) < bottomY) startPage(false);
-    sectionBar(poolName.toUpperCase(), note);
+    const poolTatami = data.tatamis?.pools[poolNames.indexOf(poolName) + 1] ?? null;
+    const poolTitle = `${poolName.toUpperCase()}${poolTatami ? `  |  ${poolTatami}` : ""}`;
+    sectionBar(poolTitle, note);
     columnHeads();
     for (const m of bouts) {
-      needRoom(1, poolName.toUpperCase(), note);
+      needRoom(1, poolTitle, note);
       boutRow(m, `#${m.matchNo}`);
     }
     y -= 14;

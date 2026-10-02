@@ -10,15 +10,13 @@ import {
 import { eq, inArray, and, type InferSelectModel } from "drizzle-orm";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { sequenceQueue } from "@/lib/draws/queueOrder";
 import { isValidUuid } from "@/lib/utils";
-import { isDrawPart } from "@/engine/draw-engine/parts";
 
 type CategoryAssignmentRow = InferSelectModel<typeof categoryAssignmentsTable>;
 
 export type AssignmentInput = {
   category_id: string;
-  /** Which part of the category this card is: 'ALL' (default), or 'POOL:n' / 'FINALS' once it is split. */
-  part?: string;
   ring_id: string | null; // null means unassigned
   queue_order: number;
   status?: string;
@@ -30,6 +28,16 @@ export type SaveAssignmentsResult = {
   error?: string;
 };
 
+const isPrimaryPart = (part: string) => part === "ALL" || part === "FINALS";
+const cardKey = (categoryId: string, part: string) => `${categoryId}|${part}`;
+
+/**
+ * Saves the balancing board: which tatami each whole category is on, and in what order.
+ *
+ * A category that has been split across tatamis appears on the board as one card, its finals
+ * card. Moving that card moves the finals to another tatami; the pools' own cards are changed
+ * only by splitting or unsplitting, and keep their place in their tatami's queue.
+ */
 export async function saveAssignments(
   tournamentId: string,
   assignments: AssignmentInput[]
@@ -47,17 +55,10 @@ export async function saveAssignments(
       return { success: false, error: "Invalid assignment list" };
     }
 
-    // 1. Deduplicate payload by category and part (latest entry wins)
-    const partOf = (a: { part?: string }) => a.part ?? "ALL";
-    const keyOf = (categoryId: string, part: string) => `${categoryId}|${part}`;
-    for (const a of assignments) {
-      if (!(partOf(a) === "ALL" || partOf(a) === "FINALS" || isDrawPart(partOf(a)))) {
-        return { success: false, error: "Invalid assignment part" };
-      }
-    }
+    // 1. Deduplicate payload by category_id (latest entry wins)
     const dedupedMap = new Map<string, AssignmentInput>();
     for (const a of assignments) {
-      dedupedMap.set(keyOf(a.category_id, partOf(a)), a);
+      dedupedMap.set(a.category_id, a);
     }
     const cleanAssignments = Array.from(dedupedMap.values());
     const validAssignments = cleanAssignments.filter((a) => a.ring_id !== null);
@@ -95,35 +96,33 @@ export async function saveAssignments(
         .where(inArray(categoryAssignmentsTable.ringId, ringIds));
     }
 
+    // A board card stands for its category's primary card: the whole category, or its finals.
+    const primaryOf = new Map<string, CategoryAssignmentRow>();
+    for (const a of currentAssignments) {
+      if (isPrimaryPart(a.part)) primaryOf.set(a.categoryId, a);
+    }
+    const splitCategoryIds = new Set(currentAssignments.filter((a) => a.part !== "ALL").map((a) => a.categoryId));
+    const partOf = (categoryId: string) => primaryOf.get(categoryId)?.part ?? "ALL";
+
+    // A split category cannot be unassigned from the board; unsplit it first.
+    for (const a of cleanAssignments) {
+      if (a.ring_id === null && splitCategoryIds.has(a.category_id)) {
+        return { success: false, error: `SPLIT_CATEGORY_CHANGED:${a.category_id}` };
+      }
+    }
+
     const currentMap = new Map<string, { status: string; matchesCompleted: number; completedAt: Date | null }>();
-    currentAssignments.forEach((a) => {
-      currentMap.set(keyOf(a.categoryId, a.part), {
+    primaryOf.forEach((a, categoryId) => {
+      currentMap.set(categoryId, {
         status: a.status,
         matchesCompleted: a.matchesCompleted ?? 0,
         completedAt: a.completedAt,
       });
     });
 
-    // A split category is changed only by splitting or unsplitting it: cards for its parts can
-    // move between tatamis and reorder, but none can appear, vanish or merge here.
-    const splitCategoryIds = new Set(currentAssignments.filter((a) => a.part !== "ALL").map((a) => a.categoryId));
-    const incomingKeys = new Set(validAssignments.map((a) => keyOf(a.category_id, partOf(a))));
-    for (const a of validAssignments) {
-      const key = keyOf(a.category_id, partOf(a));
-      const isSplitCard = partOf(a) !== "ALL";
-      if (isSplitCard !== splitCategoryIds.has(a.category_id) || (isSplitCard && !currentMap.has(key))) {
-        return { success: false, error: `SPLIT_CATEGORY_CHANGED:${a.category_id}` };
-      }
-    }
-    for (const a of currentAssignments) {
-      if (splitCategoryIds.has(a.categoryId) && cleanAssignments.some((c) => c.category_id === a.categoryId) && !incomingKeys.has(keyOf(a.categoryId, a.part))) {
-        return { success: false, error: `SPLIT_CATEGORY_CHANGED:${a.categoryId}` };
-      }
-    }
-
     // 4. Guard: reject if a running/paused category is displaced from queue_order 0
     for (const a of validAssignments) {
-      const live = currentMap.get(keyOf(a.category_id, partOf(a)));
+      const live = currentMap.get(a.category_id);
       if (live && (live.status === "running" || live.status === "paused")) {
         if (a.queue_order !== 0) {
           return { success: false, error: `RUNNING_CATEGORY_DISPLACED:${a.category_id}` };
@@ -133,10 +132,10 @@ export async function saveAssignments(
 
     // 5. Atomic database transaction
     await db.transaction(async (tx) => {
-      // Remove categories that were moved out of all rings (now unassigned)
+      // Remove categories that were moved out of all rings (now unassigned). A split category is
+      // never dropped by a save.
       const incomingCategoryIds = new Set(validAssignments.map((a) => a.category_id));
-      // A split category is never dropped by a save; unsplit it first.
-      const toDelete = Array.from(new Set(currentAssignments.map((a) => a.categoryId))).filter(
+      const toDelete = Array.from(currentMap.keys()).filter(
         (catId) => !incomingCategoryIds.has(catId) && !splitCategoryIds.has(catId)
       );
 
@@ -150,15 +149,16 @@ export async function saveAssignments(
             )
           );
       }
+      const deleted = new Set(toDelete);
 
       if (validAssignments.length > 0) {
         const rows = validAssignments.map((a) => {
-          const live = currentMap.get(keyOf(a.category_id, partOf(a)));
+          const live = currentMap.get(a.category_id);
           const isExplicitRevert = a.status === "pending" && live?.status === "completed";
           return {
             ringId: a.ring_id!,
             categoryId: a.category_id,
-            part: partOf(a),
+            part: partOf(a.category_id),
             queueOrder: a.queue_order,
             status:
               isExplicitRevert || a.status === "pending"
@@ -178,20 +178,57 @@ export async function saveAssignments(
           };
         });
 
-        const existingRows = rows.filter((r) => currentMap.has(keyOf(r.categoryId, r.part)));
-        const newRows = rows.filter((r) => !currentMap.has(keyOf(r.categoryId, r.part)));
-        const sameCard = (r: { categoryId: string; part: string }) =>
-          and(eq(categoryAssignmentsTable.categoryId, r.categoryId), eq(categoryAssignmentsTable.part, r.part));
+        const existingRows = rows.filter((r) => currentMap.has(r.categoryId));
+        const newRows = rows.filter((r) => !currentMap.has(r.categoryId));
+        const placedIds = new Set(rows.map((r) => r.categoryId));
+        const touchedRings = new Set(rows.map((r) => r.ringId));
+
+        // Cards this save does not mention but that share a tatami with ones it places (the pools
+        // of split categories) keep their place relative to the placed cards.
+        const stillHere = currentAssignments.filter(
+          (a) =>
+            touchedRings.has(a.ringId) &&
+            !deleted.has(a.categoryId) &&
+            !(placedIds.has(a.categoryId) && isPrimaryPart(a.part))
+        );
+
+        const finalOrder = new Map<string, number>();
+        for (const ringId of touchedRings) {
+          const held = stillHere.filter((a) => a.ringId === ringId);
+          if (held.length === 0) continue; // nothing to share the queue with: keep the board's own numbers
+          const items = [
+            ...rows
+              .filter((r) => r.ringId === ringId)
+              .map((r) => ({
+                key: cardKey(r.categoryId, r.part),
+                queueOrder: r.queueOrder,
+                onMat: r.status === "running" || r.status === "paused",
+                placed: true,
+              })),
+            ...held.map((a) => ({
+              key: cardKey(a.categoryId, a.part),
+              queueOrder: a.queueOrder,
+              onMat: a.status === "running" || a.status === "paused",
+              placed: false,
+            })),
+          ];
+          for (const [key, position] of sequenceQueue(items)) finalOrder.set(key, position);
+        }
+        const orderOf = (categoryId: string, part: string, boardOrder: number) =>
+          finalOrder.get(cardKey(categoryId, part)) ?? boardOrder;
+
+        const sameCard = (c: { categoryId: string; part: string }) =>
+          and(eq(categoryAssignmentsTable.categoryId, c.categoryId), eq(categoryAssignmentsTable.part, c.part));
 
         // (ring_id, queue_order) is unique, so park every row being moved on a
         // temporary negative slot first; otherwise swapping two categories'
         // positions collides halfway through.
         let parking = -1;
         for (const r of existingRows) {
-          await tx
-            .update(categoryAssignmentsTable)
-            .set({ queueOrder: parking-- })
-            .where(sameCard(r));
+          await tx.update(categoryAssignmentsTable).set({ queueOrder: parking-- }).where(sameCard(r));
+        }
+        for (const a of stillHere) {
+          await tx.update(categoryAssignmentsTable).set({ queueOrder: parking-- }).where(sameCard(a));
         }
 
         // Update existing rows in place
@@ -200,17 +237,25 @@ export async function saveAssignments(
             .update(categoryAssignmentsTable)
             .set({
               ringId: r.ringId,
-              queueOrder: r.queueOrder,
+              queueOrder: orderOf(r.categoryId, r.part, r.queueOrder),
               status: r.status,
               matchesCompleted: r.matchesCompleted,
               completedAt: r.completedAt,
             })
             .where(sameCard(r));
         }
+        for (const a of stillHere) {
+          await tx
+            .update(categoryAssignmentsTable)
+            .set({ queueOrder: orderOf(a.categoryId, a.part, a.queueOrder) })
+            .where(sameCard(a));
+        }
 
         // Insert new rows
         if (newRows.length > 0) {
-          await tx.insert(categoryAssignmentsTable).values(newRows);
+          await tx
+            .insert(categoryAssignmentsTable)
+            .values(newRows.map((r) => ({ ...r, queueOrder: orderOf(r.categoryId, r.part, r.queueOrder) })));
         }
       }
     });
@@ -220,7 +265,7 @@ export async function saveAssignments(
       actor: admin,
       action: "ASSIGNMENTS_SAVED",
       before: currentAssignments.map((a) => ({ categoryId: a.categoryId, part: a.part, ringId: a.ringId, queueOrder: a.queueOrder, status: a.status })),
-      after: validAssignments.map((a) => ({ categoryId: a.category_id, part: partOf(a), ringId: a.ring_id, queueOrder: a.queue_order })),
+      after: validAssignments.map((a) => ({ categoryId: a.category_id, ringId: a.ring_id, queueOrder: a.queue_order })),
     });
 
     // Broadcast immediately so Mod, Organiser, Stager receive updates with zero latency
@@ -280,4 +325,3 @@ export async function getBalancingAssignments(ringIds: string[]) {
     return [];
   }
 }
-

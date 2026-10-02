@@ -203,6 +203,8 @@ export default function StagerBalancingClient({
       const data = await getBalancingAssignments(ringIds);
       const map: Record<string, any> = {};
       for (const row of data ?? []) {
+        // One entry per category: a split category's pool cards belong to the moderators' desks.
+        if (row.part !== "ALL" && row.part !== "FINALS") continue;
         map[row.category_id] = {
           matches_completed: row.matches_completed || 0,
           status: row.status || "pending",

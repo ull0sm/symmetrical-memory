@@ -7,6 +7,7 @@
 import { DEFAULT_BOUT_DURATION_MS } from "@/lib/constants";
 import type { AccessRequestStatus } from "@/lib/statuses";
 import { asDrawProfile } from "@/lib/draws/drawRules";
+import { describePart } from "@/lib/draws/partFilter";
 import type { InferSelectModel } from "drizzle-orm";
 import {
   tournaments,
@@ -149,11 +150,16 @@ function buildCategory(c: CategoryRow & Record<string, unknown>) {
 
 function buildCategoryAssignment(a: Omit<CategoryAssignmentRow, "stagerName"> & Record<string, unknown>, category?: Record<string, unknown> | null) {
   const serializedCat = category ? serializeCategory(category as CategoryRow) : a.categories ? serializeCategory(a.categories as CategoryRow) : null;
+  // A split category's pool or finals card says which part it is wherever the name is shown.
+  const partLabel = describePart(a.part);
+  const named = serializedCat && partLabel ? { ...serializedCat, name: `${serializedCat.name} · ${partLabel}` } : serializedCat;
   return {
     ...a,
     id: a.id,
     ring_id: a.ringId,
     category_id: a.categoryId,
+    part: a.part,
+    part_label: partLabel,
     queue_order: a.queueOrder,
     status: a.status,
     matches_completed: a.matchesCompleted ?? 0,
@@ -161,7 +167,7 @@ function buildCategoryAssignment(a: Omit<CategoryAssignmentRow, "stagerName"> & 
     completed_at: iso(a.completedAt),
     paused_at: iso(a.pausedAt),
     pause_duration_seconds: a.pauseDurationSeconds ?? 0,
-    categories: serializedCat,
+    categories: named,
   };
 }
 
