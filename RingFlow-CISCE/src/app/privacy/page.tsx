@@ -63,8 +63,8 @@ export default function PrivacyPolicyPage() {
 
         <Section title="Third-party services">
           <p>
-            We use Supabase for database and authentication, and Cloudflare Turnstile for bot protection on
-            public forms. Turnstile does not fingerprint users. Hosting is on Vercel. Each service operates
+            Data is stored in the event's own PostgreSQL database. We use Cloudflare Turnstile (when enabled) for bot protection on
+            public forms. Turnstile does not fingerprint users. The app runs on the organiser's own server (a venue machine or a cloud host). Each service operates
             under its own privacy policy.
           </p>
         </Section>

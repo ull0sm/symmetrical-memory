@@ -8,9 +8,11 @@ import { headers } from "next/headers";
 import { normalizeAccessCode, generateUnambiguousCode, isValidUuid } from "@/lib/utils";
 import { serializeStagerRequest } from "@/lib/serializers";
 import { isOfflineMode } from "@/lib/offline";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from "@/lib/auth/cookies";
 import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
+import { hashToken, newSessionToken } from "@/lib/auth/tokens";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
 import { getStagerPrincipal } from "@/lib/auth/principal";
 
@@ -39,6 +41,10 @@ export async function requestStagerAccess(
     if (!verification.success) {
       return { success: false, error: verification.error || "Security check failed." };
     }
+  }
+
+  if (!(await allowAttempt([{ key: `access-code:stager:${await clientAddress()}`, ...RATE_LIMITS.accessCodePerAddress }]))) {
+    return { success: false, error: TOO_MANY_ATTEMPTS };
   }
 
   const cleanCode = (accessCode || "").trim().toUpperCase().slice(0, 20);
@@ -121,7 +127,6 @@ export async function checkStagerStatus(requestId: string) {
   const [request] = await db
     .select({
       status: stagerRequests.status,
-      sessionToken: stagerRequests.sessionToken,
       tournamentId: stagerRequests.tournamentId,
       expiresAt: stagerRequests.expiresAt,
       stagerName: stagerRequests.stagerName,
@@ -136,9 +141,15 @@ export async function checkStagerStatus(requestId: string) {
 
   const ownsRequest = await holdsClaim("stager", request.claimHash);
 
-  if (request.status === "approved" && request.sessionToken && ownsRequest) {
+  if (request.status === "approved" && ownsRequest) {
+    // The session is minted here, for the browser that asked; only its hash is kept.
+    const token = newSessionToken();
+    await db
+      .update(stagerRequests)
+      .set({ sessionToken: null, sessionTokenHash: hashToken(token) })
+      .where(eq(stagerRequests.id, requestId));
     const secondsLeft = Math.max(60, Math.floor((request.expiresAt.getTime() - Date.now()) / 1000));
-    await setSessionCookie(SESSION_COOKIES.stager, request.sessionToken, secondsLeft);
+    await setSessionCookie(SESSION_COOKIES.stager, token, secondsLeft);
     await clearCookies(claimCookieName("stager"), ...LEGACY_COOKIES);
     return { status: "approved" as const, tournamentId: request.tournamentId, stagerName: request.stagerName };
   }
@@ -180,7 +191,7 @@ export async function approveStagerRequest(requestId: string, tournamentId: stri
     if (toRevokeIds.length > 0) {
       await tx
         .update(stagerRequests)
-        .set({ status: "revoked", sessionToken: null })
+        .set({ status: "revoked", sessionToken: null, sessionTokenHash: null })
         .where(inArray(stagerRequests.id, toRevokeIds));
     }
 
@@ -188,7 +199,8 @@ export async function approveStagerRequest(requestId: string, tournamentId: stri
       .update(stagerRequests)
       .set({
         status: "approved",
-        sessionToken: crypto.randomUUID(),
+        sessionToken: null,
+        sessionTokenHash: null,
         expiresAt: new Date(Date.now() + STAGER_SESSION_SECONDS * 1000),
       })
       .where(eq(stagerRequests.id, requestId));
@@ -205,7 +217,7 @@ export async function rejectStagerRequest(requestId: string, tournamentId: strin
 
   await db
     .update(stagerRequests)
-    .set({ status: "rejected", sessionToken: null })
+    .set({ status: "rejected", sessionToken: null, sessionTokenHash: null })
     .where(eq(stagerRequests.id, requestId));
 
   broadcastLiveEvent({ table: "stager_requests", op: "UPDATE", id: requestId, tournamentId, status: "rejected" });
@@ -219,7 +231,7 @@ export async function revokeStagerSession(requestId: string, tournamentId: strin
 
   await db
     .update(stagerRequests)
-    .set({ status: "revoked", sessionToken: null })
+    .set({ status: "revoked", sessionToken: null, sessionTokenHash: null })
     .where(eq(stagerRequests.id, requestId));
 
   broadcastLiveEvent({ table: "stager_requests", op: "UPDATE", id: requestId, tournamentId, status: "revoked" });
@@ -297,7 +309,7 @@ export async function removeStagerCode(tournamentId: string, code: string) {
   if (holderIds.length > 0) {
     await db
       .update(stagerRequests)
-      .set({ status: "revoked", sessionToken: null })
+      .set({ status: "revoked", sessionToken: null, sessionTokenHash: null })
       .where(inArray(stagerRequests.id, holderIds));
   }
 
@@ -344,7 +356,7 @@ export async function logoutStager() {
   if (stager) {
     await db
       .update(stagerRequests)
-      .set({ status: "expired", sessionToken: null })
+      .set({ status: "expired", sessionToken: null, sessionTokenHash: null })
       .where(eq(stagerRequests.id, stager.requestId));
   }
   await clearCookies(SESSION_COOKIES.stager, ...LEGACY_COOKIES);

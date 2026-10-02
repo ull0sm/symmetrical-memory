@@ -1,8 +1,8 @@
 import { type NextRequest } from 'next/server'
-import { updateSession } from '@/utils/supabase/middleware'
+import { gateRequest } from '@/lib/http/requestGate'
 
 export async function proxy(request: NextRequest) {
-  return await updateSession(request)
+  return await gateRequest(request)
 }
 
 export const config = {

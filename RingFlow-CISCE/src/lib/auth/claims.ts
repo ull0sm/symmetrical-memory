@@ -1,6 +1,7 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { setSessionCookie } from "./cookies";
+import { hashToken } from "./tokens";
 
 /**
  * Binding an access request to the browser that made it.
@@ -22,9 +23,7 @@ const CLAIM_COOKIE: Record<ClaimRole, string> = {
 
 const CLAIM_TTL_SECONDS = 48 * 60 * 60;
 
-export function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
+export const sha256 = hashToken;
 
 /** Issue a fresh claim secret to this browser; returns the hash to store on the request row. */
 export async function issueClaim(role: ClaimRole): Promise<string> {

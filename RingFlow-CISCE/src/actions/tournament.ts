@@ -5,6 +5,7 @@ import { tournaments, categories, rings } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth/guards";
 import { uniqueOrganiserCode, uniqueRingAccessCode } from "@/lib/accessCodes";
 import { inferEventType } from "@/lib/categories/eventType";
+import { parseInput, tournamentInputSchema } from "@/lib/validation";
 
 export type CategoryInput = {
   name: string;
@@ -23,8 +24,9 @@ export type TournamentInput = {
   ring_count?: number;
 };
 
-export async function createTournament(input: TournamentInput) {
+export async function createTournament(rawInput: TournamentInput) {
   const { adminId } = await requireAdmin();
+  const input = parseInput(tournamentInputSchema, rawInput, "tournament");
 
   // Validate inputs
   const name = (input.name || "").trim();

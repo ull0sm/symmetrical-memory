@@ -1,161 +1,112 @@
 "use server";
 
-import { createClient } from "@/utils/supabase/server";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { db } from "@/db";
+import { categories, categoryDocuments } from "@/db/schema";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * Normalize a string for fuzzy matching:
- * lowercase, trim, collapse multiple spaces, strip dots.
- */
+/** Lowercase, trim, collapse spaces, strip dots — for matching file names to categories. */
 function normalize(str: string): string {
-  return str
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace(/\./g, "");
+  return str.toLowerCase().trim().replace(/\s+/g, " ").replace(/\./g, "");
 }
 
-/**
- * Given a filename like "U19_F_40 - 44 Kgs.pdf", derive the candidate name:
- * strip the .pdf suffix, trim.
- */
+/** "U19_F_40 - 44 Kgs.pdf" → "U19_F_40 - 44 Kgs" */
 function filenameToName(filename: string): string {
   return filename.replace(/\.pdf$/i, "").trim();
 }
 
-/**
- * Find the best matching category by name from a list.
- * First tries exact normalized match; falls back to includes.
- */
+/** Exact normalized match first, then a contains match. */
 function findMatch(
   candidateName: string,
-  categories: { id: string; name: string }[]
+  list: { id: string; name: string }[]
 ): { id: string; name: string } | null {
   const norm = normalize(candidateName);
-  // Exact normalized match
-  const exact = categories.find((c) => normalize(c.name) === norm);
+  const exact = list.find((c) => normalize(c.name) === norm);
   if (exact) return exact;
-  // Contains match (less strict)
-  const contains = categories.find(
-    (c) => normalize(c.name).includes(norm) || norm.includes(normalize(c.name))
-  );
-  return contains ?? null;
+  return list.find((c) => normalize(c.name).includes(norm) || norm.includes(normalize(c.name))) ?? null;
 }
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+/** Stays under the server-action body limit in next.config.ts. */
+const MAX_PDF_BYTES = 8 * 1024 * 1024;
 
 export type PDFUploadResult = {
-  matched: {
-    filename: string;
-    categoryName: string;
-    categoryId: string;
-    docUrl: string;
-  }[];
+  matched: { filename: string; categoryName: string; categoryId: string; docUrl: string }[];
   unmatched: string[];
   errors: { filename: string; error: string }[];
 };
 
-// ─── Action ──────────────────────────────────────────────────────────────────
+function documentUrl(categoryId: string, version: number) {
+  return `/api/category-docs/${categoryId}?v=${version}`;
+}
+
+// ─── Actions ────────────────────────────────────────────────────────────────
 
 /**
- * Bulk-upload category athlete-list PDFs.
- *
- * Each file should be named exactly as the category name + ".pdf"
- * (e.g. "U19_F_40 - 44 Kgs.pdf"). We fuzzy-match by normalized name.
- *
- * - Files are uploaded to Supabase Storage bucket `category-docs`
- *   at path `{tournamentId}/{categoryId}.pdf`.
- * - The public URL is saved to `categories.doc_url`.
- * - Previously uploaded PDFs for the same category are silently replaced.
+ * Upload category athlete-list PDFs. Each file is named after its category
+ * (e.g. "U19_F_40 - 44 Kgs.pdf") and matched by normalized name. Files are
+ * stored in Postgres and served to staff only; re-uploading replaces the old one.
  */
-export async function uploadCategoryPDFs(
-  tournamentId: string,
-  formData: FormData
-): Promise<PDFUploadResult> {
+export async function uploadCategoryPDFs(tournamentId: string, formData: FormData): Promise<PDFUploadResult> {
   await requireTournamentAdmin(tournamentId);
-  const supabase = await createClient();
 
-  // 1. Verify tournament
-  const { data: tournament } = await supabase
-    .from("tournaments")
-    .select("id")
-    .eq("id", tournamentId)
-    .single();
-  if (!tournament) throw new Error("Tournament not found or unauthorized.");
+  const tournamentCategories = await db
+    .select({ id: categories.id, name: categories.name })
+    .from(categories)
+    .where(eq(categories.tournamentId, tournamentId));
 
-  // 2. Fetch all categories for this tournament
-  const { data: categories, error: catError } = await supabase
-    .from("categories")
-    .select("id, name")
-    .eq("tournament_id", tournamentId);
-  if (catError || !categories) throw new Error("Failed to fetch categories.");
-
-  // 3. Process each uploaded PDF
-  const files = formData.getAll("pdfs") as File[];
+  const files = formData.getAll("pdfs").filter((f): f is File => f instanceof File);
   const result: PDFUploadResult = { matched: [], unmatched: [], errors: [] };
 
   for (const file of files) {
-    if (!file || file.size === 0) continue;
+    if (file.size === 0) continue;
 
-    const candidateName = filenameToName(file.name);
-    const matchedCategory = findMatch(candidateName, categories);
-
+    const matchedCategory = findMatch(filenameToName(file.name), tournamentCategories);
     if (!matchedCategory) {
       result.unmatched.push(file.name);
       continue;
     }
+    if (file.size > MAX_PDF_BYTES) {
+      result.errors.push({ filename: file.name, error: "File is larger than 8 MB." });
+      continue;
+    }
 
     try {
-      // Upload to Supabase Storage
-      const storagePath = `${tournamentId}/${matchedCategory.id}.pdf`;
-      const arrayBuffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-
-      const { error: uploadError } = await supabase.storage
-        .from("category-docs")
-        .upload(storagePath, bytes, {
-          contentType: "application/pdf",
-          upsert: true, // Replace if exists
-          cacheControl: "0",
-        });
-
-      if (uploadError) {
-        result.errors.push({ filename: file.name, error: uploadError.message });
+      const bytes = Buffer.from(await file.arrayBuffer());
+      // Only real PDFs: they start with "%PDF-".
+      if (bytes.subarray(0, 5).toString("latin1") !== "%PDF-") {
+        result.errors.push({ filename: file.name, error: "Not a PDF file." });
         continue;
       }
 
-      // Get stable public URL with cache-busting timestamp
-      const { data: urlData } = supabase.storage
-        .from("category-docs")
-        .getPublicUrl(storagePath);
+      const row = {
+        filename: file.name.slice(0, 200),
+        contentType: "application/pdf",
+        sizeBytes: bytes.length,
+        content: bytes,
+        uploadedAt: new Date(),
+      };
+      await db
+        .insert(categoryDocuments)
+        .values({ categoryId: matchedCategory.id, ...row })
+        .onConflictDoUpdate({ target: categoryDocuments.categoryId, set: row });
 
-      const docUrl = urlData?.publicUrl ? `${urlData.publicUrl}?t=${Date.now()}` : null;
-
-      // Save URL back to categories row
-      const { error: updateError } = await supabase
-        .from("categories")
-        .update({ doc_url: docUrl })
-        .eq("id", matchedCategory.id);
-
-      if (updateError) {
-        result.errors.push({ filename: file.name, error: updateError.message });
-        continue;
-      }
+      const docUrl = documentUrl(matchedCategory.id, Date.now());
+      await db
+        .update(categories)
+        .set({ docUrl })
+        .where(and(eq(categories.id, matchedCategory.id), eq(categories.tournamentId, tournamentId)));
 
       result.matched.push({
         filename: file.name,
         categoryName: matchedCategory.name,
         categoryId: matchedCategory.id,
-        docUrl: docUrl ?? "",
+        docUrl,
       });
-    } catch (err: any) {
-      result.errors.push({
-        filename: file.name,
-        error: err?.message ?? "Unknown error",
-      });
+    } catch (err) {
+      result.errors.push({ filename: file.name, error: err instanceof Error ? err.message : "Upload failed" });
     }
   }
 
@@ -163,26 +114,19 @@ export async function uploadCategoryPDFs(
   return result;
 }
 
-/**
- * Remove a category's PDF (delete from storage + clear doc_url).
- */
-export async function removeCategoryPDF(
-  tournamentId: string,
-  categoryId: string
-): Promise<void> {
+/** Remove a category's PDF. */
+export async function removeCategoryPDF(tournamentId: string, categoryId: string): Promise<void> {
   await requireTournamentAdmin(tournamentId);
-  const supabase = await createClient();
 
-  const storagePath = `${tournamentId}/${categoryId}.pdf`;
+  const [cat] = await db
+    .select({ id: categories.id })
+    .from(categories)
+    .where(and(eq(categories.id, categoryId), eq(categories.tournamentId, tournamentId)))
+    .limit(1);
+  if (!cat) throw new Error("Category not found in this tournament");
 
-  // Remove from storage (ignore error if not found)
-  await supabase.storage.from("category-docs").remove([storagePath]);
-
-  // Clear doc_url on category
-  await supabase
-    .from("categories")
-    .update({ doc_url: null })
-    .eq("id", categoryId);
+  await db.delete(categoryDocuments).where(eq(categoryDocuments.categoryId, categoryId));
+  await db.update(categories).set({ docUrl: null }).where(eq(categories.id, categoryId));
 
   revalidatePath(`/admin/event/${tournamentId}/categories`);
 }

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
+import { officialRosterSchema, parseInput } from "@/lib/validation";
 import {
   importOfficialRosterCore,
   type ImportResult,
@@ -14,7 +15,7 @@ export async function importOfficialRoster(
   rawAthletes: RawImportAthlete[]
 ): Promise<ImportResult> {
   await requireTournamentAdmin(tournamentId);
-  const result = await importOfficialRosterCore(tournamentId, rawAthletes);
+  const result = await importOfficialRosterCore(tournamentId, parseInput(officialRosterSchema, rawAthletes, "roster"));
   try {
     revalidatePath(`/admin/event/${tournamentId}/athletes`);
     revalidatePath(`/admin/event/${tournamentId}/categories`);

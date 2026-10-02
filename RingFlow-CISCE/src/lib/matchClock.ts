@@ -50,7 +50,7 @@ function toMillis(value: Date | string | number | null | undefined): number | nu
 
 /**
  * Turn a persisted ring row into the canonical clock shape. Accepts both the
- * Drizzle/camelCase shape and the raw snake_case row that Supabase Realtime
+ * Drizzle/camelCase shape and the raw snake_case row that live feed
  * delivers, so every caller normalizes through this one function.
  */
 export interface ClockRowInput {

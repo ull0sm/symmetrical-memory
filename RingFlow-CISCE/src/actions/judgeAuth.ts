@@ -5,6 +5,7 @@ import { rings, judgeRequests } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { revalidatePath } from "next/cache";
+import { RATE_LIMITS, TOO_MANY_ATTEMPTS, allowAttempt, clientAddress } from "@/lib/rateLimit";
 import { requireRingOperator } from "@/lib/auth/guards";
 
 /** Judge requests as the moderator desk sees them: no device tokens. */
@@ -49,7 +50,13 @@ export async function requestJudgeAccess(params: {
     return { success: false, error: "Tatami not found" };
   }
 
-  if (ring.judgePin.trim() !== pin.trim()) {
+  const pinAllowed = await allowAttempt([
+    { key: `judge-pin:ring:${ringId}`, ...RATE_LIMITS.judgePinPerRing },
+    { key: `judge-pin:addr:${await clientAddress()}`, ...RATE_LIMITS.judgePinPerAddress },
+  ]);
+  if (!pinAllowed) return { success: false, error: TOO_MANY_ATTEMPTS };
+
+  if (ring.judgePin.trim() !== String(pin ?? "").trim()) {
     return { success: false, error: "Invalid Tatami PIN" };
   }
 
