@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { categories, tournaments } from "@/db/schema";
-import { getCategoryDraw } from "@/actions/draws";
+import { assembleCategoryDraw } from "@/lib/draws/assembleDraw";
+import { resolveDrawRules } from "@/lib/draws/drawRules";
 import { generateCategoryDrawPdfBytes } from "@/lib/pdf/drawPdfGenerator";
 import { eq } from "drizzle-orm";
 import JSZip from "jszip";
@@ -11,7 +12,14 @@ import JSZip from "jszip";
  * verification) can call it directly. Never expose these to the client.
  */
 
-/** One category's official draw sheet, base64-encoded for download. */
+function profileOf(
+  cat: { drawProfile: string | null },
+  tournament: { drawProfile: string } | undefined
+) {
+  return resolveDrawRules({ tournamentProfile: tournament?.drawProfile, categoryProfile: cat.drawProfile }).profile;
+}
+
+/** One category's draw sheet (draw only, no results), base64-encoded for download. */
 export async function buildCategoryDrawPdf(categoryId: string) {
   const [cat] = await db
     .select()
@@ -25,7 +33,7 @@ export async function buildCategoryDrawPdf(categoryId: string) {
     .from(tournaments)
     .where(eq(tournaments.id, cat.tournamentId));
 
-  const drawData = await getCategoryDraw(categoryId);
+  const drawData = await assembleCategoryDraw(categoryId, { ignoreResults: true });
   if (!drawData || !drawData.draw) {
     throw new Error("No draw has been generated for this category yet.");
   }
@@ -38,6 +46,8 @@ export async function buildCategoryDrawPdf(categoryId: string) {
     tournamentSize: drawData.draw.tournamentSize,
     byeCount: drawData.draw.byeCount,
     bronzeMedals: drawData.bronzeMedals,
+    drawState: drawData.drawState,
+    profile: profileOf(cat, tournament),
     podium: drawData.podium,
     athletes: drawData.athletes,
     matches: drawData.matches,
@@ -69,7 +79,7 @@ export async function buildAllCategoryDrawPdfs(tournamentId: string) {
 
   for (const cat of allCats) {
     try {
-      const drawData = await getCategoryDraw(cat.id);
+      const drawData = await assembleCategoryDraw(cat.id, { ignoreResults: true });
       if (!drawData || !drawData.draw || drawData.matches.length === 0) continue;
 
       const pdfBytes = await generateCategoryDrawPdfBytes({
@@ -80,6 +90,8 @@ export async function buildAllCategoryDrawPdfs(tournamentId: string) {
         tournamentSize: drawData.draw.tournamentSize,
         byeCount: drawData.draw.byeCount,
         bronzeMedals: drawData.bronzeMedals,
+        drawState: drawData.drawState,
+        profile: profileOf(cat, tournament),
         podium: drawData.podium,
         athletes: drawData.athletes,
         matches: drawData.matches,

@@ -91,8 +91,13 @@ function kataPoolPodium(
 
 export async function assembleCategoryDraw(
   categoryId: string,
-  options?: { athleteId?: string | null }
+  options?: {
+    athleteId?: string | null;
+    /** The draw as drawn: no scores, winners or advancement from fought bouts. For the printed draw sheet. */
+    ignoreResults?: boolean;
+  }
 ) {
+  const useResults = !options?.ignoreResults;
   const [category] = await db
     .select({ name: categories.name, tournamentId: categories.tournamentId })
     .from(categories)
@@ -117,12 +122,32 @@ export async function assembleCategoryDraw(
   const graph = latestVersion.graph as unknown as DrawGraph;
 
   // Fetch all db matches, slots, and events to resolve current state
-  const dbMatches = await db
+  const storedMatches = await db
     .select()
     .from(matches)
     .where(eq(matches.categoryId, categoryId));
 
-  const dbSlots = await db
+  // A draw-only view shows every bout as it stood before anyone fought.
+  const dbMatches = useResults
+    ? storedMatches
+    : storedMatches.map((m) => ({
+        ...m,
+        status: "SCHEDULED",
+        winnerId: null,
+        winnerSide: null,
+        akaScore: 0,
+        aoScore: 0,
+        akaScoreTotal: null,
+        aoScoreTotal: null,
+        akaPenalties: 0,
+        aoPenalties: 0,
+        senshu: null,
+        decisionMethod: null,
+        akaKataName: null,
+        aoKataName: null,
+      }));
+
+  const storedSlots = await db
     .select()
     .from(matchSlots)
     .where(
@@ -131,6 +156,11 @@ export async function assembleCategoryDraw(
         dbMatches.map((m) => m.id)
       )
     );
+
+  // Later-round slots only hold athletes because earlier bouts were fought.
+  const dbSlots = useResults
+    ? storedSlots
+    : storedSlots.map((s) => (s.slotType === "ATHLETE" || s.slotType === "ENTRY" ? s : { ...s, athleteId: null }));
 
   // Athletes of this tournament only, for name mapping.
   const athleteList = category
@@ -333,7 +363,7 @@ export async function assembleCategoryDraw(
     bronzeMedals: draw.bronzeMedals ?? 2,
     matches: Object.values(matchesMap),
     athletes: catAthletes,
-    podium: resolved ? resolved.podium : kataPoolPodium(dbMatches, dbSlots),
+    podium: !useResults ? null : resolved ? resolved.podium : kataPoolPodium(dbMatches, dbSlots),
     highlightAthleteId: options?.athleteId ?? null,
     flightDraw: (graph as any)?.flightDraw ?? null,
   };

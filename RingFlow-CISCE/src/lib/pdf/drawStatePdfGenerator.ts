@@ -1,4 +1,5 @@
-import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFPage, rgb } from "pdf-lib";
+import { cleanText, drawText, loadFontSet, truncateToWidth, type RunFont } from "@/lib/pdf/pdfText";
 import type { BracketMatchView } from "@/lib/draws/assembleDraw";
 import type { BoutOfficial } from "@/lib/results/officials";
 
@@ -40,27 +41,9 @@ const AKA = rgb(192 / 255, 57 / 255, 43 / 255);
 const AO = rgb(29 / 255, 78 / 255, 216 / 255);
 const WON_BG = rgb(229 / 255, 246 / 255, 240 / 255);
 
-/** pdf-lib's WinAnsi encoder rejects anything outside Latin-1. */
-function safe(text: string | null | undefined): string {
-  if (!text) return "";
-  return String(text)
-    .normalize("NFKD")
-    .replace(/[\u2018\u2019\u201B]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/\u2026/g, "...")
-    .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, "?");
-}
-
 /** Trim to fit a column, so long school names never overlap the score. */
-function ellipsize(text: string, font: PDFFont, size: number, maxWidth: number): string {
-  const clean = safe(text);
-  if (font.widthOfTextAtSize(clean, size) <= maxWidth) return clean;
-  let cut = clean;
-  while (cut.length > 1 && font.widthOfTextAtSize(`${cut}…`, size) > maxWidth) {
-    cut = cut.slice(0, -1);
-  }
-  return `${cut}…`;
+function ellipsize(text: string, font: RunFont, size: number, maxWidth: number): string {
+  return truncateToWidth(text, font, size, maxWidth);
 }
 
 function scoreLine(match: BracketMatchView): string {
@@ -90,8 +73,7 @@ function side(match: BracketMatchView, which: "aka" | "ao") {
 
 export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
-  const regular = await pdf.embedFont(StandardFonts.Helvetica);
-  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const { regular, bold } = await loadFontSet(pdf);
 
   let page: PDFPage = pdf.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - MARGIN;
@@ -115,7 +97,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
     borderColor: LINE,
     borderWidth: 1,
   });
-  page.drawText(ellipsize(data.tournamentName || "Tournament", bold, 15, CONTENT_W - 24), {
+  drawText(page, ellipsize(data.tournamentName || "Tournament", bold, 15, CONTENT_W - 24), {
     x: MARGIN + 12,
     y: y - 22,
     size: 15,
@@ -128,13 +110,13 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
     data.venue,
     data.city,
   ].filter(Boolean) as string[];
-  page.drawText(
+  drawText(page, 
     ellipsize(`Draw state · ${metaBits.join(" · ") || "Date not set"}`, regular, 9, CONTENT_W - 24),
     { x: MARGIN + 12, y: y - 38, size: 9, font: regular, color: MUTED }
   );
   y -= 52 + 18;
 
-  page.drawText(
+  drawText(page, 
     ellipsize(`Generated ${data.generatedAt.toISOString().slice(0, 16).replace("T", " ")}`, regular, 8, CONTENT_W),
     { x: MARGIN, y, size: 8, font: regular, color: MUTED }
   );
@@ -150,7 +132,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
     ensure(70);
     y -= 6;
     page.drawRectangle({ x: MARGIN, y: y - 30, width: CONTENT_W, height: 30, color: INK });
-    page.drawText(ellipsize(category.categoryName, bold, 12, CONTENT_W - 150), {
+    drawText(page, ellipsize(category.categoryName, bold, 12, CONTENT_W - 150), {
       x: MARGIN + 10,
       y: y - 20,
       size: 12,
@@ -165,7 +147,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
           : category.bronzeMedals === 3
             ? "local official (joint bronzes)"
             : "two bronzes (WKF repechage)";
-    page.drawText(
+    drawText(page, 
       ellipsize(
         `${category.matches.length} bouts · ${withScores} with points · ${summary}`,
         regular,
@@ -175,7 +157,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
       { x: MARGIN + 10, y: y - 8, size: 8, font: regular, color: rgb(0.85, 0.85, 0.85) }
     );
     if (category.tournamentSize) {
-      page.drawText(`Size ${category.tournamentSize}`, {
+      drawText(page, `Size ${category.tournamentSize}`, {
         x: MARGIN + CONTENT_W - 66,
         y: y - 20,
         size: 9,
@@ -217,7 +199,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
 
     for (const group of groups) {
       ensure(34);
-      page.drawText(safe(group.label.toUpperCase()), {
+      drawText(page, cleanText(group.label.toUpperCase()), {
         x: MARGIN,
         y,
         size: 9,
@@ -248,7 +230,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
           });
         }
 
-        page.drawText(`#${match.matchNo}`, {
+        drawText(page, `#${match.matchNo}`, {
           x: MARGIN + 2,
           y: y - 10,
           size: 8,
@@ -261,8 +243,8 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
         const akaLabel = `${aka.name}${aka.chest ? ` (${aka.chest})` : ""}`;
         const aoLabel = `${ao.name}${ao.chest ? ` (${ao.chest})` : ""}`;
 
-        page.drawText(`AKA`, { x: nameX, y: y - 2, size: 6, font: bold, color: AKA });
-        page.drawText(ellipsize(akaLabel, aka.won ? bold : regular, 9, nameW), {
+        drawText(page, `AKA`, { x: nameX, y: y - 2, size: 6, font: bold, color: AKA });
+        drawText(page, ellipsize(akaLabel, aka.won ? bold : regular, 9, nameW), {
           x: nameX + 24,
           y: y - 2,
           size: 9,
@@ -270,8 +252,8 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
           color: INK,
         });
 
-        page.drawText(`AO`, { x: nameX, y: y - 13, size: 6, font: bold, color: AO });
-        page.drawText(ellipsize(aoLabel, ao.won ? bold : regular, 9, nameW), {
+        drawText(page, `AO`, { x: nameX, y: y - 13, size: 6, font: bold, color: AO });
+        drawText(page, ellipsize(aoLabel, ao.won ? bold : regular, 9, nameW), {
           x: nameX + 24,
           y: y - 13,
           size: 9,
@@ -284,14 +266,14 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
         const akaPoints = match.akaScoreTotal ?? String(match.akaScore ?? 0);
         const aoPoints = match.aoScoreTotal ?? String(match.aoScore ?? 0);
         const scoreX = nameX + nameW + 16;
-        page.drawText(`AKA ${akaPoints}`, {
+        drawText(page, `AKA ${akaPoints}`, {
           x: scoreX,
           y: y - 2,
           size: 9,
           font: bold,
           color: AKA,
         });
-        page.drawText(`AO ${aoPoints}`, {
+        drawText(page, `AO ${aoPoints}`, {
           x: scoreX,
           y: y - 13,
           size: 9,
@@ -303,14 +285,14 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
           match.status === "BYE" || match.status === "WALKOVER"
             ? "walkover"
             : decidedMatch
-              ? `W · ${safe(aka.won ? aka.name : ao.won ? ao.name : "")}${
-                  match.decisionMethod ? ` · ${safe(match.decisionMethod)}` : ""
+              ? `W · ${cleanText(aka.won ? aka.name : ao.won ? ao.name : "")}${
+                  match.decisionMethod ? ` · ${cleanText(match.decisionMethod)}` : ""
                 }`
               : match.status === "LIVE"
                 ? "in progress"
                 : "not fought yet";
 
-        page.drawText(ellipsize(detail, regular, 8, 108), {
+        drawText(page, ellipsize(detail, regular, 8, 108), {
           x: scoreX + 62,
           y: y - 4,
           size: 8,
@@ -327,7 +309,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
           ]
             .filter(Boolean)
             .join(" · ");
-          page.drawText(ellipsize(note, regular, 7, 108), {
+          drawText(page, ellipsize(note, regular, 7, 108), {
             x: scoreX + 62,
             y: y - 13,
             size: 7,
@@ -338,7 +320,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
 
         const schools = [aka.school, ao.school].filter(Boolean).join(" / ");
         if (schools) {
-          page.drawText(ellipsize(schools, regular, 7, CONTENT_W - 26), {
+          drawText(page, ellipsize(schools, regular, 7, CONTENT_W - 26), {
             x: nameX,
             y: y - 22,
             size: 7,
@@ -358,7 +340,7 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
   // ── Footer on every page ───────────────────────────────────────────────────
   const pages = pdf.getPages();
   pages.forEach((p, index) => {
-    p.drawText(`RingFlow · draw state · page ${index + 1} of ${pages.length}`, {
+    drawText(p, `RingFlow · draw state · page ${index + 1} of ${pages.length}`, {
       x: MARGIN,
       y: MARGIN / 2,
       size: 7,

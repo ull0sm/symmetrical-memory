@@ -1,19 +1,21 @@
-PASS  setup: a bout with an AO athlete is on the mat
-PASS  anonymous cannot read attendance
-PASS  stager reads the category's athletes
-PASS  organiser cannot read attendance (not in the role matrix)
-PASS  organiser cannot mark attendance (read-only)
-PASS  moderator cannot mark attendance
-PASS  anonymous cannot mark attendance
-PASS  cannot mark an athlete from another category
-PASS  stager marks AO absent
-PASS  mark records who set it
-PASS  marking is audited
-PASS  admin may mark attendance
-PASS  moderator's bout data carries the hint
-PASS  a withdrawn mark blocks nothing (bout still ready)
-PASS  public scoreboard data has no attendance
-PASS  tapping again clears the mark
-PASS  nothing is blocked: the bout is still ready to score
+PASS  approval is audited with the admin's name
+PASS  score change audited with before/after
+PASS  moderator confirms result  — {"success":true}
+PASS  result confirmation audited
+PASS  correction without a reason is refused  — {"success":false,"requiresReason":true,"error":"This result is already confirmed. Give a reason for the correction (it goes in the official record)."}
+PASS  correction with a reason succeeds  — {"success":true}
+PASS  correction audited with reason and before/after
+PASS  moderator cannot correct once the category is finished
+PASS  admin correction needs a reason  — {"success":false,"requiresReason":true,"error":"This result is already confirmed. Give a reason for the correction (it goes in the official record)."}
+PASS  admin corrects with a reason  — {"success":true}
+PASS  admin correction audited as admin
+PASS  moderator cannot use the admin correction
+PASS  audit rows cannot be edited
+PASS  admin reads the audit log  — HTTP 200
+PASS  Official Record page renders for admin
+PASS  anonymous cannot read the audit log
+PASS  stager cannot read the audit log
+PASS  results CSV has a Confirmed by column
+PASS  results CSV names the confirming official and the correction
 
-17/17 passed
+19/19 passed

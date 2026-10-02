@@ -1,4 +1,5 @@
-import { PDFDocument, PDFFont, PDFPage, PDFImage, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFPage, PDFImage, degrees, rgb } from "pdf-lib";
+import { cleanText, drawText, loadFontSet, truncateToWidth, type RunFont } from "@/lib/pdf/pdfText";
 import type { BracketMatchView } from "@/lib/draws/assembleDraw";
 import fs from "fs";
 import path from "path";
@@ -11,6 +12,10 @@ export type CategoryDrawPdfData = {
   tournamentSize: number;
   byeCount: number;
   bronzeMedals?: number;
+  /** 'LOCKED' draws are the official draw; anything else prints as a draft. */
+  drawState?: string | null;
+  /** How the draw was made: WKF procedure, or local / unofficial rules. */
+  profile?: "OFFICIAL" | "LOCAL" | null;
   podium?: {
     goldRegistrationId?: string | null;
     silverRegistrationId?: string | null;
@@ -20,28 +25,14 @@ export type CategoryDrawPdfData = {
   matches: BracketMatchView[];
 };
 
-/** pdf-lib Helvetica encoder rejects anything outside Latin-1. */
+/** Text as it will print. Names keep their own script; the fonts are embedded (see pdfText.ts). */
 function safeText(text: string | null | undefined): string {
-  if (!text) return "";
-  return String(text)
-    .normalize("NFKD")
-    .replace(/[\u2018\u2019\u201B]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/\u2026/g, "...")
-    .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, "?")
-    .trim();
+  return cleanText(text);
 }
 
 /** Trim text to fit within a maxWidth without overlapping. */
-function ellipsize(text: string, font: PDFFont, size: number, maxWidth: number): string {
-  const clean = safeText(text);
-  if (font.widthOfTextAtSize(clean, size) <= maxWidth) return clean;
-  let cut = clean;
-  while (cut.length > 1 && font.widthOfTextAtSize(`${cut}...`, size) > maxWidth) {
-    cut = cut.slice(0, -1);
-  }
-  return `${cut}...`;
+function ellipsize(text: string, font: RunFont, size: number, maxWidth: number): string {
+  return truncateToWidth(text, font, size, maxWidth, "...");
 }
 
 interface MatchCoord {
@@ -59,9 +50,8 @@ export async function generateCategoryDrawPdfBytes(
 ): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
 
-  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const helveticaOblique = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+  const { regular: helvetica, bold: helveticaBold } = await loadFontSet(pdfDoc);
+  const helveticaOblique = helvetica;
 
   // High-contrast palette: crisp in color, crystal clear in B&W printing
   const emerald = rgb(14 / 255, 156 / 255, 124 / 255); // #0E9C7C RingFlow brand
@@ -113,6 +103,48 @@ export async function generateCategoryDrawPdfBytes(
 
   const pageMarginX = 24;
 
+  const isOfficialSheet = data.drawState === "LOCKED";
+  // A locked draw under WKF procedure is "Official"; under local / unofficial rules it is simply "Final".
+  const sheetLabel = !isOfficialSheet ? "Draft Draw Sheet" : data.profile === "LOCAL" ? "Final Draw Sheet" : "Official Draw Sheet";
+  const profileLabel = data.profile === "OFFICIAL" ? "WKF procedure" : data.profile === "LOCAL" ? "Local / unofficial rules" : null;
+
+  // What the bronze rounds on the sheet mean depends on the format the draw was made with.
+  const medalRoundsTitle =
+    data.bronzeMedals === 1 ? "SINGLE BRONZE BOUT" : data.bronzeMedals === 3 ? "BRONZE MEDALS" : data.bronzeMedals === 0 ? "MEDALS" : "REPECHAGE & 3RD PLACE MEDAL ROUNDS";
+  const medalRoundsNote =
+    data.bronzeMedals === 1
+      ? "The two semi-final losers meet for a single bronze medal"
+      : data.bronzeMedals === 3
+        ? "Both semi-final losers are awarded bronze; no extra bouts"
+        : data.bronzeMedals === 0
+          ? "No bronze bout: the draw stops at the final"
+          : "Athletes beaten by the finalists compete in the repechage for bronze medals";
+
+  /** Stamps DRAFT across every page of a draw that has not been locked, then saves. */
+  const finish = async (): Promise<Uint8Array> => {
+    if (!isOfficialSheet) {
+      for (const page of pdfDoc.getPages()) {
+        const { width, height } = page.getSize();
+        const text = "DRAFT";
+        const size = 120;
+        const angle = 32;
+        const w = helveticaBold.latin.widthOfTextAtSize(text, size);
+        const rad = (angle * Math.PI) / 180;
+        // pdf-lib rotates about the text origin, so start where the middle of the word lands on the page's middle.
+        page.drawText(text, {
+          x: width / 2 - (w / 2) * Math.cos(rad) + (size * 0.35) * Math.sin(rad),
+          y: height / 2 - (w / 2) * Math.sin(rad) - (size * 0.35) * Math.cos(rad),
+          size,
+          font: helveticaBold.latin,
+          color: rgb(0.8, 0.82, 0.85),
+          opacity: 0.35,
+          rotate: degrees(angle),
+        });
+      }
+    }
+    return pdfDoc.save();
+  };
+
   // Header drawing helper
   const drawPageHeader = (page: PDFPage, width: number, height: number, customSub?: string) => {
     const headerY = height - 66;
@@ -137,7 +169,7 @@ export async function generateCategoryDrawPdfBytes(
     });
 
     // Tournament Name
-    page.drawText(safeText(data.tournamentName).toUpperCase(), {
+    drawText(page, safeText(data.tournamentName).toUpperCase(), {
       x: pageMarginX + 16,
       y: headerY + headerH - 16,
       size: 11.5,
@@ -146,7 +178,7 @@ export async function generateCategoryDrawPdfBytes(
     });
 
     // Category Name
-    page.drawText(`CATEGORY: ${safeText(data.categoryName).toUpperCase()}`, {
+    drawText(page, `CATEGORY: ${safeText(data.categoryName).toUpperCase()}`, {
       x: pageMarginX + 16,
       y: headerY + headerH - 31,
       size: 10,
@@ -156,7 +188,7 @@ export async function generateCategoryDrawPdfBytes(
 
     // Subtitle Line
     if (customSub) {
-      page.drawText(customSub, {
+      drawText(page, customSub, {
         x: pageMarginX + 16,
         y: headerY + 8,
         size: 7,
@@ -178,9 +210,10 @@ export async function generateCategoryDrawPdfBytes(
               ? "Local Official (Joint 3rd Bronzes)"
               : "WKF Repechage (2 Bronzes)";
       metaParts.push(formatText);
-      metaParts.push("Official Draw Sheet");
+      if (profileLabel) metaParts.push(profileLabel);
+      metaParts.push(sheetLabel);
 
-      page.drawText(metaParts.join("  |  "), {
+      drawText(page, metaParts.join("  |  "), {
         x: pageMarginX + 16,
         y: headerY + 8,
         size: 7,
@@ -299,7 +332,7 @@ export async function generateCategoryDrawPdfBytes(
         borderWidth: 0.5,
       });
 
-      p.drawText(`BOUT #${m.matchNo}`, {
+      drawText(p, `BOUT #${m.matchNo}`, {
         x: boxX + 4,
         y: boxY + boxH - 6.2,
         size: 5.5,
@@ -309,7 +342,7 @@ export async function generateCategoryDrawPdfBytes(
 
       if (statusBadge) {
         const statusW = helveticaBold.widthOfTextAtSize(statusBadge, 4.8);
-        p.drawText(statusBadge, {
+        drawText(p, statusBadge, {
           x: boxX + boxW - statusW - 4,
           y: boxY + boxH - 6.2,
           size: 4.8,
@@ -346,7 +379,7 @@ export async function generateCategoryDrawPdfBytes(
         borderColor: redAkaBorder,
         borderWidth: 0.5,
       });
-      p.drawText("AKA", {
+      drawText(p, "AKA", {
         x: boxX + 5.5,
         y: akaY + (fighterSlotH - akaPillH) / 2 + 1.2,
         size: 4.8,
@@ -355,7 +388,7 @@ export async function generateCategoryDrawPdfBytes(
       });
 
       if (akaIsBye) {
-        p.drawText("- BYE -", {
+        drawText(p, "- BYE -", {
           x: contentStartX,
           y: akaY + 2,
           size: 6,
@@ -368,7 +401,7 @@ export async function generateCategoryDrawPdfBytes(
         const fullName = m.aka.school ? `${m.aka.displayName} (${m.aka.school})` : m.aka.displayName;
         const akaText = ellipsize(fullName, akaWon ? helveticaBold : helvetica, 6.2, maxW);
 
-        p.drawText(akaText, {
+        drawText(p, akaText, {
           x: contentStartX,
           y: akaY + 2,
           size: 6.2,
@@ -378,7 +411,7 @@ export async function generateCategoryDrawPdfBytes(
 
         if (isDecided && !isByeMatch) {
           if (akaWon) {
-            p.drawText("WIN", {
+            drawText(p, "WIN", {
               x: rightMarginX - 25,
               y: akaY + 2,
               size: 5,
@@ -388,7 +421,7 @@ export async function generateCategoryDrawPdfBytes(
           }
           const akaScoreStr = `${m.senshu === "AKA" ? "S " : ""}${m.akaScore ?? 0}`;
           const scoreW = helveticaBold.widthOfTextAtSize(akaScoreStr, 6.2);
-          p.drawText(akaScoreStr, {
+          drawText(p, akaScoreStr, {
             x: rightMarginX - scoreW - 1,
             y: akaY + 2,
             size: 6.2,
@@ -398,7 +431,7 @@ export async function generateCategoryDrawPdfBytes(
         }
       } else {
         const guideText = m.aka.sourceMatchNo ? `${roleWord} Bout #${m.aka.sourceMatchNo}` : defaultAkaGuide;
-        p.drawText(guideText, {
+        drawText(p, guideText, {
           x: contentStartX,
           y: akaY + 2,
           size: 5,
@@ -445,7 +478,7 @@ export async function generateCategoryDrawPdfBytes(
         borderColor: blueAoBorder,
         borderWidth: 0.5,
       });
-      p.drawText("AO", {
+      drawText(p, "AO", {
         x: boxX + 6,
         y: aoY + (fighterSlotH - aoPillH) / 2 + 1.2,
         size: 4.8,
@@ -454,7 +487,7 @@ export async function generateCategoryDrawPdfBytes(
       });
 
       if (aoIsBye) {
-        p.drawText("- BYE -", {
+        drawText(p, "- BYE -", {
           x: contentStartX,
           y: aoY + 2,
           size: 6,
@@ -467,7 +500,7 @@ export async function generateCategoryDrawPdfBytes(
         const fullName = m.ao.school ? `${m.ao.displayName} (${m.ao.school})` : m.ao.displayName;
         const aoText = ellipsize(fullName, aoWon ? helveticaBold : helvetica, 6.2, maxW);
 
-        p.drawText(aoText, {
+        drawText(p, aoText, {
           x: contentStartX,
           y: aoY + 2,
           size: 6.2,
@@ -477,7 +510,7 @@ export async function generateCategoryDrawPdfBytes(
 
         if (isDecided && !isByeMatch) {
           if (aoWon) {
-            p.drawText("WIN", {
+            drawText(p, "WIN", {
               x: rightMarginX - 25,
               y: aoY + 2,
               size: 5,
@@ -487,7 +520,7 @@ export async function generateCategoryDrawPdfBytes(
           }
           const aoScoreStr = `${m.senshu === "AO" ? "S " : ""}${m.aoScore ?? 0}`;
           const scoreW = helveticaBold.widthOfTextAtSize(aoScoreStr, 6.2);
-          p.drawText(aoScoreStr, {
+          drawText(p, aoScoreStr, {
             x: rightMarginX - scoreW - 1,
             y: aoY + 2,
             size: 6.2,
@@ -497,7 +530,7 @@ export async function generateCategoryDrawPdfBytes(
         }
       } else {
         const guideText = m.ao.sourceMatchNo ? `${roleWord} Bout #${m.ao.sourceMatchNo}` : defaultAoGuide;
-        p.drawText(guideText, {
+        drawText(p, guideText, {
           x: contentStartX,
           y: aoY + 2,
           size: 5,
@@ -527,7 +560,7 @@ export async function generateCategoryDrawPdfBytes(
         borderWidth: 0.5,
       });
 
-      p.drawText(`BOUT #${m.matchNo}`, {
+      drawText(p, `BOUT #${m.matchNo}`, {
         x: boxX + 6,
         y: boxY + boxH - 8.5,
         size: 6.8,
@@ -537,7 +570,7 @@ export async function generateCategoryDrawPdfBytes(
 
       if (statusBadge) {
         const statusW = helveticaBold.widthOfTextAtSize(statusBadge, 6);
-        p.drawText(statusBadge, {
+        drawText(p, statusBadge, {
           x: boxX + boxW - statusW - 6,
           y: boxY + boxH - 8.5,
           size: 6,
@@ -574,7 +607,7 @@ export async function generateCategoryDrawPdfBytes(
         borderColor: redAkaBorder,
         borderWidth: 0.5,
       });
-      p.drawText("AKA", {
+      drawText(p, "AKA", {
         x: boxX + 7.5,
         y: akaY + fighterSlotH - 9,
         size: 5.5,
@@ -583,7 +616,7 @@ export async function generateCategoryDrawPdfBytes(
       });
 
       if (akaIsBye) {
-        p.drawText("- BYE -", {
+        drawText(p, "- BYE -", {
           x: contentStartX,
           y: akaY + (fighterSlotH - 7) / 2,
           size: 7.5,
@@ -592,13 +625,13 @@ export async function generateCategoryDrawPdfBytes(
         });
       } else if (m.aka.id || (m.aka.displayName && m.aka.displayName !== "TBD")) {
         const hasSchool = Boolean(m.aka.school);
-        const nameY = hasSchool ? akaY + 8.5 : akaY + (fighterSlotH - 8) / 2;
+        const nameY = hasSchool ? akaY + 9.8 : akaY + (fighterSlotH - 8) / 2;
 
         const scoreSpace = isDecided && !isByeMatch ? 38 : 6;
         const maxNameW = rightMarginX - contentStartX - scoreSpace;
         const akaName = ellipsize(m.aka.displayName, akaWon ? helveticaBold : helvetica, 7.5, maxNameW);
 
-        p.drawText(akaName, {
+        drawText(p, akaName, {
           x: contentStartX,
           y: nameY,
           size: 7.5,
@@ -608,7 +641,7 @@ export async function generateCategoryDrawPdfBytes(
 
         if (isDecided && !isByeMatch) {
           if (akaWon) {
-            p.drawText("WIN", {
+            drawText(p, "WIN", {
               x: rightMarginX - 34,
               y: nameY,
               size: 6,
@@ -618,7 +651,7 @@ export async function generateCategoryDrawPdfBytes(
           }
           const akaScoreStr = `${m.senshu === "AKA" ? "S " : ""}${m.akaScore ?? 0}`;
           const scoreW = helveticaBold.widthOfTextAtSize(akaScoreStr, 7.5);
-          p.drawText(akaScoreStr, {
+          drawText(p, akaScoreStr, {
             x: rightMarginX - scoreW - 1,
             y: nameY,
             size: 7.5,
@@ -629,9 +662,9 @@ export async function generateCategoryDrawPdfBytes(
 
         if (hasSchool) {
           const akaSchool = ellipsize(m.aka.school || "", helvetica, 5.5, rightMarginX - contentStartX);
-          p.drawText(akaSchool, {
+          drawText(p, akaSchool, {
             x: contentStartX,
-            y: akaY + 1.8,
+            y: akaY + 1.2,
             size: 5.5,
             font: helvetica,
             color: mutedInk,
@@ -639,7 +672,7 @@ export async function generateCategoryDrawPdfBytes(
         }
       } else {
         const guideText = m.aka.sourceMatchNo ? `${roleWord} Bout #${m.aka.sourceMatchNo}` : defaultAkaGuide;
-        p.drawText(guideText, {
+        drawText(p, guideText, {
           x: contentStartX,
           y: akaY + fighterSlotH - 9,
           size: 5.5,
@@ -686,7 +719,7 @@ export async function generateCategoryDrawPdfBytes(
         borderColor: blueAoBorder,
         borderWidth: 0.5,
       });
-      p.drawText("AO", {
+      drawText(p, "AO", {
         x: boxX + 7.5,
         y: aoY + fighterSlotH - 9,
         size: 5.5,
@@ -695,7 +728,7 @@ export async function generateCategoryDrawPdfBytes(
       });
 
       if (aoIsBye) {
-        p.drawText("- BYE -", {
+        drawText(p, "- BYE -", {
           x: contentStartX,
           y: aoY + (fighterSlotH - 7) / 2,
           size: 7.5,
@@ -704,13 +737,13 @@ export async function generateCategoryDrawPdfBytes(
         });
       } else if (m.ao.id || (m.ao.displayName && m.ao.displayName !== "TBD")) {
         const hasSchool = Boolean(m.ao.school);
-        const nameY = hasSchool ? aoY + 8.5 : aoY + (fighterSlotH - 8) / 2;
+        const nameY = hasSchool ? aoY + 9.8 : aoY + (fighterSlotH - 8) / 2;
 
         const scoreSpace = isDecided && !isByeMatch ? 38 : 6;
         const maxNameW = rightMarginX - contentStartX - scoreSpace;
         const aoName = ellipsize(m.ao.displayName, aoWon ? helveticaBold : helvetica, 7.5, maxNameW);
 
-        p.drawText(aoName, {
+        drawText(p, aoName, {
           x: contentStartX,
           y: nameY,
           size: 7.5,
@@ -720,7 +753,7 @@ export async function generateCategoryDrawPdfBytes(
 
         if (isDecided && !isByeMatch) {
           if (aoWon) {
-            p.drawText("WIN", {
+            drawText(p, "WIN", {
               x: rightMarginX - 34,
               y: nameY,
               size: 6,
@@ -730,7 +763,7 @@ export async function generateCategoryDrawPdfBytes(
           }
           const aoScoreStr = `${m.senshu === "AO" ? "S " : ""}${m.aoScore ?? 0}`;
           const scoreW = helveticaBold.widthOfTextAtSize(aoScoreStr, 7.5);
-          p.drawText(aoScoreStr, {
+          drawText(p, aoScoreStr, {
             x: rightMarginX - scoreW - 1,
             y: nameY,
             size: 7.5,
@@ -741,9 +774,9 @@ export async function generateCategoryDrawPdfBytes(
 
         if (hasSchool) {
           const aoSchool = ellipsize(m.ao.school || "", helvetica, 5.5, rightMarginX - contentStartX);
-          p.drawText(aoSchool, {
+          drawText(p, aoSchool, {
             x: contentStartX,
-            y: aoY + 1.8,
+            y: aoY + 1.2,
             size: 5.5,
             font: helvetica,
             color: mutedInk,
@@ -751,7 +784,7 @@ export async function generateCategoryDrawPdfBytes(
         }
       } else {
         const guideText = m.ao.sourceMatchNo ? `${roleWord} Bout #${m.ao.sourceMatchNo}` : defaultAoGuide;
-        p.drawText(guideText, {
+        drawText(p, guideText, {
           x: contentStartX,
           y: aoY + fighterSlotH - 9,
           size: 5.5,
@@ -791,7 +824,7 @@ export async function generateCategoryDrawPdfBytes(
       borderWidth: 0.5,
     });
 
-    p.drawText("OFFICIAL RESULTS / PODIUM", {
+    drawText(p, "RESULTS / PODIUM", {
       x: cardX + 8,
       y: cardY + cardH - 13,
       size: 7.5,
@@ -825,7 +858,7 @@ export async function generateCategoryDrawPdfBytes(
     medalRows.forEach((row, idx) => {
       const rowY = cardY + cardH - 22 - (idx + 1) * rowH;
 
-      p.drawText(row.rank, {
+      drawText(p, row.rank, {
         x: cardX + 8,
         y: rowY + rowH / 2 - 2,
         size: 6.5,
@@ -835,7 +868,7 @@ export async function generateCategoryDrawPdfBytes(
 
       if (row.athlete) {
         const athName = ellipsize(row.athlete.name, helveticaBold, 7.5, cardW - 96);
-        p.drawText(athName, {
+        drawText(p, athName, {
           x: cardX + 72,
           y: rowY + rowH / 2 - 1,
           size: 7.5,
@@ -845,7 +878,7 @@ export async function generateCategoryDrawPdfBytes(
 
         if (row.athlete.school) {
           const athSchool = ellipsize(row.athlete.school, helvetica, 5.5, cardW - 96);
-          p.drawText(athSchool, {
+          drawText(p, athSchool, {
             x: cardX + 72,
             y: rowY + 2,
             size: 5.5,
@@ -886,6 +919,139 @@ export async function generateCategoryDrawPdfBytes(
     .sort((a, b) => a.matchNo - b.matchNo);
 
   const hasRepechageOrBronze = repechageMatches.length > 0 || bronzeMatches.length > 0;
+
+  // A kata pool flight has pool bouts and a medal flight, not an elimination tree.
+  if (poolMatches.length > 0) {
+    const flightMatches = data.matches
+      .filter((m) => m.poolGroup === "Final Flight")
+      .sort((a, b) => a.matchNo - b.matchNo);
+    const poolNames = Array.from(new Set(poolMatches.map((m) => m.poolGroup ?? "Pool"))).sort();
+    const athleteCount = new Set(
+      poolMatches.flatMap((m) => [m.aka.id, m.ao.id]).filter((id): id is string => Boolean(id))
+    ).size;
+
+    const pageW = 842;
+    const pageH = 595;
+    const bottomY = 44;
+    const rowH = 26;
+    const cols = { bout: pageMarginX, aka: pageMarginX + 44, ao: pageMarginX + 292, score: pageMarginX + 540 };
+    const colW = { aka: 240, ao: 240, score: pageW - pageMarginX * 2 - 540 };
+
+    let page = pdfDoc.addPage([pageW, pageH]);
+    let y = 0;
+    const scoring = poolMatches[0]?.kataScoringMode === "POINTS" ? "Points scoring" : "Flag scoring";
+    const pageSub = `KATA POOLS  |  ${athleteCount} athletes in ${poolNames.length} pool${poolNames.length === 1 ? "" : "s"}  |  ${scoring}${profileLabel ? `  |  ${profileLabel}` : ""}  |  ${sheetLabel}`;
+
+    const startPage = (first: boolean) => {
+      if (!first) page = pdfDoc.addPage([pageW, pageH]);
+      drawPageHeader(page, pageW, pageH, pageSub);
+      y = pageH - 84;
+    };
+
+    const sectionBar = (title: string, note: string) => {
+      page.drawRectangle({ x: pageMarginX, y: y - 18, width: pageW - pageMarginX * 2, height: 18, color: emerald });
+      drawText(page, title, { x: pageMarginX + 8, y: y - 13, size: 9, font: helveticaBold, color: pureWhite });
+      const noteW = helvetica.widthOfTextAtSize(note, 7.5);
+      drawText(page, note, { x: pageW - pageMarginX - noteW - 8, y: y - 12.5, size: 7.5, font: helvetica, color: pureWhite });
+      y -= 22;
+    };
+
+    const columnHeads = () => {
+      for (const [label, x] of [["BOUT", cols.bout], ["AKA (RED)", cols.aka], ["AO (BLUE)", cols.ao], ["RESULT", cols.score]] as const) {
+        drawText(page, label, { x: x + 2, y: y - 9, size: 6.5, font: helveticaBold, color: mutedInk });
+      }
+      y -= 13;
+    };
+
+    const fighterCell = (x: number, w: number, who: BracketMatchView["aka"], tint: "aka" | "ao", solo = false) => {
+      page.drawRectangle({ x, y: y - rowH + 3, width: 3, height: rowH - 6, color: tint === "aka" ? redAka : blueAo });
+      if (!who.id) {
+        const label = solo ? "- solo performance -" : who.displayName === "TBD" ? "To be decided" : safeText(who.displayName);
+        drawText(page, label, { x: x + 8, y: y - 16, size: 7.5, font: helveticaOblique, color: lightMuted });
+        return;
+      }
+      const chest = who.chestNumber ? `#${who.chestNumber}  ` : "";
+      drawText(page, ellipsize(`${chest}${who.displayName}`, helveticaBold, 8, w - 12), { x: x + 8, y: y - 12, size: 8, font: helveticaBold, color: darkInk });
+      if (who.school) {
+        drawText(page, ellipsize(who.school, helvetica, 6.5, w - 12), { x: x + 8, y: y - 21.5, size: 6.5, font: helvetica, color: mutedInk });
+      }
+    };
+
+    const resultCell = (m: BracketMatchView) => {
+      const x = cols.score;
+      const lineY = y - 18;
+      const points = m.kataScoringMode === "POINTS";
+      const labels = points ? ["AKA", "AO"] : ["Winner"];
+      let cx = x + 4;
+      for (const label of labels) {
+        drawText(page, label, { x: cx, y: lineY + 3, size: 6.5, font: helvetica, color: mutedInk });
+        const lx = cx + helvetica.widthOfTextAtSize(label, 6.5) + 3;
+        const lw = points ? 38 : colW.score - 60;
+        page.drawLine({ start: { x: lx, y: lineY }, end: { x: lx + lw, y: lineY }, thickness: 0.6, color: lightMuted });
+        cx = lx + lw + 8;
+      }
+    };
+
+    const boutRow = (m: BracketMatchView, label: string) => {
+      page.drawRectangle({ x: pageMarginX, y: y - rowH, width: pageW - pageMarginX * 2, height: rowH, color: pureWhite, borderColor: lineGray, borderWidth: 0.6 });
+      drawText(page, label, { x: cols.bout + 4, y: y - 16, size: 8, font: helveticaBold, color: darkInk });
+      fighterCell(cols.aka, colW.aka, m.aka, "aka");
+      fighterCell(cols.ao, colW.ao, m.ao, "ao", m.bracketType === "POOL" && !m.ao.id);
+      resultCell(m);
+      y -= rowH;
+    };
+
+    const needRoom = (rows: number, title: string, note: string) => {
+      if (y - rows * rowH < bottomY) {
+        startPage(false);
+        sectionBar(`${title} (continued)`, note);
+        columnHeads();
+      }
+    };
+
+    startPage(true);
+
+    for (const poolName of poolNames) {
+      const bouts = poolMatches.filter((m) => m.poolGroup === poolName).sort((a, b) => a.matchNo - b.matchNo);
+      const note = `${bouts.length} bout${bouts.length === 1 ? "" : "s"}`;
+      if (y - (3 * rowH + 40) < bottomY) startPage(false);
+      sectionBar(poolName.toUpperCase(), note);
+      columnHeads();
+      for (const m of bouts) {
+        needRoom(1, poolName.toUpperCase(), note);
+        boutRow(m, `#${m.matchNo}`);
+      }
+      y -= 14;
+    }
+
+    if (flightMatches.length > 0) {
+      const note = "after the pools · scores start from zero";
+      if (y - (2 * rowH + 40) < bottomY) startPage(false);
+      sectionBar("MEDAL FLIGHT", note);
+      for (const m of flightMatches) {
+        needRoom(2, "MEDAL FLIGHT", note);
+        page.drawRectangle({ x: pageMarginX, y: y - rowH, width: pageW - pageMarginX * 2, height: rowH, color: pureWhite, borderColor: lineGray, borderWidth: 0.6 });
+        drawText(page, `#${m.matchNo}`, { x: cols.bout + 4, y: y - 16, size: 8, font: helveticaBold, color: darkInk });
+        const title = m.roundName.replace(/^Pool [A-Z] · /, "");
+        drawText(page, ellipsize(title, helveticaBold, 8, cols.score - cols.aka - 8), { x: cols.aka + 8, y: y - 16, size: 8, font: helveticaBold, color: darkInk });
+        resultCell(m);
+        y -= rowH;
+      }
+    }
+
+    // Signatures on the last page.
+    if (y - 40 < bottomY) startPage(false);
+    drawText(page, "Chief Referee: ___________________________", { x: pageMarginX, y: 30, size: 7, font: helvetica, color: darkInk });
+    drawText(page, "Tatami Manager: ___________________________", { x: pageMarginX + 260, y: 30, size: 7, font: helvetica, color: darkInk });
+
+    const total = pdfDoc.getPageCount();
+    pdfDoc.getPages().forEach((p, index) => {
+      const label = `RingFlow ${sheetLabel}  ·  Page ${index + 1} of ${total}`;
+      drawText(p, label, { x: pageW - pageMarginX - helvetica.widthOfTextAtSize(label, 6.5), y: 16, size: 6.5, font: helvetica, color: mutedInk });
+    });
+
+    return finish();
+  }
 
   // Helper to detect pure BYE matches
   const isMatchBye = (m: BracketMatchView): boolean => {
@@ -965,7 +1131,7 @@ export async function generateCategoryDrawPdfBytes(
         poolPage,
         pWidth,
         pHeight,
-        `POOL ${poolNumber} (POOL ${poolLetter}) — 16-COMPETITOR BRACKET  |  Winner advances to ${targetAdvName}`
+        `SECTION ${poolLetter} — 16-COMPETITOR BRACKET  |  Winner advances to ${targetAdvName}`
       );
 
       const topY = pHeight - 74;
@@ -990,11 +1156,11 @@ export async function generateCategoryDrawPdfBytes(
         } else if (rIdx === 2) {
           colTitle = totalRound0Slots >= 32 ? "ROUND OF 16" : "QUARTER-FINALS";
         } else {
-          colTitle = totalRound0Slots >= 32 ? `QUARTER-FINAL (POOL ${poolLetter})` : `SEMI-FINAL ${poolNumber} (POOL ${poolLetter})`;
+          colTitle = totalRound0Slots >= 32 ? `QUARTER-FINAL (SECTION ${poolLetter})` : `SEMI-FINAL ${poolNumber} (SECTION ${poolLetter})`;
         }
 
         // Column Header
-        poolPage.drawText(colTitle, {
+        drawText(poolPage, colTitle, {
           x: colX + 2,
           y: roundTitleY,
           size: 8,
@@ -1134,7 +1300,7 @@ export async function generateCategoryDrawPdfBytes(
             color: emerald,
           });
 
-          poolPage.drawText("QUALIFIES FOR", {
+          drawText(poolPage, "QUALIFIES FOR", {
             x: badgeX + 7,
             y: badgeY + 16,
             size: 5.5,
@@ -1142,7 +1308,7 @@ export async function generateCategoryDrawPdfBytes(
             color: emerald,
           });
 
-          poolPage.drawText(ellipsize(targetAdvShort, helveticaBold, 6.8, badgeW - 12), {
+          drawText(poolPage, ellipsize(targetAdvShort, helveticaBold, 6.8, badgeW - 12), {
             x: badgeX + 7,
             y: badgeY + 6,
             size: 6.8,
@@ -1153,7 +1319,7 @@ export async function generateCategoryDrawPdfBytes(
       }
 
       // Signatures at bottom of pool sheet
-      poolPage.drawText("Chief Referee: ___________________________", {
+      drawText(poolPage, "Chief Referee: ___________________________", {
         x: pageMarginX + 16,
         y: 16,
         size: 7,
@@ -1161,7 +1327,7 @@ export async function generateCategoryDrawPdfBytes(
         color: darkInk,
       });
 
-      poolPage.drawText("Tatami Manager: ___________________________", {
+      drawText(poolPage, "Tatami Manager: ___________________________", {
         x: pageMarginX + 260,
         y: 16,
         size: 7,
@@ -1169,8 +1335,8 @@ export async function generateCategoryDrawPdfBytes(
         color: darkInk,
       });
 
-      poolPage.drawText(
-        `Pool ${poolNumber} (Pool ${poolLetter}) Official Draw Sheet  ·  RingFlow Tournament Engine`,
+      drawText(poolPage, 
+        `Section ${poolLetter}  ·  ${sheetLabel}  ·  RingFlow`,
         {
           x: pWidth - pageMarginX - 250,
           y: 16,
@@ -1184,7 +1350,7 @@ export async function generateCategoryDrawPdfBytes(
     // --- FINALS PAGE ---
     const finalsPage = pdfDoc.addPage([842, 595]);
     const { width: fWidth, height: fHeight } = finalsPage.getSize();
-    drawPageHeader(finalsPage, fWidth, fHeight, "CHAMPIONSHIP FINALS, REPECHAGE MEDAL ROUNDS & OFFICIAL PODIUM");
+    drawPageHeader(finalsPage, fWidth, fHeight, `CHAMPIONSHIP FINALS, ${medalRoundsTitle} & PODIUM`);
 
     const leftColW = 486;
     const rightColX = pageMarginX + leftColW + 28;
@@ -1193,7 +1359,7 @@ export async function generateCategoryDrawPdfBytes(
     const finalsTopY = fHeight - 74;
 
     // SECTION 1: Championship Final(s)
-    finalsPage.drawText("OFFICIAL CHAMPIONSHIP FINAL", {
+    drawText(finalsPage, "CHAMPIONSHIP FINAL", {
       x: pageMarginX + 4,
       y: finalsTopY - 10,
       size: 10,
@@ -1210,7 +1376,7 @@ export async function generateCategoryDrawPdfBytes(
 
     if (totalRound0Slots >= 32) {
       // 64-entrant finals: Semi-Finals 1 & 2 feeding into Grand Final
-      finalsPage.drawText("Semi-Finals & Grand Final Championship Matches", {
+      drawText(finalsPage, "Semi-Finals & Grand Final Championship Matches", {
         x: pageMarginX + 4,
         y: finalsTopY - 26,
         size: 6.5,
@@ -1253,7 +1419,7 @@ export async function generateCategoryDrawPdfBytes(
       finalsPage.drawLine({ start: { x: branchX, y: finalCenter }, end: { x: finalBoxX, y: finalCenter }, thickness: 1.4, color: emerald });
     } else {
       // 32-entrant final: Single Grand Final bout prominently displayed
-      finalsPage.drawText("Gold Medal Bout — Pool 1 (Pool A) Winner vs Pool 2 (Pool B) Winner", {
+      drawText(finalsPage, "Gold Medal Bout — Section A Winner vs Section B Winner", {
         x: pageMarginX + 4,
         y: finalsTopY - 26,
         size: 6.5,
@@ -1274,7 +1440,7 @@ export async function generateCategoryDrawPdfBytes(
     // SECTION 2: Repechage & Bronze Medal Rounds
     const repTopY = finalsTopY - 188;
 
-    finalsPage.drawText("REPECHAGE & 3RD PLACE MEDAL ROUNDS", {
+    drawText(finalsPage, medalRoundsTitle, {
       x: pageMarginX + 4,
       y: repTopY,
       size: 10,
@@ -1289,7 +1455,7 @@ export async function generateCategoryDrawPdfBytes(
       color: emerald,
     });
 
-    finalsPage.drawText("Competitors beaten by the finalists compete in repechage pools for bronze medals", {
+    drawText(finalsPage, medalRoundsNote, {
       x: pageMarginX + 4,
       y: repTopY - 16,
       size: 6.5,
@@ -1324,7 +1490,7 @@ export async function generateCategoryDrawPdfBytes(
         borderWidth: 0.8,
       });
 
-      finalsPage.drawText("Single Elimination Category — No Bronze Bouts Scheduled", {
+      drawText(finalsPage, "Single Elimination Category — No Bronze Bouts Scheduled", {
         x: pageMarginX + 16,
         y: repTopY - 55,
         size: 8,
@@ -1363,7 +1529,7 @@ export async function generateCategoryDrawPdfBytes(
       borderWidth: 0.5,
     });
 
-    finalsPage.drawText("TOURNAMENT CATEGORY AUDIT", {
+    drawText(finalsPage, "TOURNAMENT CATEGORY AUDIT", {
       x: rightColX + 8,
       y: auditCardY + auditCardH - 13,
       size: 7.5,
@@ -1382,19 +1548,19 @@ export async function generateCategoryDrawPdfBytes(
 
     const auditItems = [
       { label: "Category", val: ellipsize(data.categoryName, helveticaBold, 7, rightColW - 90) },
-      { label: "Draw Structure", val: `${numPools} Pools of 16 + Finals` },
+      { label: "Draw Structure", val: `${numPools} Sections of 16 + Finals` },
       { label: "Bracket Size", val: `${data.tournamentSize} Competitor Slots` },
       { label: "Opening Byes", val: `${data.byeCount} Byes Allocated` },
       { label: "Total Bouts", val: `${data.matches.length} Scheduled Bouts` },
       { label: "Medal System", val: formatLabel },
-      { label: "Certified", val: "RingFlow Official Record" },
+      { label: "Sheet", val: sheetLabel },
     ];
 
     const auditRowH = (auditCardH - 22) / auditItems.length;
     auditItems.forEach((item, idx) => {
       const rowY = auditCardY + auditCardH - 22 - (idx + 1) * auditRowH;
 
-      finalsPage.drawText(item.label, {
+      drawText(finalsPage, item.label, {
         x: rightColX + 8,
         y: rowY + auditRowH / 2 - 2,
         size: 6.5,
@@ -1402,7 +1568,7 @@ export async function generateCategoryDrawPdfBytes(
         color: mutedInk,
       });
 
-      finalsPage.drawText(item.val, {
+      drawText(finalsPage, item.val, {
         x: rightColX + 90,
         y: rowY + auditRowH / 2 - 2,
         size: 7,
@@ -1421,7 +1587,7 @@ export async function generateCategoryDrawPdfBytes(
     });
 
     // Finals Signatures
-    finalsPage.drawText("Chief Referee: ___________________________", {
+    drawText(finalsPage, "Chief Referee: ___________________________", {
       x: pageMarginX + 16,
       y: 16,
       size: 7,
@@ -1429,7 +1595,7 @@ export async function generateCategoryDrawPdfBytes(
       color: darkInk,
     });
 
-    finalsPage.drawText("Tatami Manager: ___________________________", {
+    drawText(finalsPage, "Tatami Manager: ___________________________", {
       x: pageMarginX + 260,
       y: 16,
       size: 7,
@@ -1437,7 +1603,7 @@ export async function generateCategoryDrawPdfBytes(
       color: darkInk,
     });
 
-    finalsPage.drawText("RingFlow Official Draw Sheet  ·  Certified Tournament Results", {
+    drawText(finalsPage, `RingFlow ${sheetLabel}`, {
       x: fWidth - pageMarginX - 250,
       y: 16,
       size: 6.5,
@@ -1445,7 +1611,7 @@ export async function generateCategoryDrawPdfBytes(
       color: mutedInk,
     });
 
-    return await pdfDoc.save();
+    return finish();
   }
 
   // Filter out redundant BYE advance matches from Round 0 (since those athletes already start in Round 1)
@@ -1502,7 +1668,7 @@ export async function generateCategoryDrawPdfBytes(
     const roundTitleY = topY - 10;
 
     // Column Header
-    page1.drawText(safeText(round.roundName).toUpperCase(), {
+    drawText(page1, safeText(round.roundName).toUpperCase(), {
       x: colX + 4,
       y: roundTitleY,
       size: 9,
@@ -1699,7 +1865,7 @@ export async function generateCategoryDrawPdfBytes(
     const ancillaryMatches = [...repechageMatches, ...bronzeMatches];
 
     if (ancillaryMatches.length > 0) {
-      page1.drawText("REPECHAGE & 3RD PLACE BOUTS", {
+      drawText(page1, data.bronzeMedals === 1 ? "SINGLE BRONZE BOUT" : "REPECHAGE & 3RD PLACE BOUTS", {
         x: rightPanelX + 4,
         y: currentY,
         size: 9,
@@ -1714,7 +1880,7 @@ export async function generateCategoryDrawPdfBytes(
         color: emerald,
       });
 
-      page1.drawText("Losers to finalists compete for bronze medals", {
+      drawText(page1, data.bronzeMedals === 1 ? "Semi-final losers meet for the bronze" : "Losers to finalists compete for bronze medals", {
         x: rightPanelX + 4,
         y: currentY - 15,
         size: 6,
@@ -1736,7 +1902,7 @@ export async function generateCategoryDrawPdfBytes(
     // C. Signatures placed towards the LEFT & CENTER-LEFT (never colliding with right bottom corner)
     const sigLine1Y = 20;
 
-    page1.drawText("Chief Referee: _________________________________", {
+    drawText(page1, "Chief Referee: _________________________________", {
       x: pageMarginX + 10,
       y: sigLine1Y,
       size: 7.5,
@@ -1744,7 +1910,7 @@ export async function generateCategoryDrawPdfBytes(
       color: darkInk,
     });
 
-    page1.drawText("Tatami Manager: _________________________________", {
+    drawText(page1, "Tatami Manager: _________________________________", {
       x: pageMarginX + 260,
       y: sigLine1Y,
       size: 7.5,
@@ -1755,7 +1921,7 @@ export async function generateCategoryDrawPdfBytes(
     // For 16+ entrant brackets: Signatures on the left/center-left of Page 1
     const footerY = 16;
 
-    page1.drawText("Chief Referee: ___________________________", {
+    drawText(page1, "Chief Referee: ___________________________", {
       x: pageMarginX + 16,
       y: footerY,
       size: 7,
@@ -1763,7 +1929,7 @@ export async function generateCategoryDrawPdfBytes(
       color: darkInk,
     });
 
-    page1.drawText("Tatami Manager: ___________________________", {
+    drawText(page1, "Tatami Manager: ___________________________", {
       x: pageMarginX + 260,
       y: footerY,
       size: 7,
@@ -1776,7 +1942,7 @@ export async function generateCategoryDrawPdfBytes(
   if (!fitsSinglePage && (hasRepechageOrBronze || data.podium != null)) {
     const page2 = pdfDoc.addPage([842, 595]);
     const { width: p2Width, height: p2Height } = page2.getSize();
-    drawPageHeader(page2, p2Width, p2Height, "REPECHAGE LADDERS, 3RD PLACE BOUTS & OFFICIAL PODIUM");
+    drawPageHeader(page2, p2Width, p2Height, `${medalRoundsTitle} & PODIUM`);
 
     const p2TopY = p2Height - 74;
 
@@ -1784,7 +1950,7 @@ export async function generateCategoryDrawPdfBytes(
     const ancWidth = 480;
     const ancillaryMatches = [...repechageMatches, ...bronzeMatches];
 
-    page2.drawText("REPECHAGE & 3RD PLACE MEDAL ROUNDS", {
+    drawText(page2, medalRoundsTitle, {
       x: pageMarginX + 4,
       y: p2TopY - 10,
       size: 10,
@@ -1799,7 +1965,7 @@ export async function generateCategoryDrawPdfBytes(
       color: emerald,
     });
 
-    page2.drawText("Athletes beaten by the finalists compete in repechage pools for bronze medals", {
+    drawText(page2, medalRoundsNote, {
       x: pageMarginX + 4,
       y: p2TopY - 26,
       size: 6.5,
@@ -1826,7 +1992,7 @@ export async function generateCategoryDrawPdfBytes(
     // Page 2 Signatures
     const footerY = 16;
 
-    page2.drawText("Chief Referee: ___________________________", {
+    drawText(page2, "Chief Referee: ___________________________", {
       x: pageMarginX + 16,
       y: footerY,
       size: 7,
@@ -1834,7 +2000,7 @@ export async function generateCategoryDrawPdfBytes(
       color: darkInk,
     });
 
-    page2.drawText("Tatami Manager: ___________________________", {
+    drawText(page2, "Tatami Manager: ___________________________", {
       x: pageMarginX + 260,
       y: footerY,
       size: 7,
@@ -1843,25 +2009,5 @@ export async function generateCategoryDrawPdfBytes(
     });
   }
 
-  // Kata Pools Fallback (if category is Kata Flight Draw)
-  if (poolMatches.length > 0 && mainMatches.length === 0) {
-    let poolY = topY - 14;
-    const poolColW = (p1Width - pageMarginX * 2 - 20) / 2;
-
-    page1.drawText("KATA GROUP POOLS", {
-      x: pageMarginX + 4,
-      y: topY - 10,
-      size: 9,
-      font: helveticaBold,
-      color: emerald,
-    });
-
-    poolMatches.forEach((m, idx) => {
-      const colX = idx % 2 === 0 ? pageMarginX : pageMarginX + poolColW + 20;
-      if (idx % 2 === 0 && idx > 0) poolY -= 56;
-      drawMatchBox(page1, m, colX, poolY - 52, poolColW, 52);
-    });
-  }
-
-  return await pdfDoc.save();
+  return finish();
 }

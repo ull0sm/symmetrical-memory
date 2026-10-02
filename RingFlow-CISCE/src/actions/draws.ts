@@ -472,8 +472,8 @@ export async function toggleCategoryDrawLock(categoryId: string) {
   return { success: true, isLocked: !isLocked, state: nextState };
 }
 
-/** The word an admin must type to flush a category's draw. */
-export const FLUSH_CONFIRMATION = "FLUSH";
+/** The word an admin must type to flush a category's draw. (A "use server" file cannot export a constant.) */
+const FLUSH_CONFIRMATION = "FLUSH";
 const MIN_FLUSH_REASON_LENGTH = 5;
 
 /**

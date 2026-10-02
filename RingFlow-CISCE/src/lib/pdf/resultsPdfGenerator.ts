@@ -1,4 +1,5 @@
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
+import { drawText, loadFontSet, truncateChars } from "@/lib/pdf/pdfText";
 
 export interface ResultRow {
   categoryName: string;
@@ -57,30 +58,8 @@ const cardBg = rgb(250 / 255, 249 / 255, 245 / 255);
 const akaColor = rgb(192 / 255, 57 / 255, 43 / 255);
 const aoColor = rgb(29 / 255, 78 / 255, 216 / 255);
 
-// pdf-lib's standard fonts are WinAnsi-encoded and throw on anything outside
-// it, which would turn a stray non-Latin character in a name into a failed
-// export. The record must always render, so unsupported characters degrade.
-const WIN_ANSI = new Set(
-  "\\u0000-\\u00ff\\u20ac\\u201a\\u0192\\u201e\\u2026\\u2020\\u2021\\u02c6\\u2030\\u0160\\u2039\\u0152\\u017d\\u2018\\u2019\\u201c\\u201d\\u2022\\u2013\\u2014\\u02dc\\u2122\\u0161\\u203a\\u0153\\u017e\\u0178"
-);
-
-function encodeSafe(text: string): string {
-  let out = "";
-  for (const char of text) {
-    const code = char.codePointAt(0) ?? 0;
-    const supported =
-      (code >= 0x20 && code <= 0x7e) ||
-      (code >= 0xa0 && code <= 0xff) ||
-      WIN_ANSI.has(char);
-    out += supported ? char : "?";
-  }
-  return out;
-}
-
 function truncate(text: string, max: number): string {
-  const safe = encodeSafe(text);
-  if (safe.length <= max) return safe;
-  return `${safe.slice(0, max - 1)}…`;
+  return truncateChars(text, max);
 }
 
 /**
@@ -90,8 +69,7 @@ function truncate(text: string, max: number): string {
  */
 export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
-  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const { regular: helvetica, bold } = await loadFontSet(pdfDoc);
 
   const byCategory = new Map<string, ResultRow[]>();
   for (const row of data.rows) {
@@ -125,7 +103,7 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
       borderColor: line,
       borderWidth: 1,
     });
-    page.drawText(truncate(data.tournamentName.toUpperCase(), 70), {
+    drawText(page, truncate(data.tournamentName.toUpperCase(), 70), {
       x: MARGIN + 12,
       y: PAGE[1] - 34,
       size: 13,
@@ -135,14 +113,14 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
     const meta = [data.eventDate ?? "", data.venue ?? "", data.city ?? ""]
       .filter(Boolean)
       .join(" · ");
-    page.drawText(truncate(`Official results record${meta ? ` · ${meta}` : ""}`, 110), {
+    drawText(page, truncate(`Official results record${meta ? ` · ${meta}` : ""}`, 110), {
       x: MARGIN + 12,
       y: PAGE[1] - 50,
       size: 9,
       font: helvetica,
       color: muted,
     });
-    page.drawText("Page 1 of many — retained copy", {
+    drawText(page, "Page 1 of many — retained copy", {
       x: PAGE[0] - MARGIN - 150,
       y: PAGE[1] - 34,
       size: 8,
@@ -172,7 +150,7 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
       borderColor: line,
       borderWidth: 0.5,
     });
-    page.drawText(truncate(categoryName.toUpperCase(), 80), {
+    drawText(page, truncate(categoryName.toUpperCase(), 80), {
       x: MARGIN + 8,
       y: y - 11,
       size: 10,
@@ -180,7 +158,7 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
       color: ink,
     });
     const decided = rows.filter((r) => r.winnerName && r.status === "CONFIRMED").length;
-    page.drawText(`${rows.length} bouts · ${decided} decided`, {
+    drawText(page, `${rows.length} bouts · ${decided} decided`, {
       x: MARGIN + tableWidth - 130,
       y: y - 11,
       size: 8,
@@ -192,7 +170,7 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
     // Column headings
     let x = MARGIN;
     for (const column of columns) {
-      page.drawText(column.label.toUpperCase(), {
+      drawText(page, column.label.toUpperCase(), {
         x: column.align === "center" ? x + 4 : x + 4,
         y,
         size: 7,
@@ -247,7 +225,7 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
           column.align === "center"
             ? x + (column.width - cell.font.widthOfTextAtSize(cell.text, 8)) / 2
             : x + 4;
-        page.drawText(cell.text, { x: offset, y, size: 8, font: cell.font, color: cell.color });
+        drawText(page, cell.text, { x: offset, y, size: 8, font: cell.font, color: cell.color });
         x += column.width;
       }
 
@@ -260,7 +238,7 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
   // Per-athlete totals
   if (data.athleteTotals.length > 0) {
     ensureSpace(60);
-    page.drawText("BOUTS FOUGHT PER ATHLETE", {
+    drawText(page, "BOUTS FOUGHT PER ATHLETE", {
       x: MARGIN,
       y,
       size: 10,
@@ -273,7 +251,7 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
     const widths = [200, 60, 230, 60, 60, 80, 90];
     let x = MARGIN;
     totalsHeader.forEach((label, index) => {
-      page.drawText(label.toUpperCase(), { x: x + 4, y, size: 7, font: bold, color: muted });
+      drawText(page, label.toUpperCase(), { x: x + 4, y, size: 7, font: bold, color: muted });
       x += widths[index];
     });
     y -= 12;
@@ -291,7 +269,7 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
       ];
       x = MARGIN;
       values.forEach((value, index) => {
-        page.drawText(value, { x: x + 4, y, size: 8, font: index === 0 ? bold : helvetica, color: ink });
+        drawText(page, value, { x: x + 4, y, size: 8, font: index === 0 ? bold : helvetica, color: ink });
         x += widths[index];
       });
       y -= ROW_HEIGHT;
@@ -311,8 +289,8 @@ export async function generateResultsPdfBytes(data: ResultsPdfData): Promise<Uin
       thickness: 0.7,
       color: faint,
     });
-    page.drawText(label, { x: sx, y: y - 34, size: 8, font: helvetica, color: muted });
-    page.drawText("Name / Signature / Date", { x: sx, y: y - 45, size: 7, font: helvetica, color: faint });
+    drawText(page, label, { x: sx, y: y - 34, size: 8, font: helvetica, color: muted });
+    drawText(page, "Name / Signature / Date", { x: sx, y: y - 45, size: 7, font: helvetica, color: faint });
   });
 
   return pdfDoc.save();
