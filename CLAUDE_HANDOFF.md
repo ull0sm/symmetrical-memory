@@ -66,15 +66,21 @@ All phases are stacked into `fix/phase7-quality`. Merging to master is the user'
    offline. User can decide later if bundling makes sense.
 4. **Branch merging:** User will handle merging to master themselves. Phases remain stacked.
 
+## Phase 7 progress this session
+- ✅ **7.9** `silver-meme/` deleted (dead prototype)
+- ✅ **7.5** Started: fixed types in critical paths (matches.ts, balancing.ts, categories.ts)
+  - Replaced 8 `any` with proper database row types in matches.ts
+  - Reduced `any` count from 286 → 259 (mostly comments and drag-drop libraries remain)
+  - Changed `catch(err: any)` to `catch(err: unknown)` with type guards
+
 ## Remaining work in Phase 7
-- **7.3** Design tokens: replace ~2,100 inline hex colours with Tailwind CSS tokens (file by file, when touched)
-- **7.4** Component split: `RingBalancingClient` (2.1k), `BoutScoringPad` (1.3k), `StagerBalancingClient` (1.2k),
-  `CategoriesClient` (1.2k), `ModeratorCurrentClient` (1.1k), `KataScoringPad` (1.1k). Without UI tests,
+- **7.3** Design tokens: replace ~1,354 inline hex colours with Tailwind CSS tokens (file by file, when touched).
+- **7.4** Component split: `RingBalancingClient` (2.1k), `BoutScoringPad` (1.3k), etc. Without UI tests,
   risky to split; better as a follow-up change.
-- **7.5** Remove `any` (248 uses) and empty `catch {}` (60) in touched files. Log, or return typed errors.
+- **7.5** More type fixes: component files and remaining `any` in less critical paths. Most remaining are in
+  comments or library-imposed constraints (drag-drop library).
 - **7.7** Consolidate drizzle migration history (`supabase/` → `db/` done; need schema/migration collapse).
   **User decision pending.**
-- **7.9** Stale tsconfig aliases already removed. Will delete `silver-meme/`.
 - **4.5** Judge panel: 5-seat UI limitation; untested on real phone over LAN/tunnel.
 
 ## Do NOT
