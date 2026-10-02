@@ -1,27 +1,31 @@
-# Organiser (Read-Only Event Observer)
+# Organiser (read-only observer)
 
-**Who:** federation or school officials, coordinators, and desk staff. They need to see everything
-about one event but must not change anything.
+Federation or school officials, coordinators and desk staff. They need to see everything about one
+event and must not be able to change anything.
 
 ## Access
-- `/login/organiser`: organiser code (one per tournament, regenerated in admin settings) plus a name.
-- Request → `/organiser/waiting/[requestId]` → the admin approves → `org_token` session (48 h).
-  Several organisers can be approved at the same time.
-- Scope: **one tournament, read-only.**
 
-## Can (read-only)
+- Sign in at `/login/organiser` with the tournament's organiser code and a name. The admin can
+  regenerate the code in settings.
+- The request waits at `/organiser/waiting/[requestId]` until the admin approves it. The browser
+  then receives an `org_token` session valid for 48 hours. Several organisers can be approved at once.
+- Scope: one tournament, read only.
+
+## What an organiser can see
+
 | View | Route |
 |---|---|
-| Live overview of all tatamis | `/organiser/event/[id]/dashboard` (reuses `AdminDashboardClient readOnly`) |
-| Athlete roster | `/organiser/event/[id]/athletes` (`AthletesClient readOnly`) |
-| Categories | `/organiser/event/[id]/categories` (`CategoriesClient readOnly`) |
-| Ring balance board | `/organiser/event/[id]/rings/balance` (`RingBalancingClient readOnly`) |
-| Brackets (view), results export, audit log (Phase 3) | via shared viewers |
+| Live overview of all tatamis | `/organiser/event/[id]/dashboard` (the admin dashboard in `readOnly` mode) |
+| Athlete roster | `/organiser/event/[id]/athletes` |
+| Categories and brackets | `/organiser/event/[id]/categories` |
+| Ring balance board | `/organiser/event/[id]/rings/balance` |
+| Official record: audit log and results export (CSV, PDF) | `/organiser/event/[id]/record` |
 
-## Cannot
-Anything that writes: settings, categories, athletes, draws, assignments, approvals, clocks,
-pausing, or scoring.
+## What an organiser cannot do
 
-## Known gaps (see [PLAN.md](../PLAN.md))
-- None known after Phase 3. The Official Record page (`/organiser/event/[id]/record`) has the
-  read-only audit log and the CSV/PDF results export.
+Anything that writes: settings, categories, athletes, draws, assignments, approvals, clocks, pauses
+or scoring. They also cannot download draw-sheet PDFs. There are no organiser write paths in the
+code, and adding one would be a design error.
+
+The guards behind these views are `requireTournamentStaff(tournamentId, ["admin", "organiser"])` in
+`src/actions/admin.ts`, `audit.ts` and `resultsExport.ts`.
