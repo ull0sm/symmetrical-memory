@@ -1,8 +1,0 @@
-# Taste
-- Wants new screens and components to blend with the app's existing design language rather than introducing a new visual style; calls out inconsistency explicitly ("that's just not matching my existing ui ux… implement it in that way soo that it blends"). Confidence: 0.8
-- Wants dense views (brackets, bout lists) to be scannable at a glance — objects that require effort to read and understand before acting are a problem ("i have to look more and understand and then choose"). Confidence: 0.55
-- Expects the approved plan to be executed to completion — every todo item finished, security considered — before a deliverable is handed over ("make sure you complete all the steps, security etcc, go according to plan, and make sure you complete all the todo"). Confidence: 0.6
-- Bothered by excessive server request/log volume (polling every second produced a flood of logs); expects background traffic and logging to stay quiet/efficient. Confidence: 0.55
-- Does not want internal artifacts (draw sheets / PDFs) exposed as public downloads. Confidence: 0.55
-- Needs an official, printable/downloadable record of event results — per-bout scores, the athletes involved, and the winners — to submit to a governing body; framed this as a legal/compliance requirement ("for legal stuff we have to actually submit the physical copy of what was conducted"). Confidence: 0.6
-- Expects existing data tracking and functionality to survive reworks — checks that previously discussed per-athlete/per-bout stats are still present ("we will be tracking each athelete how many matches they played… I hope those are still there"). Confidence: 0.55

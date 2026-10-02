@@ -1,5 +1,5 @@
 /**
- * Allowed values for every status-like text column (PLAN 7.6). The database
+ * Allowed values for every status-like text column. The database
  * enforces the same lists with CHECK constraints (schema/index.ts and
  * migration14_status_checks.sql). Add a value here first, then in a migration.
  *

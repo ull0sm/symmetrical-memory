@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { LIVE_FALLBACK_POLL_MS } from "@/lib/constants";
 
 /**
- * Polling as a fallback only (PLAN 7.8). While the live stream is connected
+ * Polling as a fallback only. While the live stream is connected
  * nothing polls; when it drops, `refresh` runs every `intervalMs`; when it
  * comes back, `refresh` runs once to catch up on anything missed.
  *

@@ -3,7 +3,7 @@ import { frameAncestors } from "@/lib/env";
 import { isOfflineMode } from "@/lib/offline";
 
 /**
- * Response security headers (PLAN 5.3), set per request in src/proxy.ts so that
+ * Response security headers, set per request in src/proxy.ts so that
  * runtime settings (FRAME_ANCESTORS, OFFLINE_MODE) apply to a standalone build.
  *
  * - CSP: same-origin by default. Online deployments also allow Cloudflare

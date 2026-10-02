@@ -1,4 +1,4 @@
-// Phase 1 RBAC verification: unauthenticated attacks, tenancy, and every role's real flow.
+// Access control: unauthenticated attacks, tenancy, and every role's real flow.
 import { createRequire } from "node:module";
 import { BASE, Jar, call, check, loadActions, results } from "./rbac-lib.mjs";
 
@@ -182,7 +182,7 @@ check("organiser cannot start a clock", denied(await call(A, "startRingClock", [
 check("organiser cannot pause all tatamis", denied(await call(A, "setAllRingTimers", [T1, true], org, ORG_PAGE)));
 check("organiser cannot edit settings", denied(await call(A, "updateTournamentSettings", [T1, { name: "x", status: "active", event_date: "", venue: "", city: "" }], org, ORG_PAGE)));
 check("organiser cannot save assignments", denied(await call(A, "saveAssignments", [T1, []], org, ORG_PAGE)));
-// (Results export is allowed for organisers server-side but has no organiser UI yet; see PLAN.)
+// (Results export is allowed for organisers server-side but has no organiser UI yet.)
 
 // ── E. Stager ──────────────────────────────────────────────────────────────
 const ST_PAGE = `/stager/event/${T1}/balance`;

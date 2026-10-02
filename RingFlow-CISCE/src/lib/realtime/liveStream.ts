@@ -6,7 +6,7 @@ import { subscribeToLiveEvents, type LiveEvent } from "@/lib/realtime/bus";
 import { isValidUuid } from "@/lib/utils";
 
 /**
- * Server-Sent Events feeds of database changes (PLAN 5.4). Two endpoints:
+ * Server-Sent Events feeds of database changes. Two endpoints:
  *
  * - `/api/live` (public): spectators, TV screens, judge phones and waiting
  *   rooms. Only the tables a public screen renders, ids and status only. The

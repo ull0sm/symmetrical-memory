@@ -1,5 +1,5 @@
 -- =========================================================================
--- RingFlow Migration 9 — Security hardening (Phase 1)
+-- RingFlow Migration 9 — Security hardening
 --
 -- 1. The live-feed trigger no longer publishes session tokens.
 -- 2. Access requests carry a claim hash so only the browser that asked for

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: run-suite.sh test-phaseN.mjs [...more suites]
+# Usage: run-suite.sh test-<name>.mjs [...more suites]
 # Seeds a fresh tournament in the throwaway test DB, warms every page so all
 # server actions are compiled, then runs each suite against it. Exits non-zero
 # if any check fails. See README.md in this folder.
