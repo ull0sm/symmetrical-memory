@@ -52,8 +52,9 @@ export function shuffle<T>(values: readonly T[], rng: () => number): T[] {
  *
  * Explicit seeds are preserved exactly as given rather than renumbered. If an
  * organiser seeds two athletes and leaves the rest unseeded, the seeded pair
- * keep their places and the remaining seed numbers are handed out in input
- * order — which is what an organiser means by "these two are my top seeds".
+ * keep their places and the remaining seed numbers are drawn at random from the
+ * stored `randomSeed` (or, with none given, handed out in input order) — which
+ * is what an organiser means by "these two are my top seeds".
  */
 export function orderParticipants(
   participants: readonly Participant[],
@@ -150,7 +151,9 @@ export function orderParticipants(
   if (seedByRegistration.size > 0 && unseeded.length > 0) {
     warnings.push({
       code: 'MISSING_SEED',
-      message: `${unseeded.length} of ${total} entrants have no seed; remaining seed numbers were assigned in entry order`,
+      message: `${unseeded.length} of ${total} entrants have no seed; remaining seed numbers were ${
+        seeding.randomSeed === undefined ? 'assigned in entry order' : 'drawn at random'
+      }`,
       registrationIds: unseeded.map((participant) => participant.registrationId),
     });
   }
@@ -174,7 +177,13 @@ export function orderParticipants(
     })
     .sort((a, b) => a.seed - b.seed);
 
-  unseeded.forEach((participant, index) => {
+  // With a randomSeed the unseeded entrants are drawn into the free seed numbers
+  // (an organiser who seeds the top few means "and draw the rest"); without one,
+  // entry order is kept so the result stays predictable.
+  const unseededOrder =
+    seeding.randomSeed === undefined ? unseeded : shuffle(unseeded, createRng(seeding.randomSeed));
+
+  unseededOrder.forEach((participant, index) => {
     const seed = freeSeeds[index];
     if (seed === undefined) {
       throw new Error('Internal error: ran out of free seed numbers');

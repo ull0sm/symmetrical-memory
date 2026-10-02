@@ -26,11 +26,8 @@ export function applySeparation(
     slotByMatchAndPosition.set(`${slot.matchId}:${slot.position}`, slot);
   }
 
-  const groupOf = (registrationId: string): string | null => {
-    const participant = participantByRegistration.get(registrationId);
-    if (participant === undefined) return null;
-    return options.by === 'CLUB' ? participant.clubId : participant.districtId;
-  };
+  const groupOf = (registrationId: string): string | null =>
+    groupKeyOf(participantByRegistration.get(registrationId), options);
 
   const athletesOf = (match: MatchNode): [SlotNode, SlotNode] | null => {
     const first = slotByMatchAndPosition.get(`${match.id}:1`);
@@ -131,6 +128,77 @@ export function applySeparation(
 
     return false;
   }
+}
+
+/**
+ * The separation group of a participant. Names are compared ignoring case and
+ * surrounding space, and an empty name is "no group" rather than a group of its
+ * own, so unattached athletes are never kept apart from one another.
+ */
+export function groupKeyOf(
+  participant: Participant | undefined,
+  options: SeparationOptions,
+): string | null {
+  if (participant === undefined) return null;
+  const raw = options.by === 'CLUB' ? participant.clubId : participant.districtId;
+  const key = raw?.trim().toLowerCase() ?? '';
+  return key === '' ? null : key;
+}
+
+/**
+ * How badly a bracket treats group-mates: every pair from the same group adds a
+ * penalty that grows the earlier they would meet (first round worst), and a pair
+ * that can only meet in the final adds none. Lower is better; 0 is ideal.
+ *
+ * Used to compare candidate draws, since the best a bracket can do is get
+ * group-mates into opposite halves, not merely out of round one.
+ */
+export function separationPenalty(
+  slots: readonly SlotNode[],
+  matches: readonly MatchNode[],
+  participantByRegistration: ReadonlyMap<string, Participant>,
+  options: SeparationOptions,
+  roundsTotal: number,
+): number {
+  const firstRound = matches.filter((match) => match.roundNo === 0);
+  const slotById = new Map(slots.map((slot) => [slot.id, slot]));
+
+  const positionsByGroup = new Map<string, number[]>();
+
+  firstRound.forEach((match, matchIndex) => {
+    match.slotIds.forEach((slotId, slotIndex) => {
+      const slot = slotById.get(slotId);
+      if (slot === undefined || slot.slotType !== 'ATHLETE' || slot.registrationId === null) return;
+
+      const group = groupKeyOf(participantByRegistration.get(slot.registrationId), options);
+      if (group === null) return;
+
+      const list = positionsByGroup.get(group) ?? [];
+      list.push(matchIndex * 2 + slotIndex);
+      positionsByGroup.set(group, list);
+    });
+  });
+
+  let penalty = 0;
+
+  for (const positions of positionsByGroup.values()) {
+    for (let i = 0; i < positions.length; i += 1) {
+      for (let j = i + 1; j < positions.length; j += 1) {
+        const a = positions[i] as number;
+        const b = positions[j] as number;
+
+        // The round (0 = first) in which these two positions share a match.
+        let round = 0;
+        while (a >> (round + 1) !== b >> (round + 1)) round += 1;
+
+        if (round < roundsTotal - 1) {
+          penalty += 4 ** (roundsTotal - 1 - round);
+        }
+      }
+    }
+  }
+
+  return penalty;
 }
 
 function mustRegistration(slot: SlotNode): string {
