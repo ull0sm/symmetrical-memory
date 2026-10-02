@@ -432,6 +432,7 @@ export default function StagerBalancingClient({
           cards={initialCategories}
           statusOf={(id) => assignmentsMap[id]?.status}
           tatamiOf={(id) => (initialRings.find((r) => r.id === assignmentsMap[id]?.ring_id)?.name ?? "a tatami").replace(/Ring/i, "Tatami")}
+          doneOf={(id) => assignmentsMap[id]?.matches_completed ?? 0}
         />
             <div className="flex items-center gap-1 text-[10px] font-data-mono text-[#68645A] mb-2">
               <span className="material-symbols-outlined text-[12px]">group</span>
@@ -578,6 +579,8 @@ export default function StagerBalancingClient({
           cards={initialCategories}
           statusOf={(id) => assignmentsMap[id]?.status}
           tatamiOf={(id) => (initialRings.find((r) => r.id === assignmentsMap[id]?.ring_id)?.name ?? "a tatami").replace(/Ring/i, "Tatami")}
+          doneOf={(id) => assignmentsMap[id]?.matches_completed ?? 0}
+          showOwnProgress
         />
 
         <div className="flex justify-between items-center text-[10px] font-data-mono text-[#68645A] mb-2.5">

@@ -133,6 +133,8 @@ export default function RingBalancingClient({
   /** Where this category's pools and finals run, and who waits for whom; admin can change it. */
   const renderSplitControl = (cat: Category) => {
     const isSplit = Boolean(cat.part && cat.part !== "ALL");
+    // Where a category runs is changed from one place: its Pool 1 card (or the whole category's card).
+    if (isSplit && cat.part !== "POOL:1") return null;
     if (readOnly && !isSplit) return null;
     return (
       <button
@@ -155,12 +157,14 @@ export default function RingBalancingClient({
   };
 
   /** On a pool or finals card: where the winner goes, or which pools the finals wait for. */
-  const renderSplitBadge = (cat: Category) => (
+  const renderSplitBadge = (cat: Category, showOwnProgress = false) => (
     <SplitCardBadge
       card={cat}
       cards={initialCategories}
       statusOf={(id) => assignmentsMap[id]?.status}
       tatamiOf={(id) => tatamiName(assignmentsMap[id]?.ring_id)}
+      doneOf={(id) => assignmentsMap[id]?.matches_completed ?? 0}
+      showOwnProgress={showOwnProgress}
     />
   );
 
@@ -2100,7 +2104,7 @@ export default function RingBalancingClient({
                                     </div>
                                   </div>
                                   <h5 className="text-xs font-bold text-[#1B1815] mb-1.5 leading-snug">{cat.name}</h5>
-                                  {renderSplitBadge(cat)}
+                                  {renderSplitBadge(cat, true)}
                                   <div className="flex justify-between items-center text-[10px] font-data-mono text-[#68645A]">
                                     <span className="flex items-center gap-1">
                                       <span className="material-symbols-outlined text-[12px]">group</span> {cat.athletes_count}

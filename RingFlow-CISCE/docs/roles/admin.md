@@ -68,7 +68,8 @@ same); each tatami's moderator scores only its own pools. Every change is audite
 its own card on the tatami that runs it ("Big Kumite · Pool 3", with that pool's athletes, bouts and progress), so a
 tatami's totals (time, athletes, bouts) count exactly what runs there. A pool card says where its winner goes; the
 finals card says "Waiting for pools 2, 3" until they finish. Drag a pool or the finals card within its tatami to
-reorder it, or onto another tatami to move it (the server checks what is live first). The board cannot drop a split
+reorder it, or onto another tatami to move it (the server checks what is live first). The split dialog opens only from the **Pool 1** card (the other cards of that category don't show the split
+button), and Pool 1 also carries a second bar for the whole category: all pools plus the finals. The board cannot drop a split
 category off the tatamis; use the split dialog to put it back together. Other screens open on the same cards and
 reload their layout by themselves when a category is split, merged or moved.
 
