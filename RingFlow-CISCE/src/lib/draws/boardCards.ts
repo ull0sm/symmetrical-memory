@@ -89,8 +89,8 @@ export function projectBoard<C extends CardCategory, A extends CardAssignment>(
         category_id: category.id,
         part,
         name: `${category.name} · ${describePart(part) ?? part}`,
-        athletes_count: athletes ?? category.athletes_count,
-        expected_matches: matches ?? category.expected_matches,
+        athletes_count: athletes ?? 0,
+        expected_matches: matches ?? 0,
         athletes_unit: part === "FINALS" ? "pool winners" : "athletes",
       });
       projected.push({ ...row, category_id: key, real_category_id: category.id, part });

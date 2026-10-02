@@ -11,6 +11,7 @@ import {
   eventLog as eventLogTable,
 } from "@/db/schema";
 import { eq, inArray, desc, asc, and } from "drizzle-orm";
+import { healPartSizes } from "@/lib/draws/partRouting";
 import { serializeRing, serializeCategory, serializeCategoryAssignment } from "@/lib/serializers";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +57,7 @@ export default async function StagerBalancePage({
   const completedTimes: Record<string, string> = {};
 
   if (ringIds.length > 0) {
+    await healPartSizes(ringIds);
     const [rawAssignments, finishLogs] = await Promise.all([
       db
         .select()

@@ -18,7 +18,7 @@ async function main() {
   const { db } = await import("../src/db");
   const { admins, tournaments, rings, categories, categoryAssignments, athletes, matches } = await import("../src/db/schema");
   const { performCategoryDraw } = await import("../src/lib/draws/generateDraws");
-  const { performSetRouting, poolsFinalsWaitFor, poolCountOf } = await import("../src/lib/draws/partRouting");
+  const { performSetRouting, poolsFinalsWaitFor, poolCountOf, healPartSizes } = await import("../src/lib/draws/partRouting");
   const { loadCategoryPools } = await import("../src/lib/draws/poolRosters");
   const { assembleCategoryDraw } = await import("../src/lib/draws/assembleDraw");
   const { scopeForMatch } = await import("../src/lib/auth/scope");
@@ -120,6 +120,15 @@ async function main() {
       cards.filter((c) => c.part.startsWith("POOL")).map((c) => [c.partAthletes, c.partMatches]),
       [[16, 15], [16, 15], [16, 15], [16, 15]],
       "each pool holds 16 athletes and runs 15 bouts"
+    );
+
+    // A category split before sizes were stored gets them from its draw, not from the whole category.
+    await db.update(categoryAssignments).set({ partAthletes: null, partMatches: null }).where(eq(categoryAssignments.categoryId, big.id));
+    await healPartSizes([ringA.id, ringB.id]);
+    assert.deepEqual(
+      (await cardsOf(big.id)).map((c) => [c.part, c.partAthletes, c.partMatches]).sort(),
+      [["FINALS", 4, (await card(big.id, "FINALS")).partMatches], ["POOL:1", 16, 15], ["POOL:2", 16, 15], ["POOL:3", 16, 15], ["POOL:4", 16, 15]],
+      "missing part sizes are filled in from the draw"
     );
 
     // Who is in each pool, and the one-pool view of the draw.

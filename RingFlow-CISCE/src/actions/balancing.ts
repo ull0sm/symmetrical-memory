@@ -11,6 +11,7 @@ import { eq, inArray, and, type InferSelectModel } from "drizzle-orm";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
 import { sequenceQueue } from "@/lib/draws/queueOrder";
+import { healPartSizes } from "@/lib/draws/partRouting";
 import { isValidUuid } from "@/lib/utils";
 
 type CategoryAssignmentRow = InferSelectModel<typeof categoryAssignmentsTable>;
@@ -310,6 +311,7 @@ export async function getBalancingAssignments(ringIds: string[]) {
   await requireTournamentStaff([...tournamentIds][0]);
 
   try {
+    await healPartSizes(ids);
     const rows = await db
       .select()
       .from(categoryAssignmentsTable)

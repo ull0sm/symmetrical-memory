@@ -11,6 +11,7 @@ import {
   eventLog as eventLogTable,
 } from "@/db/schema";
 import { eq, inArray, desc, asc, and } from "drizzle-orm";
+import { healPartSizes } from "@/lib/draws/partRouting";
 import { serializeRing, serializeCategory, serializeCategoryAssignment } from "@/lib/serializers";
 
 export default async function OrganiserRingBalancingPage({ params }: { params: Promise<{ id: string }> }) {
@@ -49,6 +50,7 @@ export default async function OrganiserRingBalancingPage({ params }: { params: P
   const completedTimes: Record<string, string> = {};
 
   if (ringIds.length > 0) {
+    await healPartSizes(ringIds);
     const [rawAssignments, finishLogs] = await Promise.all([
       db
         .select()

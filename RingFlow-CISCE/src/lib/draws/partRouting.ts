@@ -13,7 +13,7 @@ import {
   type RouteCard,
   type Routing,
 } from "@/lib/draws/routingPlan";
-import { and, eq, inArray, like, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm";
 
 export type { Routing } from "@/lib/draws/routingPlan";
 
@@ -74,6 +74,40 @@ export async function readRoutingState(executor: DbExecutor, categoryId: string)
   }
 
   return { graph, parts, cards: routed, rows, futureFought, totals };
+}
+
+/**
+ * Fills in the size of any pool or finals card that has none (a category split before sizes were stored), from
+ * the category's current draw, so screens never fall back to the whole category's numbers for a part.
+ */
+export async function healPartSizes(ringIds: readonly string[]): Promise<void> {
+  if (ringIds.length === 0) return;
+  const missing = await db
+    .select()
+    .from(categoryAssignments)
+    .where(
+      and(
+        inArray(categoryAssignments.ringId, [...ringIds]),
+        ne(categoryAssignments.part, "ALL"),
+        or(isNull(categoryAssignments.partAthletes), isNull(categoryAssignments.partMatches))
+      )
+    );
+  for (const categoryId of new Set(missing.map((row) => row.categoryId))) {
+    const graph = await latestGraph(db, categoryId);
+    const parts = graph ? computeDrawParts(graph) : null;
+    if (!graph || !parts) continue;
+    const roster = rosterByPart(graph, parts);
+    const totals = foughtBoutCountByPart(graph, parts.byMatch);
+    for (const row of missing.filter((m) => m.categoryId === categoryId)) {
+      await db
+        .update(categoryAssignments)
+        .set({
+          partAthletes: row.part === "FINALS" ? parts.poolCount : (roster.get(row.part as DrawPart)?.length ?? 0),
+          partMatches: totals.get(row.part) ?? 0,
+        })
+        .where(eq(categoryAssignments.id, row.id));
+    }
+  }
 }
 
 /** Next free queue position on a tatami. */
