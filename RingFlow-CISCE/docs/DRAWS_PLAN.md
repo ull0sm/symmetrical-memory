@@ -97,3 +97,24 @@ test for the regenerate guard, PDF golden checks (page count, no `?` corruption)
 
 Added phases: 2b manual swap (draft only, audited); 2c round-robin format for 3-5 athletes (new engine format
 `ROUND_ROBIN`, already listed as PLANNED in validation.ts).
+
+## 8. Phase 8: split a category's pools across tatamis (2026-10-02, user request)
+**Why:** a 64-athlete category prints as four pools of 16. With two tatamis the admin gives pools 1-2 to tatami 1 and 3-4 to tatami 2, so a pool winner is not left waiting for 48+ other bouts before meeting the other pool winners. Same for kata pool flights (Pool A / Pool B). Official and local events both do this.
+
+**Decisions (user):** cross-pool bouts (semi-finals, finals, bronze, repechage) run on ONE tatami the admin picks when splitting, and wait until every pool feeding them has finished; a pool takes its normal slot in its tatami's queue; kumite and kata ship together; the UI says "Pool" (the PDF's "Section" wording is reverted).
+
+**Today:** `category_assignments` has `unique(category_id)`, so a category lives on exactly one tatami; `scopeForMatch` finds a bout's tatami through that one row; completion (`bouts/results.ts`, `kata/finalize.ts`), stager, attendance, public, judge and the dashboard all assume one assignment per category.
+
+**Design:** keep the assignment as the unit of "one tatami runs it", but allow several per category, one per *part*.
+- `matches.part` (text, null = whole category): `POOL:1..N` for the bouts of a 16-slot pool (kumite first-round + the 3 later rounds of that subtree; kata pool bouts of Pool A/B), `FINALS` for everything after (semis/final, bronze, repechage; kata Final Flight). Set when the draw is stored, from the graph, so it is part of the checksummed draw and reproducible.
+- `category_assignments.part` (text, default `ALL`); unique becomes `(category_id, part)`. An unsplit category keeps one `ALL` row and behaves exactly as today.
+- `scopeForMatch` joins on `(category_id, part = coalesce(match.part, 'ALL'))` so the existing guards (`requireMatchModerator`) authorise on the right tatami without change elsewhere.
+- Split action `splitCategoryAcrossRings(categoryId, {pools: {1: ringA, 2: ringA, 3: ringB, 4: ringB}, finalsRing})` (admin only, audited, broadcast): refused once any bout is fought or the category is running; creates the part assignments in each tatami's queue; `unsplit` merges back (same refusal). Needs a draw first (parts come from the draw).
+- Start rule: a `FINALS` part cannot start until every `POOL` part is `completed` (server-checked in the start action; the queue shows "waiting for pools 3-4").
+- Completion: a part is complete when all its bouts are done; the category is complete when all parts are. Podium/results logic only when the last part completes.
+- Screens: balancing page gets a "Split pools" dialog on a category; queue/dashboard/public/stager show "Category X · Pools 1-2" and "Category X · Finals"; draw-sheet PDF prints the assigned tatami on each pool page.
+- Migration 16 (idempotent): add columns, backfill `ALL`, swap the unique constraint, add status check for `part` shape.
+
+**Phases:** 8a data model + draw labelling + scope/guard + tests (no UI) · 8b split/unsplit actions, start/complete rules, HTTP RBAC checks · 8c balancing UI, queue/dashboard/public labels, PDF tatami line · 8d kata pools via the same parts · docs + full suite.
+
+**Risks:** every place that reads "the" assignment of a category must be updated (admin, attendance, judge, matches, moderator, public, stager, results, kata finalize, kata poolAdvancement); attendance and stager are per category, not per part, so they stay category-level; bout numbers stay global per category so a mat sees non-contiguous numbers (as with byes).
