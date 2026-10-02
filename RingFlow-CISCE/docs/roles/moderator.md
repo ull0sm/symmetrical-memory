@@ -30,6 +30,9 @@ every bout. A tatami runs exactly one category at a time, so one login per tatam
 - Clock: start, pause, reset, adjust, finish, set duration, swap sides (`clock.ts`).
 - Judges: the **Judge phones** panel in the kata pad shows the QR/PIN, approves or removes phones,
   rotates the QR/PIN, and ends the panel (`judgePanel.ts`). See [judge.md](judge.md).
+- See call-area attendance: an amber hint above the pad when an athlete in the current bout was
+  marked absent or withdrawn (`AttendanceHint`, data from `getRingActiveBout`). It is only a hint;
+  the moderator decides whether to call Kiken.
 
 ## Cannot
 Touch other tatamis, edit categories, athletes or draws, change ring assignments, or approve other staff.

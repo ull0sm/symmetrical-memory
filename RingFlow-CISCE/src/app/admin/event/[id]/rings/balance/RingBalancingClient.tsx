@@ -832,7 +832,7 @@ export default function RingBalancingClient({
           {cat.sex && <span className="px-1.5 py-0.5 bg-surface-container-high text-on-surface rounded text-[8.5px] font-bold uppercase">{cat.sex}</span>}
           {cat.age_bracket ? (
             <span className="px-1.5 py-0.5 bg-surface-container-high text-on-surface rounded text-[8.5px] font-bold uppercase">{cat.age_bracket}</span>
-          ) : (cat.age_min !== null || cat.age_max !== null) && (
+          ) : (cat.age_min != null || cat.age_max != null) && (
             <span className="px-1.5 py-0.5 bg-surface-container-high text-on-surface rounded text-[8.5px] font-bold uppercase">
               {cat.age_min}-{cat.age_max}
             </span>
@@ -1665,7 +1665,7 @@ export default function RingBalancingClient({
                             <div key={cat.id} className="p-3 bg-surface-container-lowest border border-outline-variant rounded-lg flex flex-col gap-1 shadow-sm relative overflow-hidden">
                               <div className="flex justify-between items-center">
                                 <span className="text-[10px] font-bold text-secondary uppercase tracking-wider">
-                                  {(cat.age_bracket || (cat.age_min !== null && cat.age_max !== null ? `${cat.age_min}-${cat.age_max}` : ""))} | {cat.weight_class || cat.belt || "-"}
+                                  {(cat.age_bracket || (cat.age_min != null && cat.age_max != null ? `${cat.age_min}-${cat.age_max}` : ""))} | {cat.weight_class || cat.belt || "-"}
                                 </span>
                                 <span suppressHydrationWarning className="text-[10px] font-bold text-green-600 bg-green-500/10 px-1.5 py-0.5 rounded flex items-center gap-1">
                                   <span className="material-symbols-outlined text-[12px]">done_all</span>
@@ -1851,7 +1851,7 @@ export default function RingBalancingClient({
                                     {/* Clean Distinct Top Bar for Category Card */}
                                     <div className="px-3 py-2 border-b border-[#E1DDCF]/60 flex items-center justify-between bg-[#ECE9DF]/60">
                                       <span className="text-[10px] font-bold tracking-wider uppercase text-[#68645A] truncate">
-                                        {(cat.age_bracket || (cat.age_min !== null && cat.age_max !== null ? `${cat.age_min}-${cat.age_max}` : ""))} | {cat.weight_class || cat.belt || "-"}
+                                        {(cat.age_bracket || (cat.age_min != null && cat.age_max != null ? `${cat.age_min}-${cat.age_max}` : ""))} | {cat.weight_class || cat.belt || "-"}
                                       </span>
                                       <div className="flex items-center gap-1.5 shrink-0">
                                         {stagerStatus && (
@@ -1933,7 +1933,7 @@ export default function RingBalancingClient({
                                 >
                                   <div className="flex justify-between items-center mb-1.5">
                                     <span className="text-[9.5px] font-bold uppercase tracking-wider text-[#68645A]">
-                                      {(cat.age_bracket || (cat.age_min !== null && cat.age_max !== null ? `${cat.age_min}-${cat.age_max}` : ""))} | {cat.weight_class || cat.belt || "-"}
+                                      {(cat.age_bracket || (cat.age_min != null && cat.age_max != null ? `${cat.age_min}-${cat.age_max}` : ""))} | {cat.weight_class || cat.belt || "-"}
                                     </span>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                       {renderDrawButton(cat)}

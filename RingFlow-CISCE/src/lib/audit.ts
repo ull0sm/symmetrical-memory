@@ -139,6 +139,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   MATCH_COUNT_ADJUSTED: "Match count adjusted",
   RING_ALERT: "Emergency / assistance",
   STAGER_STATUS: "Call area status",
+  ATTENDANCE_SET: "Attendance marked",
   BOUT_STARTED: "Bout put on the mat",
   BOUT_SCORE: "Score changed",
   BOUT_CONFIRMED: "Result confirmed",

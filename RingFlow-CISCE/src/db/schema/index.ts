@@ -409,6 +409,29 @@ export const tournamentRegistrations = pgTable(
   (table) => [unique().on(table.tournamentId, table.athleteId)]
 );
 
+/**
+ * Optional call-area attendance (PLAN Phase 6). A helper, never a gate: nothing
+ * blocks on it; the moderator just sees a hint. No row means "not taken".
+ * Keyed by (category, athlete) because athletes reach a category through
+ * either `category_entries` or `athletes.category_id`.
+ */
+export const categoryAttendance = pgTable(
+  'category_attendance',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => categories.id, { onDelete: 'cascade' }),
+    athleteId: uuid('athlete_id')
+      .notNull()
+      .references(() => athletes.id, { onDelete: 'cascade' }),
+    status: text('status').notNull(), // 'present' | 'absent' | 'withdrawn'
+    setBy: text('set_by').notNull(), // "role:name"
+    setAt: timestamp('set_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [unique().on(table.categoryId, table.athleteId)]
+);
+
 export const categoryEntries = pgTable(
   'category_entries',
   {

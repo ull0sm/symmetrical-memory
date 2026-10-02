@@ -21,6 +21,7 @@ import { KataScoringPad } from "@/components/moderator/KataScoringPad";
 import { KataPoolTableDraw } from "@/components/draw/KataPoolTableDraw";
 import { BoutPickerModal } from "@/components/moderator/BoutPickerModal";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
+import { AttendanceHint } from "@/components/moderator/AttendanceHint";
 import MatchTimer from "@/components/moderator/MatchTimer";
 
 export default function ModeratorCurrentClient({ ringId, initialAssignments, allAthletes }: { ringId: string, initialAssignments: any[], allAthletes: any[] }) {
@@ -575,6 +576,10 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
       {/* Digital Bout Runner Mode */}
       {boutData?.hasDraw && activeMode === "digital" && (
         <div className="space-y-4 mb-8">
+
+          {boutData.currentMatch && (
+            <AttendanceHint aka={boutData.currentMatch.aka} ao={boutData.currentMatch.ao} attendance={boutData.attendance} />
+          )}
 
           {/* Active Bout Scoring Pad with unified clock */}
           {boutData.currentMatch ? (
