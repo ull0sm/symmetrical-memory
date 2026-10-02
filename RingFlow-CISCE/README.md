@@ -56,7 +56,7 @@ Full rules: [docs/roles/README.md](docs/roles/README.md).
 | [docs/roles/](docs/roles/README.md) | Who can do what, per role |
 | [PRD.md](PRD.md) | Product requirements and the event lifecycle |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Workflow and conventions |
-| [AGENTS.md](AGENTS.md) | Engineering guide for working in the code (also for AI agents) |
+| [AGENTS.md](../AGENTS.md) | Engineering guide for working in the code (also for AI agents) |
 | [db/migrations/README.md](db/migrations/README.md) | How the database is created and upgraded |
 | [tests/http/README.md](tests/http/README.md) | The integration test suites |
 
@@ -75,6 +75,7 @@ npm run lint          # ESLint
 npm test              # unit tests
 npm run db:push       # create or update tables from the schema
 npm run db:migrate    # apply SQL migrations (safe to repeat)
+npm run db:bootstrap  # apply base schema SQL and migrations without drizzle-kit
 npm run db:seed       # demo tournament (development only)
 npm run db:reset      # wipe and reseed (development only)
 npm run db:create-admin -- --email=director@example.org --password='...' --name="Tournament Director"

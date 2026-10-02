@@ -96,19 +96,7 @@ settings; an athlete's own bracket always opens from search.
 
 ## Scripts
 
-| Script | What it does |
-|---|---|
-| `npm run dev` | Development server on `0.0.0.0:3000` |
-| `npm run build` | Production build (also type-checks; see the known type errors in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) |
-| `npm run start` | Run the production build |
-| `npm run lint` | ESLint |
-| `npm test` | Unit tests (vitest) |
-| `npm run db:push` | Apply the schema with drizzle-kit |
-| `npm run db:migrate` | Apply the SQL migrations in `db/migrations` |
-| `npm run db:bootstrap` | Apply the base schema SQL and the migrations directly, without drizzle-kit (`scripts/bootstrap-db.ts`) |
-| `npm run db:seed` | Load the demo tournament |
-| `npm run db:reset` | Wipe and reseed |
-| `npm run db:create-admin` | Create or update an admin account |
+All npm scripts are listed under Commands in [README.md](README.md).
 
 ## Troubleshooting
 

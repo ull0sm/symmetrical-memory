@@ -56,16 +56,9 @@ page. It is a convenience, not a security boundary: every page and action checks
 
 ## Authentication
 
-| Role | How it signs in |
-|---|---|
-| Admin | Email and password. A random token goes in a cookie and its SHA-256 hash in `admin_sessions` |
-| Organiser, stager, moderator | An access code creates a request. The admin approves it. The browser that asked, and only that one, collects the session token |
-| Judge | The tatami QR link or PIN plus a seat creates a request. The moderator approves it |
-| Public, scoreboard | No sign-in. Read-only, governed by the tournament's public toggles |
-
-Requests carry a claim cookie, whose hash is stored with the request, so a request ID alone is
-worthless. Session tokens are stored only as hashes. Details and lifetimes are in
-[roles/README.md](roles/README.md).
+Admins sign in with a password. Organisers, stagers, moderators and judges ask for access with a
+code and are approved by a human. Public pages need no sign-in. Sessions, lifetimes and the guards
+are in [roles/README.md](roles/README.md).
 
 ## Realtime
 
