@@ -59,7 +59,7 @@ async function publicDrawsEnabledForCategory(categoryId: string): Promise<boolea
  */
 export async function generateCategoryDraw(
   categoryId: string,
-  options?: { bronzeMedals?: 0 | 1 | 2 | 3; separateByClub?: boolean; forceRegenerate?: boolean }
+  options?: { bronzeMedals?: 0 | 1 | 2 | 3; separateByClub?: boolean }
 ) {
   const [cat] = await db
     .select({ tournamentId: categories.tournamentId })
@@ -77,7 +77,11 @@ export async function generateCategoryDraw(
     action: "DRAW_GENERATED",
     targetType: "category",
     targetId: categoryId,
-    after: { options: options ?? null, success: Boolean((result as { success?: boolean })?.success !== false) },
+    after: {
+      options: options ?? null,
+      success: result.success,
+      ...("version" in result ? { version: result.version } : { refused: result.error }),
+    },
   });
   return result;
 }
@@ -99,6 +103,20 @@ export async function setCategoryDrawOption(
   }
 
   await db.update(categories).set({ bronzeMedals }).where(eq(categories.id, categoryId));
+
+  // The setting only shapes a draw when it is generated, so say so when the
+  // existing bracket was built with something else.
+  const [existing] = await db
+    .select({ bronzeMedals: draws.bronzeMedals })
+    .from(draws)
+    .where(eq(draws.categoryId, categoryId));
+  const [tournament] = await db
+    .select({ defaultBronzeMedals: tournaments.defaultBronzeMedals })
+    .from(tournaments)
+    .where(eq(tournaments.id, cat.tournamentId));
+  const effective = bronzeMedals ?? tournament?.defaultBronzeMedals ?? 2;
+  const drawOutdated = existing !== undefined && existing.bronzeMedals !== effective;
+
   await audit({
     tournamentId: cat.tournamentId,
     categoryId,
@@ -106,14 +124,14 @@ export async function setCategoryDrawOption(
     action: "DRAW_OPTION_CHANGED",
     targetType: "category",
     targetId: categoryId,
-    after: { bronzeMedals },
+    after: { bronzeMedals, drawOutdated },
   });
 
   try {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
   } catch {}
 
-  return { success: true };
+  return { success: true, drawOutdated, drawBronzeMedals: existing?.bronzeMedals ?? null };
 }
 
 /**
@@ -289,26 +307,55 @@ export async function toggleCategoryDrawLock(categoryId: string) {
   return { success: true, isLocked: !isLocked, state: nextState };
 }
 
+/** The word an admin must type to flush a category's draw. */
+export const FLUSH_CONFIRMATION = "FLUSH";
+const MIN_FLUSH_REASON_LENGTH = 5;
+
 /**
  * Completely flushes and purges all draws, matches, slots, and scores for a specific category.
  * Strictly isolated: operates only on the specified categoryId with zero impact on other categories.
+ *
+ * This is the only way to discard fought bouts. It needs the typed confirmation,
+ * and a reason once results exist; the reason, the counts and the draw
+ * checksum it destroyed go into the audit log.
  */
-export async function flushCategoryDraw(categoryId: string) {
+export async function flushCategoryDraw(
+  categoryId: string,
+  confirmation?: { confirm: string; reason?: string }
+) {
   const [cat] = await db
-    .select({ tournamentId: categories.tournamentId })
+    .select({ tournamentId: categories.tournamentId, name: categories.name })
     .from(categories)
     .where(eq(categories.id, categoryId));
 
   if (!cat) return { success: false, error: "Category not found" };
   const admin = await requireTournamentAdmin(cat.tournamentId);
 
-  await db.transaction(async (tx) => {
-    // 1. Find all matches for this category
+  if (confirmation?.confirm?.trim() !== FLUSH_CONFIRMATION) {
+    return { success: false, error: `Type ${FLUSH_CONFIRMATION} to confirm.` };
+  }
+
+  const reason = confirmation.reason?.trim() ?? "";
+
+  const before = await db.transaction(async (tx) => {
+    // 1. Serialise against concurrent scoring/generation, then look at what is about to go.
+    await tx.select({ id: categories.id }).from(categories).where(eq(categories.id, categoryId)).for("update");
+
     const catMatches = await tx
-      .select({ id: matches.id })
+      .select({ id: matches.id, status: matches.status })
       .from(matches)
       .where(eq(matches.categoryId, categoryId));
     const matchIds = catMatches.map((m) => m.id);
+    const fought = catMatches.filter((m) => m.status === "CONFIRMED" || m.status === "LIVE").length;
+
+    const [draw] = await tx
+      .select({ id: draws.id, version: draws.version, checksum: draws.checksum, state: draws.state })
+      .from(draws)
+      .where(eq(draws.categoryId, categoryId));
+
+    if (fought > 0 && reason.length < MIN_FLUSH_REASON_LENGTH) {
+      return { refused: `This category has ${fought} fought bout(s). Give a reason (at least ${MIN_FLUSH_REASON_LENGTH} characters) to flush it.` };
+    }
 
     // 2. Delete kata_scores, matchEvents, slots, and matches for this category in clean FK order
     if (matchIds.length > 0) {
@@ -318,23 +365,19 @@ export async function flushCategoryDraw(categoryId: string) {
       await tx.delete(matches).where(eq(matches.categoryId, categoryId));
     }
 
-    // 3. Find and delete draw record & version history
-    const [draw] = await tx
-      .select({ id: draws.id })
-      .from(draws)
-      .where(eq(draws.categoryId, categoryId));
-
+    // 3. Delete draw record & version history
     if (draw) {
       await tx.delete(drawVersions).where(eq(drawVersions.drawId, draw.id));
       await tx.delete(draws).where(eq(draws.id, draw.id));
     }
 
     // 4. Reset expected matches on category
-    await tx
-      .update(categories)
-      .set({ expectedMatches: 0 })
-      .where(eq(categories.id, categoryId));
+    await tx.update(categories).set({ expectedMatches: 0 }).where(eq(categories.id, categoryId));
+
+    return { matches: matchIds.length, fought, draw: draw ?? null };
   });
+
+  if ("refused" in before) return { success: false, error: before.refused };
 
   try {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);
@@ -347,6 +390,8 @@ export async function flushCategoryDraw(categoryId: string) {
     action: "DRAW_FLUSHED",
     targetType: "category",
     targetId: categoryId,
+    before: { categoryName: cat.name, ...before },
+    reason: reason || null,
   });
 
   return { success: true };

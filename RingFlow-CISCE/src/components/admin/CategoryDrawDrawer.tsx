@@ -64,6 +64,7 @@ export function CategoryDrawDrawer({
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [showEmergencyReset, setShowEmergencyReset] = useState(false);
   const [resetConfirmInput, setResetConfirmInput] = useState("");
+  const [resetReason, setResetReason] = useState("");
 
   // Kata Settings State
   const [kataFormat, setKataFormat] = useState<string>("GROUP_POOLS");
@@ -113,6 +114,11 @@ export function CategoryDrawDrawer({
     try {
       const res = await setCategoryDrawOption(category.id, val);
       if (res.success) {
+        if (res.drawOutdated) {
+          alert(
+            `Saved. The current bracket was built with ${res.drawBronzeMedals} bronze medal(s); regenerate the draw for the new setting to take effect.`
+          );
+        }
         onRefresh();
       } else {
         alert(res.error || "Failed to save bronze medal setting.");
@@ -144,25 +150,43 @@ export function CategoryDrawDrawer({
     }
   };
 
-  const handleRegenerate = async (force: boolean = false) => {
+  const handleRegenerate = async () => {
     if (lifecycle === "IN_PROGRESS" || lifecycle === "COMPLETED") {
-      if (!force) {
-        alert("Matches are already live or completed in this category. Complete redrawing is forbidden to protect scores.");
-        return;
-      }
+      alert("Matches are already live or completed in this category. A redraw would erase the scores; use the Emergency Administrative Override below.");
+      return;
     }
     setIsRegenerating(true);
     try {
-      const res = await generateCategoryDraw(category.id, { forceRegenerate: force });
+      const res = await generateCategoryDraw(category.id);
       if (res.success) {
-        setShowEmergencyReset(false);
-        setResetConfirmInput("");
         onRefresh();
       } else {
         alert(res.error || "Failed to generate draw.");
       }
     } catch (err: any) {
       alert(err?.message || "Failed to generate draw.");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  /** Flush (audited, with a reason) and then draw again. The only way past fought bouts. */
+  const handleEmergencyRedraw = async () => {
+    setIsRegenerating(true);
+    try {
+      const flushed = await flushCategoryDraw(category.id, { confirm: "FLUSH", reason: resetReason });
+      if (!flushed.success) {
+        alert(flushed.error || "Could not flush the draw.");
+        return;
+      }
+      const res = await generateCategoryDraw(category.id);
+      setShowEmergencyReset(false);
+      setResetConfirmInput("");
+      setResetReason("");
+      if (!res.success) alert(`The draw was flushed, but a new one could not be generated: ${res.error}`);
+      onRefresh();
+    } catch (err: any) {
+      alert(err?.message || "Emergency redraw failed.");
     } finally {
       setIsRegenerating(false);
     }
@@ -179,7 +203,7 @@ export function CategoryDrawDrawer({
 
     setIsFlushing(true);
     try {
-      const res = await flushCategoryDraw(category.id);
+      const res = await flushCategoryDraw(category.id, { confirm: "FLUSH", reason: "Flushed from the draw panel" });
       if (res.success) {
         alert(`Draw for "${category.name}" has been flushed cleanly.`);
         onRefresh();
@@ -707,7 +731,7 @@ export function CategoryDrawDrawer({
               <button
                 type="button"
                 disabled={isRegenerating || isFlushing}
-                onClick={() => handleRegenerate(true)}
+                onClick={() => handleRegenerate()}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#0E9C7C] hover:bg-[#0B7C63] text-white font-bold text-xs font-data-mono tracking-wider transition-all cursor-pointer shadow-sm"
               >
                 <span className={`material-symbols-outlined text-[18px] ${isRegenerating ? "animate-spin" : ""}`}>
@@ -755,6 +779,14 @@ export function CategoryDrawDrawer({
                   <p className="leading-relaxed">
                     <strong>CAUTION:</strong> WKF rules prohibit redrawing once competition starts. Forcing a redraw will <strong>PERMANENTLY ERASE</strong> all {confirmed} confirmed match results, scores, and podiums in this category.
                   </p>
+                  <p>Why is this redraw needed? The reason goes into the official audit log.</p>
+                  <textarea
+                    value={resetReason}
+                    onChange={(e) => setResetReason(e.target.value)}
+                    placeholder="Reason (required)"
+                    rows={2}
+                    className="w-full px-3 py-2 border border-red-300 rounded-lg bg-white text-xs text-red-950 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
                   <p>To authorize this emergency action, type <strong>RESET</strong> below:</p>
                   <input
                     type="text"
@@ -765,8 +797,8 @@ export function CategoryDrawDrawer({
                   />
                   <button
                     type="button"
-                    disabled={resetConfirmInput.trim() !== "RESET" || isRegenerating}
-                    onClick={() => handleRegenerate(true)}
+                    disabled={resetConfirmInput.trim() !== "RESET" || resetReason.trim().length < 5 || isRegenerating}
+                    onClick={handleEmergencyRedraw}
                     className="w-full py-2.5 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold font-data-mono text-xs transition-colors cursor-pointer"
                   >
                     {isRegenerating ? "PURGING AND REBUILDING..." : "CONFIRM EMERGENCY REDRAW"}

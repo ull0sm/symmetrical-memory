@@ -22,17 +22,78 @@ import { generateKataFlightDraw } from "@/engine/draw-engine/kataFlightDraw";
 import type { KataFlightDrawResult, KataPool, KataGeneratedMatch } from "@/engine/draw-engine/kataFlightDraw";
 import { isKataCategory } from "@/lib/categories/eventType";
 
+type DbExecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** What stands between a category and a redraw: a lock, or bouts already fought. */
+async function readProtection(executor: DbExecutor, categoryId: string) {
+  const [existingDraw] = await executor.select().from(draws).where(eq(draws.categoryId, categoryId));
+
+  const [matchStats] = await executor
+    .select({
+      confirmed: sql<number>`count(*) filter (where ${matches.status} = 'CONFIRMED')`,
+      live: sql<number>`count(*) filter (where ${matches.status} = 'LIVE')`,
+    })
+    .from(matches)
+    .where(eq(matches.categoryId, categoryId));
+
+  const confirmedCount = Number(matchStats?.confirmed ?? 0);
+  const liveCount = Number(matchStats?.live ?? 0);
+
+  return {
+    isLocked: existingDraw?.state === "LOCKED",
+    confirmedCount,
+    liveCount,
+    activeBoutCount: confirmedCount + liveCount,
+  };
+}
+
+function refusalFor(catName: string, protection: Awaited<ReturnType<typeof readProtection>>) {
+  const { isLocked, confirmedCount, liveCount, activeBoutCount } = protection;
+
+  // Fought bouts win over the lock: unlocking cannot make a redraw safe.
+  if (activeBoutCount > 0) {
+    return {
+      success: false as const,
+      error: `Cannot regenerate "${catName}": it already has ${confirmedCount} confirmed and ${liveCount} live bout(s), and a redraw would erase those results. Use "Flush category draw" (with a reason) if you really must start over.`,
+      isLocked,
+      activeBoutCount,
+    };
+  }
+
+  if (isLocked) {
+    return {
+      success: false as const,
+      error: `Draw for "${catName}" is LOCKED. Unlock it first if you wish to regenerate.`,
+      isLocked,
+      activeBoutCount,
+    };
+  }
+
+  return null;
+}
+
+/** Thrown inside the generation transaction when the protection check fails. */
+class DrawRefusedError extends Error {
+  constructor(readonly refusal: NonNullable<ReturnType<typeof refusalFor>>) {
+    super(refusal.error);
+  }
+}
+
 /**
- * The unimplemented-by-design core of draw generation: pure database work with
- * no request context, so the admin actions can guard it and scripts (seeding,
- * verification) can call it directly. Never expose these to the client.
+ * The core of draw generation: pure database work with no request context, so
+ * the admin actions can guard it and scripts (seeding, verification) can call
+ * it directly. Never expose these to the client.
+ *
+ * A category that is locked or already has fought bouts is never redrawn here;
+ * the only way to discard results is `flushCategoryDraw`, which demands a reason
+ * and is audited. The check is repeated inside the write transaction, under a
+ * row lock, so a bout confirmed mid-generation cannot slip past it.
  */
 export async function performCategoryDraw(
   categoryId: string,
   options?: {
     bronzeMedals?: 0 | 1 | 2 | 3;
     separateByClub?: boolean;
-    forceRegenerate?: boolean;
   }
 ) {
   // 1. Fetch category
@@ -43,41 +104,9 @@ export async function performCategoryDraw(
 
   if (!cat) throw new Error("Category not found");
 
-  // Safety protection: check existing draw lock and completed/live matches
-  const [existingDraw] = await db
-    .select()
-    .from(draws)
-    .where(eq(draws.categoryId, categoryId));
-
-  const [matchStats] = await db
-    .select({
-      confirmed: sql<number>`count(*) filter (where ${matches.status} = 'CONFIRMED')`,
-      live: sql<number>`count(*) filter (where ${matches.status} = 'LIVE')`,
-    })
-    .from(matches)
-    .where(eq(matches.categoryId, categoryId));
-
-  const confirmedCount = Number(matchStats?.confirmed ?? 0);
-  const liveCount = Number(matchStats?.live ?? 0);
-  const activeBoutCount = confirmedCount + liveCount;
-
-  if (existingDraw?.state === "LOCKED" && !options?.forceRegenerate) {
-    return {
-      success: false,
-      error: `Draw for "${cat.name}" is LOCKED. Unlock it first if you wish to regenerate.`,
-      isLocked: true,
-      activeBoutCount,
-    };
-  }
-
-  if (activeBoutCount > 0 && !options?.forceRegenerate) {
-    return {
-      success: false,
-      error: `Cannot regenerate: Category "${cat.name}" already has ${confirmedCount} confirmed and ${liveCount} live bout(s). Regenerating would erase all tournament results.`,
-      isLocked: existingDraw?.state === "LOCKED",
-      activeBoutCount,
-    };
-  }
+  // Fail fast; the authoritative check is repeated inside the transaction.
+  const early = refusalFor(cat.name, await readProtection(db, categoryId));
+  if (early) return early;
 
   // The bronze choice resolves in order: explicit override → this category's
   // setting → the tournament default → WKF's two.
@@ -181,36 +210,57 @@ export async function performCategoryDraw(
   );
 
   // 6. Save draw into database atomically
-  const result = await db.transaction(async (tx) => {
-    // Delete existing matches, slots, scores, and events cleanly in reverse FK dependency order
-    const catMatches = await tx
-      .select({ id: matches.id })
-      .from(matches)
-      .where(eq(matches.categoryId, categoryId));
-    const matchIds = catMatches.map((m) => m.id);
+  let result;
+  try {
+    result = await db.transaction(async (tx) => {
+      // Serialise concurrent generate/confirm on this category, then re-check.
+      await tx.select({ id: categories.id }).from(categories).where(eq(categories.id, categoryId)).for("update");
+      const refusal = refusalFor(cat.name, await readProtection(tx, categoryId));
+      if (refusal) throw new DrawRefusedError(refusal);
 
-    if (matchIds.length > 0) {
-      await tx.delete(kataScores).where(inArray(kataScores.matchId, matchIds));
-      await tx.delete(matchEvents).where(inArray(matchEvents.matchId, matchIds));
-      await tx.delete(matchSlots).where(inArray(matchSlots.matchId, matchIds));
-      await tx.delete(matches).where(eq(matches.categoryId, categoryId));
-    }
+      // Delete existing matches, slots, scores, and events cleanly in reverse FK dependency order
+      const catMatches = await tx
+        .select({ id: matches.id })
+        .from(matches)
+        .where(eq(matches.categoryId, categoryId));
+      const matchIds = catMatches.map((m) => m.id);
 
-    // Upsert draw record
-    const [existingDraw] = await tx
-      .select()
-      .from(draws)
-      .where(eq(draws.categoryId, categoryId));
+      if (matchIds.length > 0) {
+        await tx.delete(kataScores).where(inArray(kataScores.matchId, matchIds));
+        await tx.delete(matchEvents).where(inArray(matchEvents.matchId, matchIds));
+        await tx.delete(matchSlots).where(inArray(matchSlots.matchId, matchIds));
+        await tx.delete(matches).where(eq(matches.categoryId, categoryId));
+      }
 
-    const version = existingDraw ? existingDraw.version + 1 : 1;
-    const drawId = existingDraw?.id ?? crypto.randomUUID();
+      // Upsert draw record
+      const [existingDraw] = await tx
+        .select()
+        .from(draws)
+        .where(eq(draws.categoryId, categoryId));
 
-    const drawFormat = isKata && cat.kataFormat === "GROUP_POOLS" ? "KATA_GROUP_POOLS" : graph.format;
+      const version = existingDraw ? existingDraw.version + 1 : 1;
+      const drawId = existingDraw?.id ?? crypto.randomUUID();
 
-    if (existingDraw) {
-      await tx
-        .update(draws)
-        .set({
+      const drawFormat = isKata && cat.kataFormat === "GROUP_POOLS" ? "KATA_GROUP_POOLS" : graph.format;
+
+      if (existingDraw) {
+        await tx
+          .update(draws)
+          .set({
+            version,
+            format: drawFormat,
+            rulesetId: graph.rulesetId,
+            tournamentSize: graph.tournamentSize,
+            byeCount: graph.byeCount,
+            checksum: graph.checksum,
+            state: "DRAFT",
+            bronzeMedals,
+          })
+          .where(eq(draws.id, drawId));
+      } else {
+        await tx.insert(draws).values({
+          id: drawId,
+          categoryId,
           version,
           format: drawFormat,
           rulesetId: graph.rulesetId,
@@ -219,46 +269,69 @@ export async function performCategoryDraw(
           checksum: graph.checksum,
           state: "DRAFT",
           bronzeMedals,
-        })
-        .where(eq(draws.id, drawId));
-    } else {
-      await tx.insert(draws).values({
-        id: drawId,
-        categoryId,
-        version,
-        format: drawFormat,
-        rulesetId: graph.rulesetId,
-        tournamentSize: graph.tournamentSize,
-        byeCount: graph.byeCount,
-        checksum: graph.checksum,
-        state: "DRAFT",
-        bronzeMedals,
-      });
-    }
+        });
+      }
 
-    let kataFlight: KataFlightDrawResult | null = null;
-    const allKataMatches: typeof matches.$inferInsert[] = [];
-    const allKataSlots: typeof matchSlots.$inferInsert[] = [];
+      let kataFlight: KataFlightDrawResult | null = null;
+      const allKataMatches: typeof matches.$inferInsert[] = [];
+      const allKataSlots: typeof matchSlots.$inferInsert[] = [];
 
-    if (isKata && cat.kataFormat === "GROUP_POOLS") {
-      kataFlight = generateKataFlightDraw({
-        categoryId,
-        participants: participantList.map((p, i) => ({
-          id: p.athleteId,
-          name: p.name,
-          school: p.school,
-          dojo: p.dojo,
-          seed: i + 1,
-        })),
-        poolSize: cat.poolSize || 8,
-        advancePerPool: cat.advancePerPool || 2,
-        scoringMode: (cat.kataScoringMode as 'FLAG' | 'POINTS') || 'POINTS',
-        bronzeMedals: (bronzeMedals === 1 ? 1 : bronzeMedals === 0 ? 0 : 2) as 0 | 1 | 2,
-      });
-      (graph as DrawGraph & { flightDraw?: KataFlightDrawResult }).flightDraw = kataFlight;
+      if (isKata && cat.kataFormat === "GROUP_POOLS") {
+        kataFlight = generateKataFlightDraw({
+          categoryId,
+          participants: participantList.map((p, i) => ({
+            id: p.athleteId,
+            name: p.name,
+            school: p.school,
+            dojo: p.dojo,
+            seed: i + 1,
+          })),
+          poolSize: cat.poolSize || 8,
+          advancePerPool: cat.advancePerPool || 2,
+          scoringMode: (cat.kataScoringMode as 'FLAG' | 'POINTS') || 'POINTS',
+          bronzeMedals: (bronzeMedals === 1 ? 1 : bronzeMedals === 0 ? 0 : 2) as 0 | 1 | 2,
+        });
+        (graph as DrawGraph & { flightDraw?: KataFlightDrawResult }).flightDraw = kataFlight;
 
-      kataFlight.pools.forEach((pool: KataPool) => {
-        pool.matches.forEach((m: KataGeneratedMatch) => {
+        kataFlight.pools.forEach((pool: KataPool) => {
+          pool.matches.forEach((m: KataGeneratedMatch) => {
+            allKataMatches.push({
+              id: m.id,
+              categoryId,
+              matchNo: m.matchNo,
+              roundNo: m.roundNo,
+              roundName: m.roundName,
+              bracketType: m.bracketType,
+              status: m.status,
+              poolGroup: m.poolGroup,
+              kataScoringMode: m.kataScoringMode,
+            });
+
+            if (m.akaAthleteId) {
+              allKataSlots.push({
+                id: `${m.id}-s1`,
+                matchId: m.id,
+                position: 1,
+                slotType: "ENTRY",
+                athleteId: m.akaAthleteId,
+                sourceMatchId: null,
+              });
+            }
+            if (m.aoAthleteId) {
+              allKataSlots.push({
+                id: `${m.id}-s2`,
+                matchId: m.id,
+                position: 2,
+                slotType: "ENTRY",
+                athleteId: m.aoAthleteId,
+                sourceMatchId: null,
+              });
+            }
+          });
+        });
+
+        // Add Final flight matches
+        kataFlight.finalFlight.matches.forEach((m: KataGeneratedMatch) => {
           allKataMatches.push({
             id: m.id,
             categoryId,
@@ -270,56 +343,19 @@ export async function performCategoryDraw(
             poolGroup: m.poolGroup,
             kataScoringMode: m.kataScoringMode,
           });
-
-          if (m.akaAthleteId) {
-            allKataSlots.push({
-              id: `${m.id}-s1`,
-              matchId: m.id,
-              position: 1,
-              slotType: "ENTRY",
-              athleteId: m.akaAthleteId,
-              sourceMatchId: null,
-            });
-          }
-          if (m.aoAthleteId) {
-            allKataSlots.push({
-              id: `${m.id}-s2`,
-              matchId: m.id,
-              position: 2,
-              slotType: "ENTRY",
-              athleteId: m.aoAthleteId,
-              sourceMatchId: null,
-            });
-          }
         });
-      });
 
-      // Add Final flight matches
-      kataFlight.finalFlight.matches.forEach((m: KataGeneratedMatch) => {
-        allKataMatches.push({
-          id: m.id,
-          categoryId,
-          matchNo: m.matchNo,
-          roundNo: m.roundNo,
-          roundName: m.roundName,
-          bracketType: m.bracketType,
-          status: m.status,
-          poolGroup: m.poolGroup,
-          kataScoringMode: m.kataScoringMode,
-        });
-      });
+        (graph as any).matches = allKataMatches;
+        (graph as any).slots = allKataSlots;
+      }
 
-      (graph as any).matches = allKataMatches;
-      (graph as any).slots = allKataSlots;
-    }
-
-    // Insert version history snapshot
-    await tx.insert(drawVersions).values({
-      drawId,
-      version,
-      graph: graph as any,
-      checksum: graph.checksum,
-      reason: "Generated by organizer",
+      // Insert version history snapshot
+      await tx.insert(drawVersions).values({
+        drawId,
+        version,
+        graph: graph as any,
+        checksum: graph.checksum,
+        reason: "Generated by organizer",
     });
 
     if (kataFlight) {
@@ -377,7 +413,11 @@ export async function performCategoryDraw(
       .where(eq(categories.id, categoryId));
 
     return { drawId, matchCount: graph.matches.length, foughtBouts, version };
-  });
+    });
+  } catch (err) {
+    if (err instanceof DrawRefusedError) return err.refusal;
+    throw err;
+  }
 
   try {
     revalidatePath(`/admin/event/${cat.tournamentId}/categories`);

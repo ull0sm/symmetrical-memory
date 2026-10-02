@@ -7,7 +7,7 @@ import { CategoryInput } from "@/actions/tournament";
 import { matchesCategorySearch } from "@/lib/searchUtils";
 import * as XLSX from "xlsx";
 import { PdfViewerModal } from "@/components/ui/PdfViewerModal";
-import { generateAllTournamentDraws, generateCategoryDraw, setCategoryDrawOption, toggleCategoryDrawLock } from "@/actions/draws";
+import { generateAllTournamentDraws, generateCategoryDraw, setCategoryDrawOption, toggleCategoryDrawLock, unlockCategoryDraw } from "@/actions/draws";
 import { downloadAllCategoryDrawPdfs, downloadCategoryDrawPdf } from "@/actions/drawPdfs";
 import { exportTournamentResultsCsv, exportTournamentResultsPdf } from "@/actions/resultsExport";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
@@ -411,21 +411,29 @@ export default function CategoriesClient({
 
   /** Rebuild one category's bracket, using its own bronze setting. */
   const handleGenerateOneDraw = async (cat: any) => {
-    if (cat.is_locked) {
+    if (cat.confirmed_matches > 0) {
+      alert(
+        `"${cat.name}" already has ${cat.confirmed_matches} completed match(es), so it cannot be redrawn from here.
+
+Open the category's draw panel and use the Emergency Administrative Override if you really must start over.`
+      );
+      return;
+    }
+
+    const needsUnlock = Boolean(cat.is_locked);
+    if (needsUnlock) {
       const unlockFirst = confirm(
-        `Category "${cat.name}" draw is LOCKED to protect matches.\n\nRegenerating will replace this bracket. Do you want to unlock and regenerate?`
+        `Category "${cat.name}" draw is LOCKED.
+
+Regenerating will replace this bracket. Do you want to unlock and regenerate?`
       );
       if (!unlockFirst) return;
-    } else if (cat.confirmed_matches > 0) {
-      const forceOk = confirm(
-        `CAUTION: Category "${cat.name}" already has ${cat.confirmed_matches} completed match(es).\n\nRegenerating will wipe these matches and create a new bracket. Are you absolutely sure you want to proceed?`
-      );
-      if (!forceOk) return;
     }
 
     setRegeneratingId(cat.id);
     try {
-      const res = await generateCategoryDraw(cat.id, { forceRegenerate: true });
+      if (needsUnlock) await unlockCategoryDraw(cat.id);
+      const res = await generateCategoryDraw(cat.id);
       if (!res.success) {
         alert(res.error || "Could not generate the draw for this category.");
         return;

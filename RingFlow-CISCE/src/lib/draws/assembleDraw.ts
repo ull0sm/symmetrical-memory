@@ -141,7 +141,8 @@ export async function assembleCategoryDraw(
   // Map outcomes if matches were completed
   const outcomes = new Map<string, { kind: 'WINNER'; side: 'AKA' | 'AO' }>();
   for (const m of dbMatches) {
-    if (m.winnerId) {
+    // Only a confirmed bout advances anyone; this matches what confirmation itself writes.
+    if (m.winnerId && m.status === "CONFIRMED") {
       let side: 'AKA' | 'AO' = (m.winnerSide as 'AKA' | 'AO') || 'AKA';
       if (!m.winnerSide) {
         const matchSlotsList = dbSlots.filter((s) => s.matchId === m.id);
