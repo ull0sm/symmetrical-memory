@@ -31,6 +31,11 @@ DATABASE_URL=postgres://event_suite:event_suite@127.0.0.1:55432/ringflow npm run
    ```bash
    DATABASE_URL=postgres://event_suite:event_suite@127.0.0.1:55432/ringflow OFFLINE_MODE=true npx next dev -p 3100
    ```
+   If your normal dev server is already running, give this one its own build folder (two servers
+   cannot share `.next`) and pass the same value to the suites:
+   ```bash
+   export NEXT_DIST_DIR=.next-test
+   ```
 3. Run one or more suites. Each run seeds a fresh tournament first:
    ```bash
    bash tests/http/run-suite.sh test-judge-panel.mjs
