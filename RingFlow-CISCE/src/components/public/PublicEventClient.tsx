@@ -35,6 +35,8 @@ interface CategoryAssignment {
   id: string;
   ring_id: string;
   category_id: string;
+  /** 'ALL', or 'POOL:n' / 'FINALS' for a split category. */
+  part?: string;
   queue_order: number;
   status: "pending" | "running" | "paused" | "completed";
   matches_completed: number;
@@ -95,6 +97,7 @@ export default function PublicEventClient({
     categoryId: string;
     categoryName: string;
     activeMatchId?: string;
+    part?: string | null;
   } | null>(null);
   const [activeBouts, setActiveBouts] = useState<Record<string, any>>({});
   const [viewingAthleteDraw, setViewingAthleteDraw] = useState<{
@@ -866,6 +869,8 @@ export default function PublicEventClient({
                                     categoryId: activeAssignment.category_id,
                                     categoryName: activeAssignment.categories?.name || "Division",
                                     activeMatchId: curMatch?.id || activeBouts[ring.id]?.currentMatch?.id || activeBouts[ring.id]?.nextBout?.id,
+                                    // A tatami running one pool shows that pool; the viewer can switch to the whole draw.
+                                    part: activeAssignment.part && activeAssignment.part !== "ALL" ? activeAssignment.part : null,
                                   });
                                 }}
                                 className="flex-1 py-1.5 px-2.5 rounded-lg bg-[#0E9C7C]/10 hover:bg-[#0E9C7C]/20 text-[#0E9C7C] border border-[#0E9C7C]/30 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
@@ -992,6 +997,7 @@ export default function PublicEventClient({
           categoryId={viewingBracket.categoryId}
           categoryName={viewingBracket.categoryName}
           activeMatchId={viewingBracket.activeMatchId}
+          part={viewingBracket.part ?? null}
           allowPdf={false}
           isOpen={Boolean(viewingBracket)}
           onClose={() => setViewingBracket(null)}

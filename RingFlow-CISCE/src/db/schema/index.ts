@@ -226,6 +226,10 @@ export const categoryAssignments = pgTable(
     // Which part of the category this tatami runs: 'ALL' (the whole category), or once the
     // admin splits its pools across tatamis, 'POOL:n' for a pool and 'FINALS' for the rest.
     part: text('part').notNull().default('ALL'),
+    // Size of a part of a split category (null for a whole category): athletes drawn into it and
+    // the bouts it actually runs. Written when the category is split.
+    partAthletes: integer('part_athletes'),
+    partMatches: integer('part_matches'),
     status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'paused' | 'completed'
     matchesCompleted: integer('matches_completed').notNull().default(0),
     completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),

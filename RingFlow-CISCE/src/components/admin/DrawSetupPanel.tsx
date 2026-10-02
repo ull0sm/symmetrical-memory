@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import PoolRosterList from "@/components/admin/PoolRosterList";
 import { getCategoryDrawSetup, setCategoryDrawProfile, setCategorySeeds, swapDrawAthletes } from "@/actions/draws";
 
 type Setup = NonNullable<Awaited<ReturnType<typeof getCategoryDrawSetup>>>;
@@ -223,6 +224,16 @@ export function DrawSetupPanel({ categoryId, seedable, locked, reloadKey, onChan
         </div>
       )}
 
+      {setup.pools && (
+        <div className="space-y-2">
+          <p className="font-bold text-primary">Pools</p>
+          <p className="text-on-surface-variant leading-snug">
+            This draw has {setup.pools.length} pools. Open one to see who is in it; run them on different tatamis from the board.
+          </p>
+          <PoolRosterList pools={setup.pools} />
+        </div>
+      )}
+
       {canSwap && (
         <div className="space-y-2">
           <button
@@ -245,7 +256,10 @@ export function DrawSetupPanel({ categoryId, seedable, locked, reloadKey, onChan
                   const sameClub = clubs.length === 2 && clubs[0] === clubs[1];
                   return (
                     <li key={bout.matchNo} className="border border-outline-variant/60 rounded-lg p-1.5 flex items-center gap-1.5">
-                      <span className="font-data-mono text-[10px] text-on-surface-variant w-8">#{bout.matchNo}</span>
+                      <span className="font-data-mono text-[10px] text-on-surface-variant w-14 leading-tight">
+                        #{bout.matchNo}
+                        {bout.pool && <span className="block text-[9px] font-sans font-bold text-[#0B7C63]">{bout.pool}</span>}
+                      </span>
                       <div className="flex-1 grid grid-cols-2 gap-1.5">
                         {bout.slots.map((sl) =>
                           sl.kind === "BYE" ? (

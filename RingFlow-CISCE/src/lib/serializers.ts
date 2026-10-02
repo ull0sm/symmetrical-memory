@@ -152,7 +152,16 @@ function buildCategoryAssignment(a: Omit<CategoryAssignmentRow, "stagerName"> & 
   const serializedCat = category ? serializeCategory(category as CategoryRow) : a.categories ? serializeCategory(a.categories as CategoryRow) : null;
   // A split category's pool or finals card says which part it is wherever the name is shown.
   const partLabel = describePart(a.part);
-  const named = serializedCat && partLabel ? { ...serializedCat, name: `${serializedCat.name} · ${partLabel}` } : serializedCat;
+  const named =
+    serializedCat && partLabel
+      ? {
+          ...serializedCat,
+          name: `${serializedCat.name} · ${partLabel}`,
+          // A pool measures itself against its own athletes and bouts, not the whole category's.
+          athletes_count: a.partAthletes ?? serializedCat.athletes_count,
+          expected_matches: a.partMatches ?? serializedCat.expected_matches,
+        }
+      : serializedCat;
   return {
     ...a,
     id: a.id,

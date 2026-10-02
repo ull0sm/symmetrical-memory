@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { tournaments as tournamentsTable, athletes as athletesTable, categories as categoriesTable } from "@/db/schema";
 import { eq, desc, asc } from "drizzle-orm";
 import { serializeAthlete } from "@/lib/serializers";
+import { loadAthletePools } from "@/lib/draws/poolRosters";
 
 export default async function OrganiserAthletesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
@@ -38,9 +39,15 @@ export default async function OrganiserAthletesPage({ params }: { params: Promis
   if (!tournament) redirect("/");
 
   const catMap = new Map<string, string>(categoryRows.map((c) => [c.id, c.name]));
-  const validAthletes = athleteRows.map((a) =>
-    serializeAthlete(a, a.categoryId ? catMap.get(a.categoryId) : null)
-  );
+  // Which pool each athlete is drawn into, for categories whose draw has pools.
+  const poolOf = await loadAthletePools(tournamentId);
+  const validAthletes = athleteRows.map((a) => {
+    const pool = poolOf.get(a.id);
+    return {
+      ...serializeAthlete(a, a.categoryId ? catMap.get(a.categoryId) : null),
+      pool: pool && pool.categoryId === a.categoryId ? { label: pool.label, tatami: pool.tatami } : null,
+    };
+  });
 
   return (
     <>

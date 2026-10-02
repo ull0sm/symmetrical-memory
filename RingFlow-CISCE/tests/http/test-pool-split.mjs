@@ -111,6 +111,21 @@ const seenB = deskMatches.map((m) => m.part);
 const partsSeen = deskMatches.reduce((acc, m) => ({ ...acc, [String(m.part)]: (acc[String(m.part)] ?? 0) + 1 }), {});
 check("tatami B's desk shows only pool 3 bouts", seenB.length > 0 && seenB.every((p) => p === "POOL:3"), JSON.stringify(partsSeen));
 
+// Isolation: a moderator is shown only the parts that run on their own tatami, whatever they ask for.
+const partsOf = (r) => [...new Set((r.value?.matches ?? []).filter((m) => m && typeof m === "object").map((m) => m.part))].sort();
+const viewA = await call(A, "getCategoryDraw", [category.id, { part: "POOL:3" }], modA);
+check("tatami A's moderator cannot open pool 3 by asking for it", partsOf(viewA).length > 0 && !partsOf(viewA).includes("POOL:3"), partsOf(viewA).join());
+const viewA2 = await call(A, "getCategoryDraw", [category.id], modA);
+check("asking for no part gives tatami A only its own parts", partsOf(viewA2).every((p) => ["POOL:1", "POOL:2", "FINALS"].includes(p)) && partsOf(viewA2).length > 0, partsOf(viewA2).join());
+const viewB = await call(A, "getCategoryDraw", [category.id, { part: "POOL:4" }], modB);
+check("tatami B's moderator can open its own pool 4", partsOf(viewB).join() === "POOL:4", partsOf(viewB).join());
+const viewAdmin = await call(A, "getCategoryDraw", [category.id, { part: "POOL:3" }], admin, "/");
+check("the admin can open any pool", partsOf(viewAdmin).join() === "POOL:3", partsOf(viewAdmin).join());
+const viewAll = await call(A, "getCategoryDraw", [category.id], admin, "/");
+check("and the whole draw", partsOf(viewAll).length === 5, partsOf(viewAll).join());
+const setupInfo = await call(A, "getCategoryDrawSetup", [category.id], admin, "/");
+check("the admin's draw setup lists who is in each pool", setupInfo.value?.pools?.length === 4 && setupInfo.value.pools.every((p) => p.athletes.length === 16), JSON.stringify(setupInfo.value?.pools?.map((p) => p.athletes?.length)));
+
 // Finishing every pool frees the finals.
 for (const part of ["POOL:1", "POOL:2", "POOL:3", "POOL:4"]) {
   await sql`update category_assignments set status='completed' where id=${card(part).id}`;

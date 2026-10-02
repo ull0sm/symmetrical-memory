@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { WKF_KATA_2026, WKF_KUMITE_2026 } from '../rules-engine';
 import { generateDraw } from './generate';
 import { generateKataDraw } from './kataDraw';
-import { computeDrawParts, isDrawPart, poolNumber } from './parts';
+import { computeDrawParts, isDrawPart, poolNumber, rosterByPart } from './parts';
 import type { Participant } from './types';
 
 const people = (n: number): Participant[] =>
@@ -115,5 +115,44 @@ describe('part names', () => {
     for (const bad of ['ALL', 'POOL:0', 'POOL:', 'pool:1', 'POOL:01', 'FINALS ', '']) expect(isDrawPart(bad)).toBe(false);
     expect(poolNumber('POOL:3')).toBe(3);
     expect(poolNumber('FINALS')).toBeNull();
+  });
+});
+
+describe('rosterByPart', () => {
+  it('lists each pool athletes: 16 places per pool, nobody twice, nobody missing', () => {
+    const graph = kumite(64);
+    const parts = computeDrawParts(graph);
+    expect(parts).not.toBeNull();
+    const roster = rosterByPart(graph, parts!);
+    const all = [...roster.values()].flat();
+    expect(roster.size).toBe(4);
+    for (const ids of roster.values()) expect(ids).toHaveLength(16);
+    expect(new Set(all).size).toBe(64);
+  });
+
+  it('counts only the athletes a pool really holds when byes fill the rest', () => {
+    const graph = kumite(40);
+    const roster = rosterByPart(graph, computeDrawParts(graph)!);
+    expect([...roster.values()].flat()).toHaveLength(40);
+    for (const ids of roster.values()) expect(ids.length).toBeLessThanOrEqual(16);
+  });
+
+  it('lists kata pools by their entrants', () => {
+    const graph = generateKataDraw(
+      {
+        categoryId: 'k',
+        participants: Array.from({ length: 17 }, (_, i) => ({ id: `a${i}`, name: `A${i}`, school: null, dojo: null })),
+        poolSize: 8,
+        advancePerPool: 2,
+        scoringMode: 'POINTS',
+        bronzeMedals: 2,
+        randomSeed: 3,
+        separateClubs: false,
+      },
+      WKF_KATA_2026,
+    );
+    const roster = rosterByPart(graph, computeDrawParts(graph)!);
+    expect([...roster.values()].flat()).toHaveLength(17);
+    expect([...roster.keys()].sort()).toEqual(['POOL:1', 'POOL:2']);
   });
 });

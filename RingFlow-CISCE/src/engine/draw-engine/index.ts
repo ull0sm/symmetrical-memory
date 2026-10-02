@@ -49,4 +49,4 @@ export type {
   SlotType,
 } from './types';
 export { collectInputIssues, IMPLEMENTED_FORMATS, PLANNED_FORMATS } from './validation';
-export { computeDrawParts, isDrawPart, poolNumber, type DrawParts, type DrawPart } from './parts';
+export { computeDrawParts, isDrawPart, poolNumber, rosterByPart, type DrawParts, type DrawPart } from './parts';

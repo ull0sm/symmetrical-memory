@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { categories, categoryAssignments, rings } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { loadCategoryPools } from "@/lib/draws/poolRosters";
 import { performSplitCategory, performUnsplitCategory, poolCountOf } from "@/lib/draws/splitPools";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { isValidUuid } from "@/lib/utils";
@@ -66,6 +67,8 @@ export async function getCategorySplitInfo(categoryId: string) {
     poolCount,
     isSplit: cards.some((c) => c.part !== "ALL"),
     cards,
+    /** Who is drawn into each pool, so the admin can decide where each one runs. */
+    pools: poolCount ? await loadCategoryPools(categoryId) : null,
   };
 }
 

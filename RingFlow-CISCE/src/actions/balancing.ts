@@ -313,6 +313,8 @@ export async function getBalancingAssignments(ringIds: string[]) {
     return rows.map((row) => ({
       category_id: row.categoryId,
       part: row.part,
+      part_athletes: row.partAthletes,
+      part_matches: row.partMatches,
       ring_id: row.ringId,
       matches_completed: row.matchesCompleted || 0,
       status: row.status || "pending",

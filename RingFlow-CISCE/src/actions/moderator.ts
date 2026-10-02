@@ -464,7 +464,8 @@ export async function adjustMatchCount(assignmentId: string, ringId: string, del
     .where(eq(categories.id, assignment.categoryId))
     .limit(1);
 
-  const maxMatches = cat?.expectedMatches ?? Number.MAX_SAFE_INTEGER;
+  // A pool counts against its own bouts, not the whole category's.
+  const maxMatches = assignment.partMatches ?? cat?.expectedMatches ?? Number.MAX_SAFE_INTEGER;
   const newCount = Math.min(maxMatches, Math.max(0, (assignment.matchesCompleted || 0) + step));
 
   await db

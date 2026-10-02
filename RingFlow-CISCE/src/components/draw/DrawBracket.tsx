@@ -250,7 +250,7 @@ export function DrawBracket({
                     Searched
                   </span>
                 )}
-                {match.aka.displayName}
+                {match.aka.isPending && match.aka.sourceLabel ? match.aka.sourceLabel : match.aka.displayName}
                 {match.aka.chestNumber ? (
                   <span className="ml-1 font-data-mono text-[10px] font-bold text-[#8C877C]">
                     #{match.aka.chestNumber}
@@ -289,7 +289,7 @@ export function DrawBracket({
                     Searched
                   </span>
                 )}
-                {match.ao.displayName}
+                {match.ao.isPending && match.ao.sourceLabel ? match.ao.sourceLabel : match.ao.displayName}
                 {match.ao.chestNumber ? (
                   <span className="ml-1 font-data-mono text-[10px] font-bold text-[#8C877C]">
                     #{match.ao.chestNumber}

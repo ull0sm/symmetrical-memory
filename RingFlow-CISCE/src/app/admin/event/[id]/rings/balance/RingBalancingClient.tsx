@@ -60,11 +60,31 @@ interface Props {
   readOnly?: boolean;
 }
 
-type PoolCard = { category_id: string; part: string; ring_id: string; status: string; queue_order: number };
+type PoolCard = {
+  category_id: string;
+  part: string;
+  ring_id: string;
+  status: string;
+  queue_order: number;
+  athletes: number | null;
+  bouts: number | null;
+};
 
 const isPrimaryPart = (part?: string) => !part || part === "ALL" || part === "FINALS";
 
-const poolCardsOf = (rows: { category_id: string; part?: string; ring_id: string; status?: string; queue_order?: number }[]): PoolCard[] =>
+type PoolCardRow = {
+  category_id: string;
+  part?: string;
+  ring_id: string;
+  status?: string;
+  queue_order?: number;
+  part_athletes?: number | null;
+  part_matches?: number | null;
+  partAthletes?: number | null;
+  partMatches?: number | null;
+};
+
+const poolCardsOf = (rows: PoolCardRow[]): PoolCard[] =>
   rows
     .filter((row) => !isPrimaryPart(row.part))
     .map((row) => ({
@@ -73,6 +93,8 @@ const poolCardsOf = (rows: { category_id: string; part?: string; ring_id: string
       ring_id: row.ring_id,
       status: row.status || "pending",
       queue_order: row.queue_order ?? 0,
+      athletes: row.part_athletes ?? row.partAthletes ?? null,
+      bouts: row.part_matches ?? row.partMatches ?? null,
     }));
 
 export default function RingBalancingClient({
@@ -154,6 +176,18 @@ export default function RingBalancingClient({
       >
         call_split
       </button>
+    );
+  };
+
+  /** On a split category's card: that this is its finals, and where its pools run. */
+  const renderSplitBadge = (cat: Category) => {
+    const pools = poolCards.filter((card) => card.category_id === cat.id);
+    if (pools.length === 0) return null;
+    const tatamis = Array.from(new Set(pools.map((card) => initialRings.find((r) => r.id === card.ring_id)?.name ?? "Tatami")));
+    return (
+      <div className="mb-1.5 text-[10px] leading-snug rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 px-2 py-1">
+        <span className="font-bold">Finals here</span> · {pools.length} pools on {tatamis.join(", ")}
+      </div>
     );
   };
 
@@ -1951,6 +1985,7 @@ export default function RingBalancingClient({
                                         </div>
                                       </div>
 
+{renderSplitBadge(cat)}
                                       <div className="flex items-center gap-1 text-[10px] font-data-mono text-[#68645A] mb-1.5">
                                         <span className="material-symbols-outlined text-[12px]">group</span>
                                         <span>{cat.athletes_count} athletes</span>
@@ -2009,6 +2044,7 @@ export default function RingBalancingClient({
                                     </div>
                                   </div>
                                   <h5 className="text-xs font-bold text-[#1B1815] mb-1.5 leading-snug">{cat.name}</h5>
+                                  {renderSplitBadge(cat)}
                                   <div className="flex justify-between items-center text-[10px] font-data-mono text-[#68645A]">
                                     <span className="flex items-center gap-1">
                                       <span className="material-symbols-outlined text-[12px]">group</span> {cat.athletes_count}
@@ -2053,7 +2089,10 @@ export default function RingBalancingClient({
                               <span className="font-bold text-[#1B1815] truncate">
                                 {cat?.name ?? "Category"} · {describePart(card.part)}
                               </span>
-                              <span className="text-[#68645A] shrink-0">{card.status}</span>
+                              <span className="text-[#68645A] shrink-0">
+                                {card.athletes !== null ? `${card.athletes} athletes · ` : ""}
+                                {card.status}
+                              </span>
                             </div>
                           );
                         })}

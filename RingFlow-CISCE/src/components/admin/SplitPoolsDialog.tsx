@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { getCategorySplitInfo, splitCategoryPools, unsplitCategoryPools } from "@/actions/poolSplit";
-import { describePart } from "@/lib/draws/partFilter";
+import PoolRosterList from "@/components/admin/PoolRosterList";
 
 interface Props {
   categoryId: string;
@@ -94,18 +94,10 @@ export default function SplitPoolsDialog({ categoryId, categoryName, rings, onCl
               <p className="text-sm text-on-surface-variant">
                 This category is split. Each part runs on its own tatami; the finals start once every pool has finished.
               </p>
-              <ul className="flex flex-col gap-1.5">
-                {[...info.cards]
-                  .sort((a, b) => (a.part === "FINALS" ? 1 : b.part === "FINALS" ? -1 : a.part.localeCompare(b.part, undefined, { numeric: true })))
-                  .map((card) => (
-                    <li key={card.part} className="flex items-center justify-between text-sm border border-outline-variant/60 rounded-lg px-3 py-2">
-                      <span className="font-bold">{describePart(card.part)}</span>
-                      <span className="text-on-surface-variant">
-                        {card.ringName} · {card.status}
-                      </span>
-                    </li>
-                  ))}
-              </ul>
+              {info.pools && <PoolRosterList pools={info.pools} />}
+              <p className="text-xs text-on-surface-variant">
+                Finals: {info.cards.find((card) => card.part === "FINALS")?.ringName ?? "-"}
+              </p>
               <p className="text-xs text-on-surface-variant">
                 To change this, put the category back together first. That is only possible before any bout has been fought.
               </p>
@@ -125,10 +117,23 @@ export default function SplitPoolsDialog({ categoryId, categoryName, rings, onCl
                 Choose where each pool runs. The semi-finals, finals, repechage and bronze bouts run on the finals tatami and start
                 once every pool has finished.
               </p>
+              {info.pools && (
+                <details className="border border-outline-variant/60 rounded-lg bg-white">
+                  <summary className="px-3 py-2 text-sm font-bold cursor-pointer select-none">Who is in each pool</summary>
+                  <div className="px-3 pb-3">
+                    <PoolRosterList pools={info.pools} />
+                  </div>
+                </details>
+              )}
               <div className="flex flex-col gap-2">
                 {poolRings.map((ringId, index) => (
                   <label key={index} className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-bold">Pool {index + 1}</span>
+                    <span className="font-bold">
+                      Pool {index + 1}
+                      {info.pools?.[index] && (
+                        <span className="ml-1.5 font-normal text-xs text-on-surface-variant">{info.pools[index].athletes.length} athletes</span>
+                      )}
+                    </span>
                     <select
                       value={ringId}
                       onChange={(e) => setPoolRings((current) => current.map((r, i) => (i === index ? e.target.value : r)))}

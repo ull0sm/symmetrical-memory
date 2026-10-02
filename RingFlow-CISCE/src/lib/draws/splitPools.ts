@@ -1,8 +1,9 @@
 import { db } from "@/db";
-import { categories, categoryAssignments, draws, drawVersions, matches, rings } from "@/db/schema";
-import { computeDrawParts, poolNumber } from "@/engine/draw-engine/parts";
-import type { DrawGraph } from "@/engine/draw-engine/types";
-import { readBoutStats, type DbExecutor } from "@/lib/draws/generateDraws";
+import { categories, categoryAssignments, matches, rings } from "@/db/schema";
+import { computeDrawParts, poolNumber, rosterByPart, type DrawPart } from "@/engine/draw-engine/parts";
+import { foughtBoutCountByPart } from "@/lib/draws/boutCount";
+import { latestGraph } from "@/lib/draws/latestGraph";
+import { readBoutStats } from "@/lib/draws/generateDraws";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 
 /** Where each pool of a category runs, and where its semi-finals, finals and medal bouts run. */
@@ -15,19 +16,6 @@ export interface PoolSplitPlan {
 export type SplitOutcome =
   | { error: string }
   | { poolCount: number; assignmentIds: string[]; before: { ringId: string; queueOrder: number } | null };
-
-/** A category's draw as a graph, from its latest stored version. */
-async function latestGraph(executor: DbExecutor, categoryId: string): Promise<DrawGraph | null> {
-  const [draw] = await executor.select().from(draws).where(eq(draws.categoryId, categoryId));
-  if (!draw) return null;
-  const [latest] = await executor
-    .select()
-    .from(drawVersions)
-    .where(eq(drawVersions.drawId, draw.id))
-    .orderBy(sql`${drawVersions.version} desc`)
-    .limit(1);
-  return (latest?.graph as unknown as DrawGraph | undefined) ?? null;
-}
 
 /** How many pools the category's current draw has, or null when it cannot be split. */
 export async function poolCountOf(categoryId: string): Promise<number | null> {
@@ -99,6 +87,14 @@ export async function performSplitCategory(categoryId: string, plan: PoolSplitPl
     const reuse = whole && whole.ringId === plan.finalsRingId ? whole : null;
     if (whole && !reuse) await tx.delete(categoryAssignments).where(eq(categoryAssignments.id, whole.id));
 
+    // How big each part is, so a pool shows as "16 athletes, 15 bouts" and measures its own progress.
+    const roster = rosterByPart(graph, parts);
+    const bouts = foughtBoutCountByPart(graph, parts.byMatch);
+    const sizeOf = (part: string) => ({
+      partAthletes: part === "FINALS" ? parts.poolCount : (roster.get(part as DrawPart)?.length ?? 0),
+      partMatches: bouts.get(part) ?? 0,
+    });
+
     const assignmentIds: string[] = [];
     for (let i = 0; i < plan.poolRingIds.length; i += 1) {
       const [row] = await tx
@@ -107,6 +103,7 @@ export async function performSplitCategory(categoryId: string, plan: PoolSplitPl
           ringId: plan.poolRingIds[i],
           categoryId,
           part: `POOL:${i + 1}`,
+          ...sizeOf(`POOL:${i + 1}`),
           queueOrder: await nextOrder(plan.poolRingIds[i]),
         })
         .returning({ id: categoryAssignments.id });
@@ -114,7 +111,10 @@ export async function performSplitCategory(categoryId: string, plan: PoolSplitPl
     }
 
     if (reuse) {
-      await tx.update(categoryAssignments).set({ part: "FINALS" }).where(eq(categoryAssignments.id, reuse.id));
+      await tx
+        .update(categoryAssignments)
+        .set({ part: "FINALS", ...sizeOf("FINALS") })
+        .where(eq(categoryAssignments.id, reuse.id));
       assignmentIds.push(reuse.id);
     } else {
       const [row] = await tx
@@ -123,6 +123,7 @@ export async function performSplitCategory(categoryId: string, plan: PoolSplitPl
           ringId: plan.finalsRingId,
           categoryId,
           part: "FINALS",
+          ...sizeOf("FINALS"),
           queueOrder: await nextOrder(plan.finalsRingId),
         })
         .returning({ id: categoryAssignments.id });
@@ -172,7 +173,10 @@ export async function performUnsplitCategory(categoryId: string): Promise<{ erro
     await tx
       .delete(categoryAssignments)
       .where(and(eq(categoryAssignments.categoryId, categoryId), like(categoryAssignments.part, "POOL:%")));
-    await tx.update(categoryAssignments).set({ part: "ALL" }).where(eq(categoryAssignments.id, finals.id));
+    await tx
+      .update(categoryAssignments)
+      .set({ part: "ALL", partAthletes: null, partMatches: null })
+      .where(eq(categoryAssignments.id, finals.id));
     await tx.update(matches).set({ part: null }).where(eq(matches.categoryId, categoryId));
 
     return { ringId: finals.ringId };

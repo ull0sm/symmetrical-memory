@@ -11,10 +11,29 @@ import type { DrawGraph } from "@/engine/draw-engine/types";
  * and the backfill path can never drift.
  */
 export function foughtBoutCount(graph: DrawGraph): number {
+  const neverRun = neverRunMatchIds(graph);
+  return graph.matches.filter((m) => !neverRun.has(m.id)).length;
+}
+
+function neverRunMatchIds(graph: DrawGraph): Set<string> {
   const resolution = resolveDraw(graph, new Map());
-  const neverRun = new Set<string>([
+  return new Set<string>([
     ...resolution.walkoverMatchIds,
     ...resolution.matches.filter((m) => m.status === "UNRESOLVED").map((m) => m.matchId),
   ]);
-  return graph.matches.filter((m) => !neverRun.has(m.id)).length;
+}
+
+/**
+ * The same count, split by part of a draw with pools: how many bouts each pool (and the finals)
+ * actually runs. A kata flight has no walkovers, so every bout counts.
+ */
+export function foughtBoutCountByPart(graph: DrawGraph, partOf: ReadonlyMap<string, string>): Map<string, number> {
+  const neverRun = graph.flightDraw ? new Set<string>() : neverRunMatchIds(graph);
+  const counts = new Map<string, number>();
+  for (const match of graph.matches) {
+    if (neverRun.has(match.id)) continue;
+    const part = partOf.get(match.id);
+    if (part !== undefined) counts.set(part, (counts.get(part) ?? 0) + 1);
+  }
+  return counts;
 }

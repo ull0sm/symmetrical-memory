@@ -47,6 +47,12 @@ there, and start only once every pool has been finished by its tatami's moderato
 end of its tatami's queue and shows as "Category · Pool 3" on the moderator, dashboard and public
 screens; each pool page of the draw sheet prints its tatami.
 
+**Who is in which pool.** Once a category is drawn with pools, each pool's athletes are listed in the
+draw drawer ("Pools"), in the split dialog ("Who is in each pool"), and on the athletes roster, where
+every athlete carries a "Pool 3 · Tatami 2" badge and the roster can be filtered by pool. The bracket
+view has tabs for the whole draw, each pool and the finals; the finals show "Pool 1 winner" in place of
+bouts they are waiting for.
+
 Rules: the category must be drawn first; splitting is refused once any bout is fought or the category is on
 a mat; a split category cannot be redrawn (put it back together first; flushing the draw also puts it back
 together); the balancing board moves its finals card but never drops it; each tatami's moderator scores

@@ -88,3 +88,29 @@ function kataParts(graph: DrawGraph): DrawParts | null {
   }
   return { byMatch, poolCount: names.length };
 }
+
+/**
+ * Who is drawn into each pool, in bracket order (first bout first, top line before bottom). Only
+ * athletes fixed at draw time count: a bye holds nobody, and bouts after the first round (or a
+ * kata medal flight) are filled by results, not by the draw.
+ */
+export function rosterByPart(graph: DrawGraph, parts: DrawParts): Map<DrawPart, string[]> {
+  const roster = new Map<DrawPart, string[]>();
+  const matchOrder = new Map(graph.matches.map((m) => [m.id, m.matchNo]));
+
+  const slots = graph.slots
+    .filter((slot) => slot.registrationId !== null && (slot.slotType === 'ATHLETE' || slot.slotType === 'ENTRY'))
+    .sort(
+      (a, b) =>
+        (matchOrder.get(a.matchId) ?? 0) - (matchOrder.get(b.matchId) ?? 0) || a.position - b.position,
+    );
+
+  for (const slot of slots) {
+    const part = parts.byMatch.get(slot.matchId);
+    if (part === undefined || part === 'FINALS') continue;
+    const list = roster.get(part) ?? [];
+    if (!list.includes(slot.registrationId as string)) list.push(slot.registrationId as string);
+    roster.set(part, list);
+  }
+  return roster;
+}

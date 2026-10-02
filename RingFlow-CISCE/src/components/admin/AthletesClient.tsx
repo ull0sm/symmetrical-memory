@@ -17,6 +17,8 @@ type Athlete = {
   school_code?: string | null;
   sports_id?: string | null;
   dojo?: string | null;
+  /** The pool this athlete is drawn into, when their category's draw has pools. */
+  pool?: { label: string; tatami: string | null } | null;
 };
 
 type Category = {
@@ -46,6 +48,7 @@ export default function AthletesClient({
   // Filters and Editing State with reload persistence
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCategoryId, setFilterCategoryId] = useState("all");
+  const [filterPool, setFilterPool] = useState("all");
   const [isFilterLoaded, setIsFilterLoaded] = useState(false);
   const [editingAthleteId, setEditingAthleteId] = useState<string | null>(null);
 
@@ -154,7 +157,8 @@ export default function AthletesClient({
           athlete.categories?.name,
           searchQuery
         );
-        if (!matchesName && !matchesChest && !matchesSchool && !matchesSportsId && !matchesCategory) {
+        const matchesPool = Boolean(athlete.pool && `${athlete.pool.label} ${athlete.pool.tatami ?? ""}`.toLowerCase().includes(query));
+        if (!matchesName && !matchesChest && !matchesSchool && !matchesSportsId && !matchesCategory && !matchesPool) {
           return false;
         }
       }
@@ -165,9 +169,20 @@ export default function AthletesClient({
           if (athlete.category_id !== filterCategoryId) return false;
         }
       }
+      if (filterPool !== "all" && athlete.pool?.label !== filterPool) return false;
       return true;
     });
-  }, [athletes, searchQuery, filterCategoryId]);
+  }, [athletes, searchQuery, filterCategoryId, filterPool]);
+
+  // The pools of the category being looked at, to filter the roster by pool.
+  const poolOptions = React.useMemo(() => {
+    if (filterCategoryId === "all" || filterCategoryId === "uncategorized") return [];
+    const labels = new Set<string>();
+    for (const athlete of athletes) {
+      if (athlete.category_id === filterCategoryId && athlete.pool) labels.add(athlete.pool.label);
+    }
+    return Array.from(labels).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [athletes, filterCategoryId]);
 
   const handleSaveAdd = async () => {
     if (!addForm.name.trim()) return alert("Athlete name is required");
@@ -404,7 +419,10 @@ export default function AthletesClient({
 
         <select 
           value={filterCategoryId}
-          onChange={(e) => setFilterCategoryId(e.target.value)}
+          onChange={(e) => {
+            setFilterCategoryId(e.target.value);
+            setFilterPool("all");
+          }}
           className={`w-full sm:w-64 bg-[#FAF9F5] border rounded-lg p-2 text-sm outline-none transition-all shadow-2xs cursor-pointer ${
             filterCategoryId !== "all"
               ? "border-[#0E9C7C] ring-2 ring-[#0E9C7C]/20 font-semibold text-[#0B7C63]"
@@ -417,6 +435,24 @@ export default function AthletesClient({
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
+
+        {poolOptions.length > 0 && (
+          <select
+            value={filterPool}
+            onChange={(e) => setFilterPool(e.target.value)}
+            aria-label="Filter by pool"
+            className={`w-full sm:w-40 bg-[#FAF9F5] border rounded-lg p-2 text-sm outline-none transition-all shadow-2xs cursor-pointer ${
+              filterPool !== "all" ? "border-[#0E9C7C] ring-2 ring-[#0E9C7C]/20 font-semibold text-[#0B7C63]" : "border-outline-variant focus:border-[#0E9C7C]"
+            }`}
+          >
+            <option value="all">All pools</option>
+            {poolOptions.map((label) => (
+              <option key={label} value={label}>
+                {label}
+              </option>
+            ))}
+          </select>
+        )}
 
         {/* ─── Highlighted Clear Filters Button ─── */}
         {hasActiveFilters && (
@@ -488,7 +524,18 @@ export default function AthletesClient({
             {filteredAthletes.map((athlete) => (
               <tr key={athlete.id} className="hover:bg-surface-container-low transition-colors">
                 <td className="px-6 py-4 font-data-mono">{athlete.chest_number || "-"}</td>
-                <td className="px-6 py-4 font-bold text-primary">{athlete.name}</td>
+                <td className="px-6 py-4 font-bold text-primary">
+                  {athlete.name}
+                  {athlete.pool && (
+                    <span
+                      className="ml-2 align-middle px-1.5 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded text-[10px] font-bold whitespace-nowrap"
+                      title={athlete.pool.tatami ? `${athlete.pool.label} runs on ${athlete.pool.tatami}` : athlete.pool.label}
+                    >
+                      {athlete.pool.label}
+                      {athlete.pool.tatami ? ` · ${athlete.pool.tatami}` : ""}
+                    </span>
+                  )}
+                </td>
                 <td className="px-6 py-4">{athlete.school || athlete.dojo || "-"}</td>
                 <td className="px-6 py-4 font-data-mono">{athlete.school_code || "-"}</td>
                 <td className="px-6 py-4 font-data-mono">{athlete.sports_id || "-"}</td>

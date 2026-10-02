@@ -1,7 +1,9 @@
 import { db } from "@/db";
 import { athletes, categories, draws, drawVersions, matches, matchSlots } from "@/db/schema";
 import { resolveDraw, type Podium } from "@/engine/draw-engine/resolution";
+import { computeDrawParts, poolNumber, rosterByPart, type DrawPart } from "@/engine/draw-engine/parts";
 import type { DrawGraph } from "@/engine/draw-engine/types";
+import { describePart } from "@/lib/draws/partFilter";
 import { eq, inArray, sql } from "drizzle-orm";
 
 /**
@@ -25,6 +27,8 @@ export interface BracketMatchView {
   roundName: string;
   bracketType: string;
   poolGroup?: string | null;
+  /** Which pool (or the finals) of a draw with pools this bout belongs to; null when the draw has none. */
+  part?: string | null;
   kataScoringMode?: string | null;
   status: string;
   slots?: BracketSlotView[];
@@ -37,6 +41,8 @@ export interface BracketMatchView {
     isBye?: boolean;
     isPending?: boolean;
     sourceMatchNo?: number | null;
+    /** For a place filled by another pool's winner: "Pool 2 winner". */
+    sourceLabel?: string | null;
   };
   ao: {
     displayName: string;
@@ -47,6 +53,7 @@ export interface BracketMatchView {
     isBye?: boolean;
     isPending?: boolean;
     sourceMatchNo?: number | null;
+    sourceLabel?: string | null;
   };
   winnerId?: string | null;
   /** The recorded result of the bout, so the draw can show the score line. */
@@ -89,6 +96,16 @@ function kataPoolPodium(
   return { goldRegistrationId: final.winnerId as string, silverRegistrationId: silver, bronzeRegistrationIds: bronzes };
 }
 
+/** A kata flight's pool tables, narrowed to one pool when a single pool is being shown. */
+function flightDrawFor(graph: DrawGraph, part: string | null) {
+  const flight = graph.flightDraw ?? null;
+  const number = part ? poolNumber(part) : null;
+  if (!flight || number === null) return flight;
+  const named = [...flight.pools].sort((a, b) => (a.poolName < b.poolName ? -1 : a.poolName > b.poolName ? 1 : 0));
+  const pool = named[number - 1];
+  return pool ? { ...flight, pools: [pool] } : flight;
+}
+
 export async function assembleCategoryDraw(
   categoryId: string,
   options?: {
@@ -97,6 +114,12 @@ export async function assembleCategoryDraw(
     ignoreResults?: boolean;
     /** The tournament's athletes, when the caller already has them (avoids a read per category). */
     athletes?: (typeof athletes.$inferSelect)[];
+    /**
+     * Show one part of a draw with pools: 'POOL:n' (that pool's bouts only) or 'FINALS' (the bouts
+     * after the pools, with each pool winner named as "Pool n winner"). Ignored for a draw
+     * without pools. Omitted: the whole draw.
+     */
+    part?: string | null;
   }
 ) {
   const useResults = !options?.ignoreResults;
@@ -122,6 +145,15 @@ export async function assembleCategoryDraw(
   if (!latestVersion) return null;
 
   const graph = latestVersion.graph as unknown as DrawGraph;
+  const drawParts = computeDrawParts(graph);
+  const partOfMatch = (matchId: string): DrawPart | null => drawParts?.byMatch.get(matchId) ?? null;
+  const labelForSource = (sourceMatchId: string | null | undefined, matchId: string): string | null => {
+    if (!sourceMatchId) return null;
+    const sourcePart = partOfMatch(sourceMatchId);
+    if (sourcePart === null || sourcePart === partOfMatch(matchId)) return null;
+    const label = describePart(sourcePart);
+    return label ? `${label} winner` : null;
+  };
 
   // Fetch all db matches, slots, and events to resolve current state
   const storedMatches = await db
@@ -324,6 +356,7 @@ export async function assembleCategoryDraw(
           isBye: isAkaBye,
           isPending: !akaAthlete && !isAkaBye,
           sourceMatchNo: akaSourceMatchNo,
+          sourceLabel: labelForSource(akaSourceId, m.id),
         },
         ao: {
           id: aoAthlete?.id,
@@ -334,6 +367,7 @@ export async function assembleCategoryDraw(
           isBye: isAoBye,
           isPending: !aoAthlete && !isAoBye,
           sourceMatchNo: aoSourceMatchNo,
+          sourceLabel: labelForSource(aoSourceId, m.id),
         },
         akaScore: recorded?.akaScore ?? 0,
         aoScore: recorded?.aoScore ?? 0,
@@ -357,7 +391,35 @@ export async function assembleCategoryDraw(
   }
 
   // Category athletes for Kata pool and flight rendering
-  const catAthletes = athleteList.filter((a) => a.categoryId === categoryId);
+  let catAthletes = athleteList.filter((a) => a.categoryId === categoryId);
+
+  // Every bout says which pool it belongs to, whether or not the admin has split the category.
+  let viewMatches = Object.values(matchesMap).map((m) => ({ ...m, part: partOfMatch(m.matchId) }));
+
+  // One pool, or the finals: only those bouts, and only the athletes in them.
+  const wantedPart = drawParts && options?.part ? options.part : null;
+  if (drawParts && wantedPart) {
+    viewMatches = viewMatches.filter((m) => m.part === wantedPart);
+    const present = new Set<string>();
+    for (const m of viewMatches) {
+      if (m.aka.id) present.add(m.aka.id);
+      if (m.ao.id) present.add(m.ao.id);
+    }
+    for (const id of rosterByPart(graph, drawParts).get(wantedPart as DrawPart) ?? []) present.add(id);
+    catAthletes = catAthletes.filter((a) => present.has(a.id));
+  }
+
+  // What the admin and the pool pages need: each pool, how many athletes it holds, and the finals.
+  const roster = drawParts ? rosterByPart(graph, drawParts) : null;
+  const partSummary = drawParts
+    ? [
+        ...Array.from({ length: drawParts.poolCount }, (_, i) => {
+          const part = `POOL:${i + 1}` as DrawPart;
+          return { part: part as string, label: describePart(part) ?? part, athletes: roster?.get(part)?.length ?? 0 };
+        }),
+        { part: "FINALS", label: "Finals", athletes: 0 },
+      ]
+    : [];
 
   return {
     locked: false,
@@ -367,10 +429,19 @@ export async function assembleCategoryDraw(
     categoryName: category?.name ?? graph.categoryId,
     /** How this bracket was built: 0, 1 or 2 bronze medals. */
     bronzeMedals: draw.bronzeMedals ?? 2,
-    matches: Object.values(matchesMap),
+    matches: viewMatches,
     athletes: catAthletes,
-    podium: !useResults ? null : resolved ? resolved.podium : kataPoolPodium(dbMatches, dbSlots),
+    /** The part shown (null = the whole draw) and the parts that exist. */
+    part: wantedPart,
+    partSummary,
+    // A pool's own view has no podium: medals are decided in the finals.
+    podium:
+      !useResults || (wantedPart !== null && wantedPart !== "FINALS")
+        ? null
+        : resolved
+          ? resolved.podium
+          : kataPoolPodium(dbMatches, dbSlots),
     highlightAthleteId: options?.athleteId ?? null,
-    flightDraw: graph.flightDraw ?? null,
+    flightDraw: flightDrawFor(graph, wantedPart),
   };
 }

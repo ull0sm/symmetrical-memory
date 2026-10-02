@@ -27,7 +27,11 @@ import {
 } from "@/lib/draws/generateDraws";
 import { asDrawProfile, resolveDrawRules } from "@/lib/draws/drawRules";
 import { performDrawSwap } from "@/lib/draws/manualSwap";
+import { resolveViewerPart } from "@/lib/draws/partAccess";
+import { loadCategoryPools } from "@/lib/draws/poolRosters";
 import type { DrawGraph } from "@/engine/draw-engine/types";
+import { computeDrawParts } from "@/engine/draw-engine/parts";
+import { describePart } from "@/lib/draws/partFilter";
 import { getTournamentStaff } from "@/lib/auth/guards";
 import { tournamentIdForCategory } from "@/lib/auth/scope";
 import { isValidUuid } from "@/lib/utils";
@@ -216,6 +220,8 @@ export async function getCategoryDrawSetup(categoryId: string) {
   // The first round as drawn, for the hand-adjust view (elimination brackets only).
   let firstRound: {
     matchNo: number;
+    /** "Pool 2" for a draw with pools, so a bout can be placed. */
+    pool: string | null;
     slots: { slotId: string; kind: "ATHLETE" | "BYE"; athleteId: string | null; name: string | null; club: string | null }[];
   }[] = [];
   let drawInfo: {
@@ -238,11 +244,13 @@ export async function getCategoryDrawSetup(categoryId: string) {
 
     if (graph && graph.pools.length === 0) {
       const byId = new Map(roster.map((a) => [a.athleteId, a]));
+      const drawParts = computeDrawParts(graph);
       firstRound = graph.matches
         .filter((m) => m.roundNo === 0 && m.bracketType === "MAIN")
         .sort((a, b) => a.matchNo - b.matchNo)
         .map((m) => ({
           matchNo: m.matchNo,
+          pool: describePart(drawParts?.byMatch.get(m.id)),
           slots: graph.slots
             .filter((sl) => sl.matchId === m.id)
             .sort((a, b) => a.position - b.position)
@@ -272,6 +280,8 @@ export async function getCategoryDrawSetup(categoryId: string) {
     roster,
     draw: drawInfo,
     firstRound,
+    /** Who is in each pool of a draw with pools (and where it runs, once split); null otherwise. */
+    pools: await loadCategoryPools(categoryId),
   };
 }
 
@@ -404,7 +414,7 @@ export async function getTournamentDrawPreflight(tournamentId: string) {
  */
 export async function getCategoryDraw(
   categoryId: string,
-  options?: { athleteId?: string | null }
+  options?: { athleteId?: string | null; part?: string | null }
 ) {
   if (!categoryId || !isValidUuid(categoryId)) return null;
 
@@ -423,9 +433,22 @@ export async function getCategoryDraw(
     }
   }
 
-  // The draw itself is request-free; the gate above is the only
-  // thing this action adds, so the same assembly serves the export.
-  return assembleCategoryDraw(categoryId, options);
+  // A tatami's moderator sees only the pools or finals that run on their own tatami.
+  const view = await resolveViewerPart(categoryId, options?.part ?? null);
+  if (!view.allowed) {
+    return {
+      locked: true,
+      draw: null,
+      categoryName: null,
+      matches: [] as BracketMatchView[],
+      podium: [],
+      highlightAthleteId: null as string | null,
+    };
+  }
+
+  // The draw itself is request-free; the gates above are all this action adds,
+  // so the same assembly serves the export.
+  return assembleCategoryDraw(categoryId, { ...options, part: view.part });
 }
 
 /**
@@ -607,7 +630,7 @@ export async function flushCategoryDraw(
       .where(and(eq(categoryAssignments.categoryId, categoryId), like(categoryAssignments.part, "POOL:%")));
     await tx
       .update(categoryAssignments)
-      .set({ part: "ALL" })
+      .set({ part: "ALL", partAthletes: null, partMatches: null })
       .where(and(eq(categoryAssignments.categoryId, categoryId), eq(categoryAssignments.part, "FINALS")));
 
     // 2. Delete kata_scores, matchEvents, slots, and matches for this category in clean FK order

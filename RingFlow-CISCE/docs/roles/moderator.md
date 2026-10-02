@@ -23,7 +23,9 @@ A tatami runs one category at a time, so one login per tatami is enough.
 | `/scoreboard/[ringId]` | The arena TV screen for this tatami | `ScoreboardClient` |
 
 A category whose pools are split across tatamis shows up as separate cards in each tatami's queue
-("Category · Pool 2", "Category · Finals"). You see and score only your own part. The finals card cannot
+("Category · Pool 2", "Category · Finals"). You see and score only your own part: the bracket you open
+shows just that pool (or just the finals), never the whole tree, and the server will not show a tatami
+any other pool of the category even if it asks. The finals card cannot
 be started until every pool has been finished on its tatami, and a pool cannot be reopened once the
 finals have started.
 

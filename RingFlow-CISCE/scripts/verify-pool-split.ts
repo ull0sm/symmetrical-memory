@@ -98,6 +98,37 @@ async function main() {
     }
     assert.ok(allMatches.filter((m) => m.part === "FINALS").every((m) => m.roundNo >= 4 || m.bracketType !== "MAIN"), "finals are the bouts after the pools");
 
+    // Each part knows how big it is, for its own progress bar.
+    assert.deepEqual(
+      cards.filter((c) => c.part.startsWith("POOL")).map((c) => [c.partAthletes, c.partMatches]),
+      [[16, 15], [16, 15], [16, 15], [16, 15]],
+      "each pool holds 16 athletes and runs 15 bouts"
+    );
+    assert.equal(card("FINALS").partAthletes, 4, "the finals start with the four pool winners");
+
+    // Who is in each pool, and the one-pool view of the draw.
+    const { loadCategoryPools } = await import("../src/lib/draws/poolRosters");
+    const { assembleCategoryDraw } = await import("../src/lib/draws/assembleDraw");
+    const pools = await loadCategoryPools(big.id);
+    assert.equal(pools?.length, 4, "four pools are listed");
+    assert.ok(pools!.every((p) => p.athletes.length === 16), "16 athletes in each");
+    assert.equal(new Set(pools!.flatMap((p) => p.athletes.map((a) => a.athleteId))).size, 64, "nobody is in two pools or none");
+    assert.equal(pools![2].tatami, ringB.name, "pool 3 says it runs on tatami 2");
+
+    const poolView = await assembleCategoryDraw(big.id, { part: "POOL:3" });
+    assert.equal(poolView?.matches.length, 15, "pool 3's view has only pool 3's bouts");
+    assert.ok(poolView!.matches.every((m) => m.part === "POOL:3"), "and none from another pool");
+    assert.equal(poolView?.athletes.length, 16, "with its 16 athletes");
+    assert.equal(poolView?.podium, null, "a pool has no podium");
+    assert.deepEqual(poolView?.partSummary.map((p) => p.part), ["POOL:1", "POOL:2", "POOL:3", "POOL:4", "FINALS"]);
+
+    const finalsView = await assembleCategoryDraw(big.id, { part: "FINALS" });
+    assert.ok(finalsView!.matches.every((m) => m.part === "FINALS"), "the finals view holds only finals bouts");
+    const semis = finalsView!.matches.filter((m) => m.bracketType === "MAIN" && m.roundNo === 4);
+    assert.ok(semis.length > 0 && semis.every((m) => m.aka.sourceLabel?.endsWith("winner") && m.ao.sourceLabel?.endsWith("winner")), "pool winners are named, not shown as TBD bouts");
+    const wholeView = await assembleCategoryDraw(big.id);
+    assert.equal(wholeView?.matches.length, allMatches.length, "no part asked for: the whole draw");
+
     // Each bout is authorised on the tatami that runs its part.
     const poolThreeBout = allMatches.find((m) => m.part === "POOL:3" && m.roundNo === 0)!;
     const finalsBout = allMatches.find((m) => m.part === "FINALS" && m.bracketType === "MAIN")!;
