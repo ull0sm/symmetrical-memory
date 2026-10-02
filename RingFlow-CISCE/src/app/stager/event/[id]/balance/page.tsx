@@ -75,7 +75,7 @@ export default async function StagerBalancePage({
         ),
     ]);
 
-    assignments = rawAssignments.map(serializeCategoryAssignment);
+    assignments = rawAssignments.map((row) => serializeCategoryAssignment(row));
 
     finishLogs.forEach((log) => {
       if (log.categoryId && log.createdAt) {
@@ -89,8 +89,8 @@ export default async function StagerBalancePage({
       tournamentId={tournamentId}
       tournamentName={tournament.name}
       stagerName={stagerInfo.name || "Stager"}
-      initialCategories={catRows.map(serializeCategory)}
-      initialRings={ringRows.map(serializeRing)}
+      initialCategories={catRows.map((row) => serializeCategory(row))}
+      initialRings={ringRows.map((row) => serializeRing(row))}
       initialAssignments={assignments}
       completedTimes={completedTimes}
     />

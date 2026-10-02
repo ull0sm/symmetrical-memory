@@ -339,7 +339,7 @@ export async function getStagerRequests(tournamentId: string) {
     .orderBy(desc(stagerRequests.createdAt))
     .limit(50);
 
-  return rows.map(serializeStagerRequest);
+  return rows.map((row) => serializeStagerRequest(row));
 }
 
 export async function getStagerCodes(tournamentId: string) {

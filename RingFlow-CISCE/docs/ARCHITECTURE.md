@@ -151,10 +151,6 @@ policy, a permissions policy, and HSTS on HTTPS only so plain-HTTP LAN installs 
 
 ## Known limitations
 
-- **Type check fails.** `npx tsc --noEmit` currently reports about 75 errors, mostly nullable
-  database fields in page components and loosely typed serializer output in
-  `src/lib/serializers.ts`. They are type-level only; the unit tests pass. Because `next build`
-  type-checks, the production build fails until they are fixed.
 - **Single process.** Login rate limits are in memory per process, so run one app instance.
   Scaling out needs a shared store for them.
 - **No offline-to-online sync.** An event runs on one database, either the venue server or the

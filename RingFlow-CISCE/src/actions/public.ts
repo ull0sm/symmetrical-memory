@@ -42,7 +42,7 @@ export async function getPublicFloorData(tournamentId: string) {
   const catMap = new Map(catRows.map((c) => [c.id, c]));
 
   return {
-    rings: ringRows.map(serializeRing),
+    rings: ringRows.map((row) => serializeRing(row)),
     assignments: rawAssignments.map((a) => {
       // Stager names are staff details, not spectator information.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars

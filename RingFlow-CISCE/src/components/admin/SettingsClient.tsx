@@ -17,12 +17,12 @@ export interface OrganiserRequest {
   id: string;
   tournament_id: string;
   access_code_used: string;
-  status: "pending" | "approved" | "rejected" | "revoked";
+  status: "pending" | "approved" | "rejected" | "revoked" | "expired";
   session_token?: string | null;
   device_info?: any;
   organiser_name?: string | null;
-  created_at: string;
-  expires_at: string;
+  created_at: string | null;
+  expires_at: string | null;
 }
 
 interface Tournament {

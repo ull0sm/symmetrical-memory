@@ -11,7 +11,7 @@ type Athlete = {
   id: string;
   name: string;
   chest_number: string | null;
-  category_id: string;
+  category_id: string | null;
   categories?: { name: string };
   school?: string | null;
   school_code?: string | null;

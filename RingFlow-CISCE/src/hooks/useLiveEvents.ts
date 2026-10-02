@@ -19,9 +19,20 @@ export interface LiveScope {
   requestId?: string | null;
 }
 
-export function useLiveEvents<T = unknown>(
+/** What a change event carries: ids and status only (see lib/realtime/bus.ts). */
+export interface LiveChange {
+  table?: string;
+  op?: "INSERT" | "UPDATE" | "DELETE";
+  id?: string;
+  ringId?: string;
+  categoryId?: string;
+  tournamentId?: string;
+  data?: unknown;
+}
+
+export function useLiveEvents<T = LiveChange>(
   scope: LiveScope,
-  onChange: (event?: T) => void,
+  onChange: (event?: T | null) => void,
   options?: {
     enabled?: boolean;
     debounceMs?: number;

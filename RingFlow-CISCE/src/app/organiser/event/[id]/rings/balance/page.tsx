@@ -68,7 +68,7 @@ export default async function OrganiserRingBalancingPage({ params }: { params: P
         ),
     ]);
 
-    assignments = rawAssignments.map(serializeCategoryAssignment);
+    assignments = rawAssignments.map((row) => serializeCategoryAssignment(row));
 
     finishLogs.forEach((log) => {
       if (log.categoryId && log.createdAt) {
@@ -81,8 +81,8 @@ export default async function OrganiserRingBalancingPage({ params }: { params: P
     <RingBalancingClient 
       tournamentId={tournamentId}
       tournamentName={tournament.name}
-      initialCategories={catRows.map(serializeCategory)}
-      initialRings={ringRows.map(serializeRing)}
+      initialCategories={catRows.map((row) => serializeCategory(row))}
+      initialRings={ringRows.map((row) => serializeRing(row))}
       initialAssignments={assignments}
       completedTimes={completedTimes}
       readOnly={true}

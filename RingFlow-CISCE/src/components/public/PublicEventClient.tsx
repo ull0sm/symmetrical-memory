@@ -14,9 +14,9 @@ import "./public-spectator.css";
 interface Tournament {
   id: string;
   name: string;
-  event_date?: string;
-  venue?: string;
-  city?: string;
+  event_date?: string | null;
+  venue?: string | null;
+  city?: string | null;
   status?: string;
   show_public_draws?: boolean;
   show_public_scoreboard?: boolean;
@@ -26,7 +26,7 @@ interface Ring {
   id: string;
   name: string;
   ring_order: number;
-  mat_name?: string;
+  mat_name?: string | null;
   access_code?: string;
   tournament_id: string;
 }

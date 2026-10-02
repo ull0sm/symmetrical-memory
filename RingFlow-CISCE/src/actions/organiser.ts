@@ -242,7 +242,7 @@ export async function getOrganiserRequests(tournamentId: string) {
     .orderBy(desc(organiserRequests.createdAt))
     .limit(50);
 
-  return rows.map(serializeOrganiserRequest);
+  return rows.map((row) => serializeOrganiserRequest(row));
 }
 
 export async function regenerateOrganiserCode(tournamentId: string) {

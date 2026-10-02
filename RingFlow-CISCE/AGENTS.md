@@ -104,9 +104,8 @@ Fresh installs and upgrades use the same two commands. See [db/migrations/README
 - **Use a disposable database for the suites.** They create tournaments and hammer logins. Never
   point them, or the seed scripts, at a database with real event data. `run-suite.sh` refuses port
   5432.
-- Static checks: `npm run lint`, `npx tsc --noEmit`. The type check currently reports errors that
-  also stop `npm run build`; they are listed in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Do not
-  add new ones.
+- Static checks: `npm run lint`, `npx tsc --noEmit`. The type check is clean and `npm run build`
+  depends on it, so keep it that way.
 
 ## Conventions
 

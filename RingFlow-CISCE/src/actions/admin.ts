@@ -192,9 +192,9 @@ export async function getAdminDashboardData(tournamentId: string) {
   }
 
   return {
-    rings: ringRows.map(serializeRing),
+    rings: ringRows.map((row) => serializeRing(row)),
     assignments,
-    logs: logRows.map(serializeEventLog),
+    logs: logRows.map((row) => serializeEventLog(row)),
   };
 }
 
@@ -207,7 +207,7 @@ export async function getLiveLogs(tournamentId: string) {
     .where(eq(eventLog.tournamentId, tournamentId))
     .orderBy(desc(eventLog.createdAt))
     .limit(200);
-  return logRows.map(serializeEventLog);
+  return logRows.map((row) => serializeEventLog(row));
 }
 
 export async function getPendingModeratorRequests(tournamentId: string) {
@@ -257,8 +257,8 @@ export async function getTournamentSearchMeta(tournamentId: string) {
       : [];
 
   return {
-    categories: cats.map(serializeCategory),
-    rings: ringList.map(serializeRing),
+    categories: cats.map((row) => serializeCategory(row)),
+    rings: ringList.map((row) => serializeRing(row)),
     assignments: assigns.map((a) => ({
       category_id: a.categoryId,
       ring_id: a.ringId,
