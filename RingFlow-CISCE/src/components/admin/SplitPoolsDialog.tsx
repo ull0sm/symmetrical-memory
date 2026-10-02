@@ -73,8 +73,6 @@ export default function SplitPoolsDialog({ categoryId, categoryName, rings, onCl
     }
   };
 
-  const ringName = (id: string) => rings.find((r) => r.id === id)?.name ?? "Tatami";
-
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={`Split ${categoryName} across tatamis`}>
       <div className="bg-surface-container-lowest rounded-xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col border border-outline-variant max-h-[90vh]">

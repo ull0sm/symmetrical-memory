@@ -27,11 +27,15 @@ function announceQueues(tournamentId: string, ringIds: readonly string[], catego
     try {
       revalidatePath(`/moderator/ring/${ringId}/queue`);
       revalidatePath(`/moderator/ring/${ringId}/current`);
-    } catch {}
+    } catch {
+      // Not inside a request that can revalidate (a script); the live broadcast still went out.
+    }
   }
   try {
     revalidatePath(`/admin/event/${tournamentId}/rings/balance`);
-  } catch {}
+  } catch {
+    // As above.
+  }
 }
 
 /**

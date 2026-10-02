@@ -25,6 +25,7 @@ every tatami live.
 | Athletes: add, bulk import, move, delete | `/admin/event/[id]/athletes` | `athletes.ts`, `officialImport.ts` |
 | Draws: preflight, generate, lock, unlock, seeds, draw profile (Official / Local-unofficial rules), hand swap (local only), flush, draw-sheet PDFs | categories page and draw drawer | `draws.ts`, `drawPdfs.ts` |
 | Ring balancing: assign categories to tatamis and order each queue | `/admin/event/[id]/rings/balance` | `balancing.ts` |
+| Split a category's pools across tatamis (and put it back together) | split icon on a queued category card | `poolSplit.ts` |
 | Live dashboard: all tatamis, pause or resume one or all, activity feed, assistance requests | `/admin/event/[id]/dashboard` | `admin.ts`, `rings.ts`, `clock.ts` |
 | Official record: audit log, results export (CSV, PDF) | `/admin/event/[id]/record` | `audit.ts`, `resultsExport.ts` |
 | Judge panel override (approve, remove, rotate QR and PIN) | moderator's kata screen | `judgePanel.ts` |
@@ -33,6 +34,23 @@ every tatami live.
 
 - Score bouts or confirm results at the table. That is the tatami moderator's job.
 - Reach tournaments owned by another admin.
+
+## Running a category's pools on different tatamis
+
+A bracket of 32 or more places prints as pools of 16 (a 64-place bracket is four pools), and a kata
+flight has Pool A and Pool B. With two tatamis you can give pools 1-2 to one and pools 3-4 to the
+other, so a pool winner does not wait for dozens of other bouts before meeting the other winners.
+
+Assign the category to a tatami, then use the split icon on its card: choose a tatami for each pool and
+one **finals tatami**. The semi-finals, final, repechage, bronze bouts and the kata medal flight run
+there, and start only once every pool has been finished by its tatami's moderator. Each part joins the
+end of its tatami's queue and shows as "Category · Pool 3" on the moderator, dashboard and public
+screens; each pool page of the draw sheet prints its tatami.
+
+Rules: the category must be drawn first; splitting is refused once any bout is fought or the category is on
+a mat; a split category cannot be redrawn (put it back together first; flushing the draw also puts it back
+together); the balancing board moves its finals card but never drops it; each tatami's moderator scores
+only its own pools. Splitting and putting back together are audited.
 
 ## Correcting a result
 

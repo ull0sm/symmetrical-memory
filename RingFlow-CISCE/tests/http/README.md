@@ -12,6 +12,7 @@ authorization, sessions and the flows that need a database.
 | `test-judge-panel.mjs` | Judge pairing and approval, seat ownership, the voting window, void and override, server totals |
 | `test-live-feeds.mjs` | Public and staff live feeds, security headers, HSTS, tunnel isolation |
 | `test-attendance.mjs` | Attendance permissions, the desk hint, staff-only visibility |
+| `test-pool-split.mjs` | Splitting a category's pools across tatamis: who may split, which tatami may score which bout, finals waiting for pools, the balancing board leaving pools alone |
 
 ## Database checks (no server needed)
 `npm run test:db` runs the draw guard, setup, manual-swap and kata-flow checks straight against the database.
