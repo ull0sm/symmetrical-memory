@@ -397,6 +397,18 @@ export async function commitBoutResult(
         categoryId,
       });
 
+      // A split category's other tatamis hold the bouts this result may have just made ready.
+      if (match.part) {
+        const siblings = await tx
+          .select({ ringId: categoryAssignments.ringId })
+          .from(categoryAssignments)
+          .where(eq(categoryAssignments.categoryId, categoryId));
+        for (const ringId of new Set(siblings.map((s) => s.ringId))) {
+          if (ringId === assignment.ringId) continue;
+          broadcastLiveEvent({ table: "category_assignments", op: "UPDATE", ringId, categoryId });
+        }
+      }
+
       await tx.insert(eventLog).values({
         tournamentId: cat.tournamentId,
         ringId: assignment.ringId,
