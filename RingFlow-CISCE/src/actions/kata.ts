@@ -2,33 +2,35 @@
 
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
-import {
-  rings,
-  categories,
-  matches,
-  matchSlots,
-  athletes,
-  kataScores,
-  categoryAssignments,
-  judgeSessions,
-} from "@/db/schema";
-import { eq, and, asc, inArray } from "drizzle-orm";
+import { categories, matches, kataScores, rings } from "@/db/schema";
+import { eq, and, asc, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { randomInt } from "node:crypto";
+import { z } from "zod";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
-import { serializeMatch, serializeKataScore } from "@/lib/serializers";
-import { calculateKataScoreDeducing } from "@/lib/kata/scoringEngine";
-import { finalizeKataMatch, recomputeKataTallies } from "@/lib/kata/finalize";
+import { finalizeKataMatch } from "@/lib/kata/finalize";
+import { computeKataTally, recomputeKataTallies, MAX_JUDGE_SEATS, type KataTally } from "@/lib/kata/tally";
+import { isKataCategory } from "@/lib/categories/eventType";
+import { JUDGE_PANEL_SEATS } from "@/lib/constants";
+import { parseInput } from "@/lib/validation";
 import {
   describePrincipal,
   getRingModerator,
   getTournamentStaff,
   requireMatchModerator,
-  requireRingOperator,
 } from "@/lib/auth/guards";
-import { scopeForMatch, tournamentIdForRing } from "@/lib/auth/scope";
+import type { ModeratorPrincipal } from "@/lib/auth/principal";
+import { scopeForMatch, type MatchScope } from "@/lib/auth/scope";
 
-/** Judge rows as the browser sees them: never the judge's device token. */
+/**
+ * Kata scoring at the moderator desk: voting control for the judge phones,
+ * void / override of a judge's vote, desk-entered marks, and finalizing.
+ * The judge phone side lives in `actions/judge.ts`, the panel (pairing,
+ * approve, kick) in `actions/judgePanel.ts`.
+ *
+ * Totals and winners always come from the server (`lib/kata/tally.ts`).
+ */
+
+/** Judge rows as the desk sees them: never a device token. */
 function publicScore(score: typeof kataScores.$inferSelect) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { judgeDeviceToken, ...rest } = score;
@@ -45,15 +47,18 @@ function revalidateRing(ringId: string | null | undefined) {
   }
 }
 
-function broadcastKataChange(
-  matchId: string,
-  ringId: string | null,
-  tournamentId: string,
-  op: "UPDATE" | "DELETE" = "UPDATE"
-) {
-  broadcastLiveEvent({ table: "kata_scores", op, id: matchId, matchId, ringId: ringId ?? undefined, tournamentId });
-  broadcastLiveEvent({ table: "matches", op: "UPDATE", id: matchId, matchId, ringId: ringId ?? undefined, tournamentId });
+function broadcastKataChange(scope: MatchScope, op: "UPDATE" | "DELETE" = "UPDATE") {
+  const base = { id: scope.matchId, matchId: scope.matchId, ringId: scope.ringId ?? undefined, tournamentId: scope.tournamentId };
+  broadcastLiveEvent({ table: "kata_scores", op, ...base });
+  broadcastLiveEvent({ table: "matches", op: "UPDATE", ...base });
 }
+
+const DESK_NAME = "Desk";
+const seatSchema = z.number().int().min(1).max(JUDGE_PANEL_SEATS);
+/** Desk marks: 0.1–10.0 (lenient; the desk may copy a paper sheet). */
+const deskMark = z.number().gt(0).max(10);
+/** A bout total typed from a paper sheet: the sum of up to three kept marks. */
+const deskTotal = z.number().gt(0).max(30);
 
 /** All judge marks for a bout: the tatami's moderator or event staff. */
 export async function getMatchKataScores(matchId: string) {
@@ -68,219 +73,119 @@ export async function getMatchKataScores(matchId: string) {
     .from(kataScores)
     .where(eq(kataScores.matchId, matchId))
     .orderBy(asc(kataScores.judgeSeat));
-  return { success: true, scores: scores.map(publicScore) };
+  const [match] = await db.select({ kataVoting: matches.kataVoting }).from(matches).where(eq(matches.id, matchId));
+  return { success: true, scores: scores.map(publicScore), voting: match?.kataVoting ?? "idle" };
+}
+
+async function requireOpenKataBout(matchId: string) {
+  const { moderator, scope } = await requireMatchModerator(matchId);
+  const [match] = await db
+    .select({ status: matches.status, voting: matches.kataVoting, categoryName: categories.name, eventType: categories.eventType })
+    .from(matches)
+    .innerJoin(categories, eq(categories.id, matches.categoryId))
+    .where(eq(matches.id, matchId))
+    .limit(1);
+  if (!match) return { error: "Bout not found" as const };
+  if (!isKataCategory({ name: match.categoryName, eventType: match.eventType })) {
+    return { error: "Judge voting is for kata bouts only." as const };
+  }
+  if (match.status === "CONFIRMED") return { error: "This bout is already confirmed." as const };
+  return { moderator, scope, match };
 }
 
 /**
- * Current kata bout on a tatami, for the judge phones and the moderator pad.
- * Holds no credentials: the tatami PIN and device tokens are never returned.
+ * Open voting on a kata bout. It becomes the tatami's current bout, any other
+ * open bout in the category is closed, and judge phones can vote.
  */
-export async function getRingKataState(ringId: string, specificMatchId?: string) {
-  try {
-    const [ring] = await db
-      .select({ id: rings.id, name: rings.name, currentMatchId: rings.currentMatchId })
-      .from(rings)
-      .where(eq(rings.id, ringId))
-      .limit(1);
+export async function openKataVoting(matchId: string) {
+  const res = await requireOpenKataBout(matchId);
+  if ("error" in res) return { success: false as const, error: res.error };
+  const { moderator, scope } = res;
 
-    if (!ring) return { success: false, error: "Ring not found" };
+  await db
+    .update(matches)
+    .set({ kataVoting: "closed" })
+    .where(and(eq(matches.categoryId, scope.categoryId), eq(matches.kataVoting, "open"), ne(matches.id, matchId)));
+  await db.update(matches).set({ kataVoting: "open", status: "LIVE" }).where(eq(matches.id, matchId));
+  await db.update(rings).set({ currentMatchId: matchId }).where(eq(rings.id, scope.ringId!));
 
-    const [assignment] = await db
-      .select()
-      .from(categoryAssignments)
-      .where(and(eq(categoryAssignments.ringId, ringId), eq(categoryAssignments.status, "running")))
-      .limit(1);
-
-    if (!assignment) {
-      return { success: true, ringId, ringName: ring.name, activeCategory: null, activeMatch: null, scores: [] };
-    }
-
-    const [category] = await db
-      .select()
-      .from(categories)
-      .where(eq(categories.id, assignment.categoryId))
-      .limit(1);
-
-    const matchId = specificMatchId || ring.currentMatchId;
-    let currentMatch: typeof matches.$inferSelect | undefined;
-
-    if (matchId) {
-      const [m] = await db
-        .select()
-        .from(matches)
-        .where(and(eq(matches.id, matchId), eq(matches.categoryId, assignment.categoryId)))
-        .limit(1);
-      currentMatch = m;
-    }
-
-    if (!currentMatch) {
-      const [m] = await db
-        .select()
-        .from(matches)
-        .where(and(eq(matches.categoryId, assignment.categoryId), inArray(matches.status, ["READY", "LIVE"])))
-        .orderBy(asc(matches.matchNo))
-        .limit(1);
-      currentMatch = m;
-    }
-
-    if (!currentMatch) {
-      return { success: true, ringId, ringName: ring.name, activeCategory: category, activeMatch: null, scores: [] };
-    }
-
-    const slots = await db
-      .select()
-      .from(matchSlots)
-      .where(eq(matchSlots.matchId, currentMatch.id))
-      .orderBy(asc(matchSlots.position));
-
-    const athleteIds = slots.map((s) => s.athleteId).filter(Boolean) as string[];
-    const athleteMap = new Map<string, typeof athletes.$inferSelect>();
-    if (athleteIds.length > 0) {
-      const athleteRows = await db.select().from(athletes).where(inArray(athletes.id, athleteIds));
-      athleteRows.forEach((a) => athleteMap.set(a.id, a));
-    }
-
-    const akaSlot = slots.find((s) => s.position === 1);
-    const aoSlot = slots.find((s) => s.position === 2);
-
-    const scores = await db
-      .select()
-      .from(kataScores)
-      .where(eq(kataScores.matchId, currentMatch.id))
-      .orderBy(asc(kataScores.judgeSeat));
-
-    return {
-      success: true,
-      ringId,
-      ringName: ring.name,
-      activeCategory: category,
-      activeMatch: serializeMatch({
-        ...currentMatch,
-        akaAthlete: akaSlot?.athleteId ? athleteMap.get(akaSlot.athleteId) : null,
-        aoAthlete: aoSlot?.athleteId ? athleteMap.get(aoSlot.athleteId) : null,
-      }),
-      scores: scores.map(publicScore).map(serializeKataScore),
-    };
-  } catch (err) {
-    console.error("Error in getRingKataState:", err);
-    return { success: false, error: "Failed to fetch Kata state" };
-  }
+  await audit({
+    tournamentId: scope.tournamentId,
+    ringId: scope.ringId,
+    categoryId: scope.categoryId,
+    matchId,
+    actor: moderator,
+    action: "KATA_VOTING_OPENED",
+    targetType: "match",
+    targetId: matchId,
+  });
+  broadcastLiveEvent({ table: "rings", op: "UPDATE", id: scope.ringId!, ringId: scope.ringId!, tournamentId: scope.tournamentId, matchId });
+  broadcastKataChange(scope);
+  revalidateRing(scope.ringId);
+  return { success: true as const };
 }
 
-/**
- * A judge phone casts or changes its vote. The device must be an approved
- * judge on the tatami the bout is running on, voting from its own seat.
- */
-export async function submitJudgeVote(params: {
-  matchId: string;
-  ringId?: string;
-  judgeSeat: number;
-  targetSide?: "AKA" | "AO" | "BOTH";
-  flagVote?: "AKA" | "AO";
-  numericScore?: number;
-  judgeDeviceToken?: string;
-}) {
-  try {
-    const { matchId, judgeSeat, flagVote, numericScore, judgeDeviceToken } = params;
-    const targetSide = params.targetSide === "AO" || params.targetSide === "BOTH" ? params.targetSide : "AKA";
+/** Close voting: judge votes are locked from here on. */
+export async function closeKataVoting(matchId: string) {
+  const res = await requireOpenKataBout(matchId);
+  if ("error" in res) return { success: false as const, error: res.error };
+  const { moderator, scope } = res;
 
-    if (!Number.isInteger(judgeSeat) || judgeSeat < 1 || judgeSeat > 7) {
-      return { success: false, error: "Judge seat must be between 1 and 7" };
-    }
-    if (!judgeDeviceToken || judgeDeviceToken.length > 200) {
-      return { success: false, error: "This device is not registered as a judge." };
-    }
-    if (flagVote !== undefined && flagVote !== "AKA" && flagVote !== "AO") {
-      return { success: false, error: "Invalid flag vote" };
-    }
-    if (numericScore !== undefined && !(numericScore > 0 && numericScore <= 10)) {
-      return { success: false, error: "Score must be between 0.1 and 10.0" };
-    }
-
-    const scope = await scopeForMatch(matchId);
-    if (!scope.ringId || scope.assignmentStatus !== "running") {
-      return { success: false, error: "This bout is not open for judging." };
-    }
-
-    const [judge] = await db
-      .select({ id: judgeSessions.id })
-      .from(judgeSessions)
-      .where(
-        and(
-          eq(judgeSessions.ringId, scope.ringId),
-          eq(judgeSessions.seat, judgeSeat),
-          eq(judgeSessions.status, "approved")
-        )
-      )
-      .limit(1);
-    if (!judge) {
-      return { success: false, error: "This device is not an approved judge for that seat." };
-    }
-
-    const [match] = await db.select({ status: matches.status }).from(matches).where(eq(matches.id, matchId));
-    if (match?.status === "CONFIRMED") {
-      return { success: false, error: "Voting for this bout is closed." };
-    }
-
-    const scoreType = numericScore !== undefined ? "POINT" : "FLAG";
-    const numeric = numericScore !== undefined ? numericScore.toFixed(2) : null;
-
-    await db
-      .insert(kataScores)
-      .values({
-        matchId,
-        judgeSeat,
-        targetSide,
-        scoreType,
-        flagVote: flagVote || null,
-        numericScore: numeric,
-        judgeDeviceToken,
-        isOverridden: false,
-      })
-      .onConflictDoUpdate({
-        target: [kataScores.matchId, kataScores.judgeSeat, kataScores.targetSide],
-        set: { scoreType, flagVote: flagVote || null, numericScore: numeric, judgeDeviceToken, isOverridden: false },
-      });
-
-    await recomputeKataTallies(matchId);
-    await audit({
-      tournamentId: scope.tournamentId,
-      ringId: scope.ringId,
-      categoryId: scope.categoryId,
-      matchId,
-      actor: { role: "judge", id: judge.id, name: `Judge seat ${judgeSeat}` },
-      action: "KATA_VOTE",
-      targetType: "match",
-      targetId: matchId,
-      after: { seat: judgeSeat, side: targetSide, flagVote: flagVote ?? null, numericScore: numeric },
-    });
-    broadcastKataChange(matchId, scope.ringId, scope.tournamentId);
-    return { success: true };
-  } catch (err) {
-    console.error("Error in submitJudgeVote:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Failed to record vote" };
-  }
+  await db.update(matches).set({ kataVoting: "closed" }).where(eq(matches.id, matchId));
+  const tally = await recomputeKataTallies(matchId);
+  await audit({
+    tournamentId: scope.tournamentId,
+    ringId: scope.ringId,
+    categoryId: scope.categoryId,
+    matchId,
+    actor: moderator,
+    action: "KATA_VOTING_CLOSED",
+    targetType: "match",
+    targetId: matchId,
+    after: tally ? summarizeTally(tally) : null,
+  });
+  broadcastKataChange(scope);
+  revalidateRing(scope.ringId);
+  return { success: true as const };
 }
 
-/** Moderator clears a misclicked vote for one judge seat. */
-export async function voidJudgeVote(params: {
-  matchId: string;
-  judgeSeat: number;
-  targetSide?: "AKA" | "AO" | "BOTH";
-}) {
-  const { moderator, scope } = await requireMatchModerator(params.matchId);
-  const targetSide = params.targetSide === "AO" || params.targetSide === "BOTH" ? params.targetSide : "AKA";
+function summarizeTally(t: KataTally) {
+  return t.mode === "FLAG"
+    ? { mode: t.mode, akaFlags: t.akaFlags, aoFlags: t.aoFlags, winner: t.winner }
+    : { mode: t.mode, akaTotal: t.akaTotal, aoTotal: t.aoTotal, winner: t.winner };
+}
 
-  const [voided] = await db
-    .select({ flagVote: kataScores.flagVote, numericScore: kataScores.numericScore })
+async function seatRows(matchId: string, seat: number) {
+  return db
+    .select()
     .from(kataScores)
-    .where(
-      and(
-        eq(kataScores.matchId, params.matchId),
-        eq(kataScores.judgeSeat, params.judgeSeat),
-        eq(kataScores.targetSide, targetSide)
-      )
-    );
+    .where(and(eq(kataScores.matchId, matchId), eq(kataScores.judgeSeat, seat)));
+}
+
+const voidSchema = z.object({ matchId: z.string().min(1).max(100), judgeSeat: seatSchema });
+
+/** Clear one seat's vote so that judge can vote again (or the desk can enter it). */
+export async function voidJudgeVote(input: z.input<typeof voidSchema>) {
+  const params = parseInput(voidSchema, input, "void");
+  const res = await requireOpenKataBout(params.matchId);
+  if ("error" in res) return { success: false as const, error: res.error };
+  const { moderator, scope } = res;
+
+  const before = await seatRows(params.matchId, params.judgeSeat);
+  if (before.length === 0) return { success: true as const };
+  await db
+    .delete(kataScores)
+    .where(and(eq(kataScores.matchId, params.matchId), eq(kataScores.judgeSeat, params.judgeSeat)));
+
+  // A side whose last mark was voided has no total any more.
+  const tally = await recomputeKataTallies(params.matchId);
+  if (tally) {
+    const clear: Partial<typeof matches.$inferInsert> = {};
+    if (tally.akaMarks.every((m) => m === null) && before.some((r) => r.targetSide === "AKA" && r.numericScore)) clear.akaScoreTotal = null;
+    if (tally.aoMarks.every((m) => m === null) && before.some((r) => r.targetSide === "AO" && r.numericScore)) clear.aoScoreTotal = null;
+    if (Object.keys(clear).length) await db.update(matches).set(clear).where(eq(matches.id, params.matchId));
+  }
+
   await audit({
     tournamentId: scope.tournamentId,
     ringId: scope.ringId,
@@ -290,230 +195,222 @@ export async function voidJudgeVote(params: {
     action: "KATA_VOTE_VOIDED",
     targetType: "match",
     targetId: params.matchId,
-    before: voided ? { seat: params.judgeSeat, side: targetSide, ...voided } : { seat: params.judgeSeat, side: targetSide },
+    before: before.map((r) => ({ seat: r.judgeSeat, side: r.targetSide, flag: r.flagVote, score: r.numericScore, judge: r.judgeName })),
   });
-
-  await db
-    .delete(kataScores)
-    .where(
-      and(
-        eq(kataScores.matchId, params.matchId),
-        eq(kataScores.judgeSeat, params.judgeSeat),
-        eq(kataScores.targetSide, targetSide)
-      )
-    );
-
-  await recomputeKataTallies(params.matchId);
-  broadcastKataChange(params.matchId, scope.ringId, scope.tournamentId, "DELETE");
-  return { success: true };
+  broadcastKataChange(scope, "DELETE");
+  return { success: true as const };
 }
 
-/** Moderator declares the winner of a kata bout. */
-export async function finalizeKataBout(params: {
-  matchId: string;
-  winnerSide?: "AKA" | "AO";
-  decisionMethod?: string;
-}) {
-  const { moderator, scope } = await requireMatchModerator(params.matchId);
-  if (params.winnerSide !== "AKA" && params.winnerSide !== "AO") {
-    return { success: false, error: "Choose the winning side." };
+/** Write a desk-entered vote for one seat, replacing what the seat had for those sides. */
+async function writeDeskVote(matchId: string, seat: number, vote: { flag?: "AKA" | "AO" | null; aka?: number | null; ao?: number | null }) {
+  const upsert = async (side: "AKA" | "AO" | "BOTH", values: { flagVote: string | null; numericScore: string | null; scoreType: string }) => {
+    await db
+      .insert(kataScores)
+      .values({
+        matchId,
+        judgeSeat: seat,
+        targetSide: side,
+        judgeDeviceToken: "MODERATOR_MANUAL",
+        judgeSessionId: null,
+        judgeName: DESK_NAME,
+        isOverridden: true,
+        ...values,
+      })
+      .onConflictDoUpdate({
+        target: [kataScores.matchId, kataScores.judgeSeat, kataScores.targetSide],
+        set: { ...values, judgeSessionId: null, judgeName: DESK_NAME, isOverridden: true },
+      });
+  };
+  const seatFilter = (side: "AKA" | "AO" | "BOTH") =>
+    and(eq(kataScores.matchId, matchId), eq(kataScores.judgeSeat, seat), eq(kataScores.targetSide, side));
+
+  if (vote.flag !== undefined) {
+    // One flag row per seat; older rows put flags on the AKA/AO rows.
+    await db.update(kataScores).set({ flagVote: null }).where(and(eq(kataScores.matchId, matchId), eq(kataScores.judgeSeat, seat), ne(kataScores.targetSide, "BOTH")));
+    if (vote.flag === null) await db.delete(kataScores).where(seatFilter("BOTH"));
+    else await upsert("BOTH", { flagVote: vote.flag, numericScore: null, scoreType: "FLAG" });
   }
-
-  const res = await finalizeKataMatch({
-    matchId: params.matchId,
-    winnerSide: params.winnerSide,
-    decisionMethod: (params.decisionMethod || "FLAGS").slice(0, 40),
-    actor: describePrincipal(moderator),
-  });
-  if (res.success) {
-    await audit({
-      tournamentId: scope.tournamentId,
-      ringId: scope.ringId,
-      categoryId: scope.categoryId,
-      matchId: params.matchId,
-      actor: moderator,
-      action: "BOUT_CONFIRMED",
-      targetType: "match",
-      targetId: params.matchId,
-      after: { winnerSide: params.winnerSide, winnerId: res.winnerId, discipline: "kata" },
-    });
+  for (const side of ["AKA", "AO"] as const) {
+    const mark = side === "AKA" ? vote.aka : vote.ao;
+    if (mark === undefined) continue;
+    if (mark === null) await db.delete(kataScores).where(seatFilter(side));
+    else await upsert(side, { flagVote: null, numericScore: mark.toFixed(2), scoreType: "POINT" });
   }
-
-  revalidateRing(scope.ringId);
-  return res;
-}
-
-/** Set the tatami's judge PIN: its moderator or the event's admin. */
-export async function updateRingJudgePin(ringId: string, newPin: string) {
-  const operator = await requireRingOperator(ringId);
-
-  const cleanPin = (newPin || "").trim();
-  if (!/^\d{4,8}$/.test(cleanPin)) {
-    return { success: false, error: "PIN must be 4 to 8 digits" };
-  }
-
-  await db.update(rings).set({ judgePin: cleanPin }).where(eq(rings.id, ringId));
-
-  await audit({ tournamentId: await tournamentIdForRing(ringId), ringId, actor: operator, action: "JUDGE_PIN_CHANGED", targetType: "ring", targetId: ringId });
-
-  broadcastLiveEvent({
-    table: "rings",
-    op: "UPDATE",
-    id: ringId,
-    ringId,
-    tournamentId: await tournamentIdForRing(ringId),
-  });
-
-  return { success: true, pin: cleanPin };
-}
-
-/** Fresh random 4-digit PIN for the tatami. */
-export async function regenerateRingJudgePin(ringId: string) {
-  return updateRingJudgePin(ringId, String(randomInt(1000, 10000)));
-}
-
-const MAX_JUDGES = 7;
-
-/** A judge mark is 0.1–10.0; anything else (blank, 0, NaN) means "not entered". */
-function validMark(mark: unknown): number | null {
-  return typeof mark === "number" && Number.isFinite(mark) && mark > 0 && mark <= 10
-    ? Number(mark.toFixed(2))
-    : null;
 }
 
 /**
- * Moderator enters kata marks / flags at the desk (small events, or a judge
- * phone that died), and optionally finalizes the bout.
+ * Finish a kata bout with the winner the marks/flags give. The desk names the
+ * winner only when they don't decide it (a tie, or no judge marks at all).
  */
-export async function submitModeratorManualKataMarks(params: {
-  matchId: string;
-  akaKataNumber?: number;
-  akaKataName?: string;
-  aoKataNumber?: number;
-  aoKataName?: string;
-  akaScore?: number;
-  aoScore?: number;
-  akaJudgeMarks?: number[];
-  aoJudgeMarks?: number[];
-  judgeScores?: Array<{ seat: number; akaScore: number; aoScore: number }>;
-  winnerSide?: "AKA" | "AO";
-  finalize?: boolean;
-}) {
+async function finalizeFromTally(
+  matchId: string,
+  moderator: ModeratorPrincipal,
+  scope: MatchScope,
+  requested: "AKA" | "AO" | undefined
+) {
+  const tally = await recomputeKataTallies(matchId);
+  if (!tally) return { success: false as const, error: "Bout not found" };
+
+  let winner: "AKA" | "AO" | undefined;
+  let method: string;
+  if (tally.winner === "AKA" || tally.winner === "AO") {
+    if (requested && requested !== tally.winner) {
+      return { success: false as const, error: `The ${tally.mode === "FLAG" ? "flags" : "marks"} give the bout to ${tally.winner}. Void or correct a vote first.` };
+    }
+    winner = tally.winner;
+    method = tally.solo ? "SOLO" : tally.mode === "FLAG" ? "FLAGS" : "POINTS";
+  } else {
+    // No decision from the votes: compare desk-typed totals, else the desk decides.
+    const [m] = await db.select({ aka: matches.akaScoreTotal, ao: matches.aoScoreTotal }).from(matches).where(eq(matches.id, matchId));
+    const akaTotal = m?.aka === null || m?.aka === undefined ? null : Number(m.aka);
+    const aoTotal = m?.ao === null || m?.ao === undefined ? null : Number(m.ao);
+    const byTotals = akaTotal !== null && aoTotal !== null && akaTotal !== aoTotal ? (akaTotal > aoTotal ? "AKA" : "AO") : undefined;
+    if (tally.winner === null && byTotals) {
+      if (requested && requested !== byTotals) {
+        return { success: false as const, error: `The entered totals give the bout to ${byTotals}.` };
+      }
+      winner = byTotals;
+      method = "POINTS";
+    } else {
+      winner = requested;
+      method = "DESK_DECISION";
+    }
+  }
+  if (!winner) {
+    return { success: false as const, error: "Scores are tied or incomplete; choose the winner before finalizing." };
+  }
+
+  await db.update(matches).set({ kataVoting: "closed" }).where(eq(matches.id, matchId));
+  const res = await finalizeKataMatch({ matchId, winnerSide: winner, decisionMethod: method, actor: describePrincipal(moderator) });
+  if (!res.success) return res;
+
+  await audit({
+    tournamentId: scope.tournamentId,
+    ringId: scope.ringId,
+    categoryId: scope.categoryId,
+    matchId,
+    actor: moderator,
+    action: "BOUT_CONFIRMED",
+    targetType: "match",
+    targetId: matchId,
+    after: { winnerSide: winner, winnerId: res.winnerId, discipline: "kata", method, ...summarizeTally(tally) },
+  });
+  broadcastKataChange(scope);
+  revalidateRing(scope.ringId);
+  return { success: true as const, winnerSide: winner };
+}
+
+/**
+ * One seat the desk edited. A key that is present is an edit (null clears it);
+ * a missing key leaves that side alone, so a judge's vote that arrived after
+ * the desk last refreshed is never overwritten by a stale blank.
+ */
+const seatEdit = z.object({
+  seat: z.number().int().min(1).max(MAX_JUDGE_SEATS),
+  aka: deskMark.nullable().optional(),
+  ao: deskMark.nullable().optional(),
+  flag: z.enum(["AKA", "AO"]).nullable().optional(),
+});
+const manualSchema = z.object({
+  matchId: z.string().min(1).max(100),
+  akaKataNumber: z.number().int().positive().max(999).optional(),
+  akaKataName: z.string().trim().max(80).optional(),
+  aoKataNumber: z.number().int().positive().max(999).optional(),
+  aoKataName: z.string().trim().max(80).optional(),
+  /** Only the seats the desk edited. */
+  seats: z.array(seatEdit).max(MAX_JUDGE_SEATS * 2).optional(),
+  /** A total typed from a paper sheet, used only for a side with no per-judge marks. */
+  akaScore: deskTotal.optional(),
+  aoScore: deskTotal.optional(),
+  winnerSide: z.enum(["AKA", "AO"]).optional(),
+  finalize: z.boolean().optional(),
+});
+
+/**
+ * The desk enters kata names, marks or flags (small events without judge
+ * phones, or to correct a seat), and optionally finalizes. Seats whose value
+ * did not change keep their judge's attribution; changed seats are recorded
+ * as desk entries and audited.
+ */
+export async function submitModeratorManualKataMarks(input: z.input<typeof manualSchema>) {
+  const params = parseInput(manualSchema, input, "kata marks");
   const { moderator, scope } = await requireMatchModerator(params.matchId);
-  const { matchId, finalize = false } = params;
+  const { matchId } = params;
 
-  try {
-    const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1);
-    if (!match) return { success: false, error: "Match not found" };
-    if (match.status === "CONFIRMED") {
-      return { success: false, error: "This bout is already confirmed." };
-    }
+  const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1);
+  if (!match) return { success: false as const, error: "Match not found" };
+  if (match.status === "CONFIRMED") return { success: false as const, error: "This bout is already confirmed." };
 
-    const updatePayload: Partial<typeof matches.$inferInsert> = {};
+  const kataLabel = (num?: number, name?: string) => {
+    const cleanName = (name || "").trim();
+    if (num) return `#${num} ${cleanName}`.trim();
+    return cleanName || undefined;
+  };
+  const update: Partial<typeof matches.$inferInsert> = {};
+  const akaLabel = kataLabel(params.akaKataNumber, params.akaKataName);
+  const aoLabel = kataLabel(params.aoKataNumber, params.aoKataName);
+  if (akaLabel && akaLabel !== match.akaKataName) update.akaKataName = akaLabel;
+  if (aoLabel && aoLabel !== match.aoKataName) update.aoKataName = aoLabel;
 
-    const kataLabel = (num?: number, name?: string) => {
-      const cleanName = (name || "").trim().slice(0, 80);
-      if (Number.isInteger(num) && (num as number) > 0) return `#${num} ${cleanName}`.trim();
-      return cleanName || undefined;
-    };
-    const akaLabel = kataLabel(params.akaKataNumber, params.akaKataName);
-    const aoLabel = kataLabel(params.aoKataNumber, params.aoKataName);
-    if (akaLabel) updatePayload.akaKataName = akaLabel;
-    if (aoLabel) updatePayload.aoKataName = aoLabel;
+  // Seat-by-seat diff against what is stored.
+  const existing = await db.select().from(kataScores).where(eq(kataScores.matchId, matchId));
+  const stored = (seat: number, side: "AKA" | "AO") => {
+    const r = existing.find((e) => e.judgeSeat === seat && e.targetSide === side && e.numericScore !== null);
+    return r ? Number(r.numericScore) : null;
+  };
+  const storedFlag = (seat: number) =>
+    (existing.find((e) => e.judgeSeat === seat && (e.flagVote === "AKA" || e.flagVote === "AO"))?.flagVote as "AKA" | "AO" | undefined) ?? null;
 
-    const writeSideMarks = async (side: "AKA" | "AO", marks: number[]) => {
-      const cleaned = marks.slice(0, MAX_JUDGES).map(validMark);
-      const deducing = calculateKataScoreDeducing(cleaned);
-      for (let i = 0; i < cleaned.length; i++) {
-        const mark = cleaned[i];
-        const seatFilter = and(
-          eq(kataScores.matchId, matchId),
-          eq(kataScores.judgeSeat, i + 1),
-          eq(kataScores.targetSide, side)
-        );
-        if (mark === null) {
-          // Blank seat: remove any stale mark rather than storing a zero.
-          await db.delete(kataScores).where(seatFilter);
-          continue;
-        }
-        const isDropped = deducing.droppedIndices.includes(i);
-        await db
-          .insert(kataScores)
-          .values({
-            matchId,
-            judgeSeat: i + 1,
-            judgeDeviceToken: "MODERATOR_MANUAL",
-            targetSide: side,
-            scoreType: "POINT",
-            numericScore: mark.toFixed(2),
-            isDropped,
-            isOverridden: true,
-          })
-          .onConflictDoUpdate({
-            target: [kataScores.matchId, kataScores.judgeSeat, kataScores.targetSide],
-            set: { numericScore: mark.toFixed(2), scoreType: "POINT", isDropped, isOverridden: true },
-          });
+  const changes: { seat: number; side: string; before: unknown; after: unknown }[] = [];
+  for (const edit of params.seats ?? []) {
+    const seat = edit.seat;
+    const vote: { flag?: "AKA" | "AO" | null; aka?: number | null; ao?: number | null } = {};
+    for (const side of ["AKA", "AO"] as const) {
+      const value = side === "AKA" ? edit.aka : edit.ao;
+      if (value === undefined) continue;
+      const next = value === null ? null : Number(value.toFixed(2));
+      const prev = stored(seat, side);
+      if (next !== prev) {
+        vote[side === "AKA" ? "aka" : "ao"] = next;
+        changes.push({ seat, side, before: prev, after: next });
       }
-      return deducing;
-    };
-
-    let finalAkaScore = validMark(params.akaScore);
-    let finalAoScore = validMark(params.aoScore);
-
-    if (params.akaJudgeMarks && params.akaJudgeMarks.length > 0) {
-      const d = await writeSideMarks("AKA", params.akaJudgeMarks);
-      finalAkaScore = d.hasSufficientMarks ? d.total : null;
     }
-    if (params.aoJudgeMarks && params.aoJudgeMarks.length > 0) {
-      const d = await writeSideMarks("AO", params.aoJudgeMarks);
-      finalAoScore = d.hasSufficientMarks ? d.total : null;
-    }
-
-    let flagWinner: "AKA" | "AO" | undefined;
-    const hasExplicitMarks = Boolean(params.akaJudgeMarks?.length || params.aoJudgeMarks?.length);
-    if (!hasExplicitMarks && params.judgeScores && params.judgeScores.length > 0) {
-      let akaFlags = 0;
-      let aoFlags = 0;
-      for (const js of params.judgeScores.slice(0, MAX_JUDGES)) {
-        if (!Number.isInteger(js.seat) || js.seat < 1 || js.seat > MAX_JUDGES) continue;
-        const aka = Number(js.akaScore) || 0;
-        const ao = Number(js.aoScore) || 0;
-        const flagVote = aka > ao ? "AKA" : ao > aka ? "AO" : null;
-        if (flagVote === "AKA") akaFlags++;
-        if (flagVote === "AO") aoFlags++;
-
-        for (const side of ["AKA", "AO"] as const) {
-          const value = side === "AKA" ? aka : ao;
-          await db
-            .insert(kataScores)
-            .values({
-              matchId,
-              judgeSeat: js.seat,
-              judgeDeviceToken: "MODERATOR_OVERRIDE",
-              targetSide: side,
-              numericScore: value.toFixed(2),
-              flagVote,
-              isOverridden: true,
-            })
-            .onConflictDoUpdate({
-              target: [kataScores.matchId, kataScores.judgeSeat, kataScores.targetSide],
-              set: { numericScore: value.toFixed(2), flagVote, isOverridden: true },
-            });
-        }
+    if (edit.flag !== undefined) {
+      const next = edit.flag;
+      const prev = storedFlag(seat);
+      if (next !== prev) {
+        vote.flag = next;
+        changes.push({ seat, side: "FLAG", before: prev, after: next });
       }
-      updatePayload.akaFlags = akaFlags;
-      updatePayload.aoFlags = aoFlags;
-      if (akaFlags > aoFlags) flagWinner = "AKA";
-      else if (aoFlags > akaFlags) flagWinner = "AO";
     }
-
-    if (finalAkaScore !== null) updatePayload.akaScoreTotal = finalAkaScore.toFixed(2);
-    if (finalAoScore !== null) updatePayload.aoScoreTotal = finalAoScore.toFixed(2);
-
-    if (Object.keys(updatePayload).length > 0) {
-      await db.update(matches).set(updatePayload).where(eq(matches.id, matchId));
+    if (Object.keys(vote).length) {
+      const phoneRows = existing.filter((e) => e.judgeSeat === seat && e.judgeSessionId && !e.isOverridden);
+      await writeDeskVote(matchId, seat, vote);
+      // Replacing a judge phone's vote is an override: record whose vote it was.
+      if (phoneRows.length) {
+        await audit({
+          tournamentId: scope.tournamentId,
+          ringId: scope.ringId,
+          categoryId: scope.categoryId,
+          matchId,
+          actor: moderator,
+          action: "KATA_VOTE_OVERRIDDEN",
+          targetType: "match",
+          targetId: matchId,
+          before: phoneRows.map((r) => ({ seat, side: r.targetSide, flag: r.flagVote, score: r.numericScore, judge: r.judgeName })),
+          after: { seat, ...vote },
+        });
+      }
     }
+  }
 
+  const tally = await recomputeKataTallies(matchId);
+  // Paper-sheet totals, only for a side without per-judge marks.
+  if (tally && params.akaScore !== undefined && tally.akaMarks.every((m) => m === null)) update.akaScoreTotal = params.akaScore.toFixed(2);
+  if (tally && params.aoScore !== undefined && tally.aoMarks.every((m) => m === null)) update.aoScoreTotal = params.aoScore.toFixed(2);
+  if (Object.keys(update).length) await db.update(matches).set(update).where(eq(matches.id, matchId));
+
+  if (changes.length || update.akaScoreTotal !== undefined || update.aoScoreTotal !== undefined) {
     await audit({
       tournamentId: scope.tournamentId,
       ringId: scope.ringId,
@@ -523,52 +420,31 @@ export async function submitModeratorManualKataMarks(params: {
       action: "KATA_MARKS_SAVED",
       targetType: "match",
       targetId: matchId,
+      before: { akaTotal: match.akaScoreTotal, aoTotal: match.aoScoreTotal },
       after: {
-        akaJudgeMarks: params.akaJudgeMarks ?? null,
-        aoJudgeMarks: params.aoJudgeMarks ?? null,
-        judgeScores: params.judgeScores ?? null,
-        akaTotal: finalAkaScore,
-        aoTotal: finalAoScore,
+        changes,
+        akaTotal: update.akaScoreTotal ?? tally?.akaTotal ?? null,
+        aoTotal: update.aoScoreTotal ?? tally?.aoTotal ?? null,
         kata: { aka: akaLabel ?? null, ao: aoLabel ?? null },
       },
     });
-
-    let resolvedWinnerSide: "AKA" | "AO" | undefined =
-      params.winnerSide === "AKA" || params.winnerSide === "AO" ? params.winnerSide : flagWinner;
-    if (!resolvedWinnerSide && finalAkaScore !== null && finalAoScore !== null && finalAkaScore !== finalAoScore) {
-      resolvedWinnerSide = finalAkaScore > finalAoScore ? "AKA" : "AO";
-    }
-
-    if (finalize) {
-      if (!resolvedWinnerSide) {
-        return { success: false, error: "Scores are tied or incomplete; choose the winner before finalizing." };
-      }
-      const res = await finalizeKataMatch({
-        matchId,
-        winnerSide: resolvedWinnerSide,
-        decisionMethod: params.judgeScores?.length ? "FLAGS" : "POINTS",
-        actor: describePrincipal(moderator),
-      });
-      if (!res.success) return res;
-      await audit({
-        tournamentId: scope.tournamentId,
-        ringId: scope.ringId,
-        categoryId: scope.categoryId,
-        matchId,
-        actor: moderator,
-        action: "BOUT_CONFIRMED",
-        targetType: "match",
-        targetId: matchId,
-        after: { winnerSide: resolvedWinnerSide, winnerId: res.winnerId, discipline: "kata" },
-      });
-    }
-
-    broadcastKataChange(matchId, scope.ringId, scope.tournamentId);
-    revalidateRing(scope.ringId);
-
-    return { success: true, winnerSide: resolvedWinnerSide, finalized: finalize };
-  } catch (err) {
-    console.error("Error in submitModeratorManualKataMarks:", err);
-    return { success: false, error: err instanceof Error ? err.message : "Failed to save marks" };
   }
+
+  if (params.finalize) {
+    return finalizeFromTally(matchId, moderator, scope, params.winnerSide);
+  }
+
+  broadcastKataChange(scope);
+  revalidateRing(scope.ringId);
+  return { success: true as const, winnerSide: tally?.winner === "AKA" || tally?.winner === "AO" ? tally.winner : undefined };
+}
+
+/** Server tally for the desk's live display (totals, flags, dropped marks, verdict). */
+export async function getKataTally(matchId: string) {
+  const scope = await scopeForMatch(matchId);
+  const allowed =
+    (scope.ringId && (await getRingModerator(scope.ringId))) ||
+    (await getTournamentStaff(scope.tournamentId));
+  if (!allowed) return null;
+  return computeKataTally(matchId);
 }

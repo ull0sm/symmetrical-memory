@@ -627,7 +627,6 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
                         activeMatch={boutData.currentMatch}
                         category={activeAssignment.categories}
                         scores={boutData.currentMatch.kataScores || []}
-                        judgePin={boutData.ring?.judgePin || boutData.ring?.judge_pin || "1234"}
                         tunnelUrl={boutData.tournament?.tunnelUrl || boutData.tournament?.tunnel_url}
                         onRefresh={() => {
                           loadBoutData();

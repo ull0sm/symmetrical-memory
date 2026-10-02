@@ -6,10 +6,11 @@ export default async function JudgeRingPage({
   searchParams,
 }: {
   params: Promise<{ ringId: string }>;
-  searchParams: Promise<{ pin?: string }>;
+  searchParams: Promise<{ k?: string }>;
 }) {
   const { ringId } = await params;
-  const { pin } = await searchParams;
+  const { k } = await searchParams;
 
-  return <JudgeMobileClient ringId={ringId} initialPin={pin || ""} />;
+  // `k` is the pairing key from the desk's QR code. Without it the judge types the tatami PIN.
+  return <JudgeMobileClient ringId={ringId} pairingKey={typeof k === "string" ? k.slice(0, 200) : ""} />;
 }

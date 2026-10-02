@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { sql, relations } from 'drizzle-orm';
 import {
   type AnyPgColumn,
@@ -13,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -97,6 +98,10 @@ export const rings = pgTable(
     matchDurationSeconds: integer('match_duration_seconds').notNull().default(180),
     // Random per tatami; there is no shared default PIN.
     judgePin: text('judge_pin').notNull().$defaultFn(() => String(randomInt(1000, 10000))),
+    // Secret in the judge QR link (/judge/ring/<id>?k=...). Rotated with the PIN.
+    judgePairingKey: text('judge_pairing_key')
+      .notNull()
+      .$defaultFn(() => randomBytes(24).toString('base64url')),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
@@ -272,22 +277,40 @@ export const stagerRequests = pgTable('stager_requests', {
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
 });
 
-export const judgeRequests = pgTable('judge_requests', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  ringId: uuid('ring_id')
-    .notNull()
-    .references(() => rings.id, { onDelete: 'cascade' }),
-  deviceToken: text('device_token').notNull(),
-  judgeName: text('judge_name').notNull().default('Referee'),
-  seatNumber: integer('seat_number').notNull().default(1),
-  status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-});
+/**
+ * A judge's phone on one tatami seat (PLAN Phase 4, docs/roles/judge.md).
+ * The requesting browser holds a claim secret (hash in `claim_hash`); after
+ * the moderator approves, that browser collects a session token (hash in
+ * `token_hash`). One approved phone per seat, enforced by a partial index.
+ */
+export const judgeSessions = pgTable(
+  'judge_sessions',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    ringId: uuid('ring_id')
+      .notNull()
+      .references(() => rings.id, { onDelete: 'cascade' }),
+    seat: integer('seat').notNull(), // 1 to 7
+    judgeName: text('judge_name').notNull(),
+    claimHash: text('claim_hash'),
+    tokenHash: text('token_hash'),
+    status: text('status').notNull().default('pending'), // 'pending' | 'approved' | 'rejected' | 'ended'
+    endReason: text('end_reason'), // 'kicked' | 'replaced' | 'panel_ended' | 'rotated' | 'left' | 'expired'
+    approvedBy: text('approved_by'),
+    approvedAt: timestamp('approved_at', { withTimezone: true, mode: 'date' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+    endedAt: timestamp('ended_at', { withTimezone: true, mode: 'date' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('judge_sessions_ring_status_idx').on(table.ringId, table.status),
+    uniqueIndex('judge_sessions_one_per_seat')
+      .on(table.ringId, table.seat)
+      .where(sql`status = 'approved'`),
+  ]
+);
 
 export const eventLog = pgTable('event_log', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
@@ -472,6 +495,8 @@ export const matches = pgTable(
     winnerSide: text('winner_side'),
     decisionMethod: text('decision_method'),
     kataScoringMode: text('kata_scoring_mode').default('FLAG'), // 'FLAG' | 'POINTS'
+    // Judge phones may vote only while 'open'; 'closed' locks the votes.
+    kataVoting: text('kata_voting').notNull().default('idle'), // 'idle' | 'open' | 'closed'
     poolGroup: text('pool_group'), // e.g. 'Pool A', 'Pool B', 'Final Flight'
     akaKataName: text('aka_kata_name'),
     aoKataName: text('ao_kata_name'),
@@ -493,7 +518,9 @@ export const kataScores = pgTable(
     athleteId: uuid('athlete_id').references(() => athletes.id, { onDelete: 'set null' }),
     targetSide: text('target_side').notNull().default('AKA'), // 'AKA' | 'AO' | 'BOTH'
     judgeSeat: integer('judge_seat').notNull(), // 1 to 7
-    judgeDeviceToken: text('judge_device_token'),
+    judgeDeviceToken: text('judge_device_token'), // legacy desk markers only ('MODERATOR_MANUAL')
+    judgeSessionId: uuid('judge_session_id').references(() => judgeSessions.id, { onDelete: 'set null' }),
+    judgeName: text('judge_name'), // who gave this mark, as shown on the bout record
     scoreType: text('score_type').notNull().default('FLAG'), // 'FLAG' | 'POINT'
     flagVote: text('flag_vote'), // 'AKA' | 'AO'
     numericScore: numeric('numeric_score', { precision: 4, scale: 2 }),

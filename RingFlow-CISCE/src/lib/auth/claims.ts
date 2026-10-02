@@ -13,12 +13,13 @@ import { hashToken } from "./tokens";
  * not enough.
  */
 
-export type ClaimRole = "moderator" | "stager" | "organiser";
+export type ClaimRole = "moderator" | "stager" | "organiser" | "judge";
 
 const CLAIM_COOKIE: Record<ClaimRole, string> = {
   moderator: "mod_claim",
   stager: "stager_claim",
   organiser: "org_claim",
+  judge: "judge_claim",
 };
 
 const CLAIM_TTL_SECONDS = 48 * 60 * 60;
@@ -44,6 +45,17 @@ export async function holdsClaim(role: ClaimRole, storedHash: string | null | un
     return a.length === b.length && timingSafeEqual(a, b);
   } catch {
     return false;
+  }
+}
+
+/** sha256 of this browser's claim secret, or null when it holds none. */
+export async function currentClaimHash(role: ClaimRole): Promise<string | null> {
+  try {
+    const store = await cookies();
+    const secret = store.get(CLAIM_COOKIE[role])?.value;
+    return secret && secret.length <= 128 ? sha256(secret) : null;
+  } catch {
+    return null;
   }
 }
 

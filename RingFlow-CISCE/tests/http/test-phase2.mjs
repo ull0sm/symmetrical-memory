@@ -67,7 +67,7 @@ check("repeated wrong passwords for one email get throttled", blocked);
 
 let pinBlocked = false;
 for (let i = 0; i < 35; i++) {
-  const r = await call(A, "requestJudgeAccess", [{ ringId: R1, deviceToken: randomUUID(), pin: String(1000 + i), judgeName: "x" }], new Jar());
+  const r = await call(A, "requestJudgeSeat", [{ ringId: R1, pin: String(1000 + i), name: "x", seat: 1 }], new Jar());
   if (/Too many attempts/.test(r.value?.error || "")) { pinBlocked = true; break; }
 }
 check("judge PIN guessing on a tatami gets throttled", pinBlocked);

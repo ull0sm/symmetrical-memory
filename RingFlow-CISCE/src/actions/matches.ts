@@ -18,7 +18,6 @@ import { commitBoutResult } from "@/lib/bouts/results";
 import {
   describePrincipal,
   getRingModerator,
-  getTournamentAdmin,
   getTournamentStaff,
   requireMatchModerator,
   requireRingModerator,
@@ -167,9 +166,9 @@ function assembleRingActiveBout({
 }
 
 /** Ring row without its credentials (tatami access code, judge PIN). */
-function publicRing<T extends { accessCode?: unknown; judgePin?: unknown }>(ring: T) {
+function publicRing<T extends { accessCode?: unknown; judgePin?: unknown; judgePairingKey?: unknown }>(ring: T) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { accessCode, judgePin, ...rest } = ring;
+  const { accessCode, judgePin, judgePairingKey, ...rest } = ring;
   return rest;
 }
 
@@ -223,9 +222,8 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
   const staff = moderator ?? (await getTournamentStaff(ring.tournamentId));
   if (!staff && !tournament?.showPublicScoreboard) return null;
 
-  // Only the people who run the judge panel see its PIN.
-  const canSeePin = Boolean(moderator) || Boolean(await getTournamentAdmin(ring.tournamentId));
-  const ringView = canSeePin ? { ...publicRing(ring), judgePin: ring.judgePin } : publicRing(ring);
+  // The judge PIN and QR key are served only by getJudgePanel.
+  const ringView = publicRing(ring);
 
   const assignment = await activeAssignmentForRing(ringId);
   if (!assignment) return null;

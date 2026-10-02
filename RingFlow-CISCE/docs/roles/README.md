@@ -41,7 +41,7 @@ each role file says so under **Known gaps**, with a link to [PLAN.md](../PLAN.md
 | Athlete attendance (optional) | O | — | O | R | — | — |
 | Live dashboard, all tatamis | O | R | R | own tatami | — | R (public view) |
 | Audit log | O | R | — | — | — | — |
-| Results export (CSV/PDF) | O | R (no UI yet) | — | — | — | — |
+| Results export (CSV/PDF) | O | R | — | — | — | — |
 | Scoreboard TV | O | R | — | own tatami | — | if `showPublicScoreboard` |
 
 ## Sessions
@@ -51,7 +51,7 @@ each role file says so under **Known gaps**, with a link to [PLAN.md](../PLAN.md
 | Organiser | event code → admin approval → session token | 48 h | admin revokes |
 | Stager | stager code → admin approval → session token (one per code) | 48 h | admin revokes, or the code is approved again |
 | Moderator | tatami code → admin approval → session token (one per tatami) | 24 h | admin revokes, or a new moderator is approved |
-| Judge | tatami QR/PIN + seat → moderator approval → session token | until the panel is closed, max 12 h | moderator kicks, or the PIN is rotated (Phase 4) |
+| Judge | tatami QR/PIN + seat → moderator approval → session token | until the panel is closed, max 12 h | moderator removes the phone or ends the panel; a newly approved phone on the seat replaces it |
 
 All session cookies are `httpOnly` and `SameSite=Lax`, and are `Secure` when served over HTTPS.
 Tokens are stored hashed (sha256), and request IDs are never accepted as credentials. A staff
@@ -62,10 +62,10 @@ collects it after approval. Admin login, access-code requests and judge PINs are
 All in `src/lib/auth/` (plain modules, never callable from a browser):
 - `principal.ts` — reads the session cookies and re-verifies each identity against the DB per request.
 - `guards.ts` — `requireAdmin`, `requireTournamentAdmin`, `getTournamentStaff`/`requireTournamentStaff`,
-  `getRingModerator`/`requireRingModerator`, `requireRingOperator`, `requireMatchModerator`.
+  `getRingModerator`/`requireRingModerator`, `requireRingOperator`, `requireMatchModerator`, `requireJudge`.
 - `scope.ts` — resolves ring/category/match/athlete → tournament (and tatami for matches).
 - `claims.ts` — binds an access request to the browser that made it (claim cookie + hash).
 - `cookies.ts` — cookie names and the one `setSessionCookie` (httpOnly, SameSite=Lax, Secure on HTTPS).
 
 Admin login is in `src/actions/auth.ts`; each role's request/approve/revoke flow is in its
-`src/actions/<role>.ts`. Middleware (`src/utils/supabase/middleware.ts`) only does UX redirects.
+`src/actions/<role>.ts`. The request gate (`src/lib/http/requestGate.ts`) only does UX redirects.

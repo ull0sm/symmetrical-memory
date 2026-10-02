@@ -51,7 +51,7 @@ export function serializeTournamentForAdmin(t: any) {
 export function serializeRing(r: any) {
   if (!r) return null;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { accessCode, judgePin, access_code, judge_pin, ...rest } = r;
+  const { accessCode, judgePin, judgePairingKey, access_code, judge_pin, judge_pairing_key, ...rest } = r;
   return {
     ...rest,
     id: r.id,
