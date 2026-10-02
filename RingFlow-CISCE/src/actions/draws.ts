@@ -6,6 +6,7 @@ import { assembleCategoryDraw, type BracketMatchView } from "@/lib/draws/assembl
 import {
   athletes,
   categories,
+  categoryAssignments,
   categoryEntries,
   draws,
   drawVersions,
@@ -14,7 +15,7 @@ import {
   matchEvents,
   kataScores,
 } from "@/db/schema";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { tournaments } from "@/db/schema";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
@@ -599,6 +600,15 @@ export async function flushCategoryDraw(
     if (fought > 0 && reason.length < MIN_FLUSH_REASON_LENGTH) {
       return { refused: `This category has ${fought} fought bout(s). Give a reason (at least ${MIN_FLUSH_REASON_LENGTH} characters) to flush it.` };
     }
+
+    // A split category goes back to one card on its finals tatami: the pools it described are gone.
+    await tx
+      .delete(categoryAssignments)
+      .where(and(eq(categoryAssignments.categoryId, categoryId), like(categoryAssignments.part, "POOL:%")));
+    await tx
+      .update(categoryAssignments)
+      .set({ part: "ALL" })
+      .where(and(eq(categoryAssignments.categoryId, categoryId), eq(categoryAssignments.part, "FINALS")));
 
     // 2. Delete kata_scores, matchEvents, slots, and matches for this category in clean FK order
     if (matchIds.length > 0) {

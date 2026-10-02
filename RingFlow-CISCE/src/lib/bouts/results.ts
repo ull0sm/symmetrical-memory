@@ -1,3 +1,4 @@
+import { assignmentPartOfMatch } from "@/lib/draws/partFilter";
 import { db } from "@/db";
 import {
   categoryAssignments,
@@ -350,7 +351,9 @@ export async function commitBoutResult(
       .where(
         and(
           eq(matches.categoryId, categoryId),
-          eq(matches.status, "CONFIRMED")
+          eq(matches.status, "CONFIRMED"),
+          // A split category counts per part: this tatami's count covers its own bouts only.
+          match.part ? eq(matches.part, match.part) : undefined
         )
       );
 
@@ -359,7 +362,12 @@ export async function commitBoutResult(
     const [assignment] = await tx
       .select()
       .from(categoryAssignments)
-      .where(eq(categoryAssignments.categoryId, categoryId));
+      .where(
+        and(
+          eq(categoryAssignments.categoryId, categoryId),
+          eq(categoryAssignments.part, assignmentPartOfMatch(match.part))
+        )
+      );
 
     if (assignment) {
       await tx

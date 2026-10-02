@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { athletes, categories, categoryAssignments, matches, rings } from "@/db/schema";
 import { isValidUuid } from "@/lib/utils";
@@ -67,7 +67,14 @@ export const scopeForMatch = cache(async (matchId: string): Promise<MatchScope> 
     })
     .from(matches)
     .innerJoin(categories, eq(categories.id, matches.categoryId))
-    .leftJoin(categoryAssignments, eq(categoryAssignments.categoryId, matches.categoryId))
+    // A split category has one assignment per part; the bout's own part says which tatami runs it.
+    .leftJoin(
+      categoryAssignments,
+      and(
+        eq(categoryAssignments.categoryId, matches.categoryId),
+        eq(categoryAssignments.part, sql`coalesce(${matches.part}, 'ALL')`)
+      )
+    )
     .where(eq(matches.id, matchId))
     .limit(1);
   if (!row) throw new AuthError("Bout not found", "NOT_FOUND");

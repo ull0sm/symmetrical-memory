@@ -403,7 +403,7 @@ export async function updateCategoryStagerStatus(
     })
     .from(categoryAssignments)
     .innerJoin(rings, eq(categoryAssignments.ringId, rings.id))
-    .where(eq(categoryAssignments.categoryId, categoryId))
+    .where(and(eq(categoryAssignments.categoryId, categoryId), inArray(categoryAssignments.part, ["ALL", "FINALS"])))
     .limit(1);
 
   if (!assignment) return { success: false, error: "Category is not assigned to any ring yet." };

@@ -223,6 +223,9 @@ export const categoryAssignments = pgTable(
       .notNull()
       .references(() => categories.id, { onDelete: 'cascade' }),
     queueOrder: integer('queue_order').notNull(),
+    // Which part of the category this tatami runs: 'ALL' (the whole category), or once the
+    // admin splits its pools across tatamis, 'POOL:n' for a pool and 'FINALS' for the rest.
+    part: text('part').notNull().default('ALL'),
     status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'paused' | 'completed'
     matchesCompleted: integer('matches_completed').notNull().default(0),
     completedAt: timestamp('completed_at', { withTimezone: true, mode: 'date' }),
@@ -238,7 +241,12 @@ export const categoryAssignments = pgTable(
   },
   (table) => [
     unique().on(table.ringId, table.queueOrder),
-    unique().on(table.categoryId),
+    unique().on(table.categoryId, table.part),
+    // At most one row per category is its primary one ('ALL', or 'FINALS' once split).
+    uniqueIndex('category_assignments_primary_unique')
+      .on(table.categoryId)
+      .where(sql`part IN ('ALL', 'FINALS')`),
+    check('category_assignments_part_check', sql.raw(`part ~ '^(ALL|FINALS|POOL:[1-9][0-9]*)$'`)),
     statusCheck('category_assignments_status_check'),
     statusCheck('category_assignments_stager_status_check'),
   ]
@@ -563,6 +571,8 @@ export const matches = pgTable(
     // Judge phones may vote only while 'open'; 'closed' locks the votes.
     kataVoting: text('kata_voting').notNull().default('idle'), // 'idle' | 'open' | 'closed'
     poolGroup: text('pool_group'), // e.g. 'Pool A', 'Pool B', 'Final Flight'
+    // Set only while the category is split across tatamis: 'POOL:n' or 'FINALS'. Null = whole category.
+    part: text('part'),
     akaKataName: text('aka_kata_name'),
     aoKataName: text('ao_kata_name'),
     akaFlags: integer('aka_flags').notNull().default(0),
@@ -572,6 +582,7 @@ export const matches = pgTable(
   },
   (table) => [
     unique().on(table.categoryId, table.matchNo),
+    check('matches_part_check', sql.raw(`part IS NULL OR part ~ '^(FINALS|POOL:[1-9][0-9]*)$'`)),
     statusCheck('matches_status_check'),
     statusCheck('matches_bracket_type_check'),
     statusCheck('matches_winner_side_check'),

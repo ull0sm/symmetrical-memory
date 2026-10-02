@@ -11,11 +11,14 @@ import { eq, inArray, and, type InferSelectModel } from "drizzle-orm";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
 import { isValidUuid } from "@/lib/utils";
+import { isDrawPart } from "@/engine/draw-engine/parts";
 
 type CategoryAssignmentRow = InferSelectModel<typeof categoryAssignmentsTable>;
 
 export type AssignmentInput = {
   category_id: string;
+  /** Which part of the category this card is: 'ALL' (default), or 'POOL:n' / 'FINALS' once it is split. */
+  part?: string;
   ring_id: string | null; // null means unassigned
   queue_order: number;
   status?: string;
@@ -44,10 +47,17 @@ export async function saveAssignments(
       return { success: false, error: "Invalid assignment list" };
     }
 
-    // 1. Deduplicate payload by category_id (latest entry wins)
+    // 1. Deduplicate payload by category and part (latest entry wins)
+    const partOf = (a: { part?: string }) => a.part ?? "ALL";
+    const keyOf = (categoryId: string, part: string) => `${categoryId}|${part}`;
+    for (const a of assignments) {
+      if (!(partOf(a) === "ALL" || partOf(a) === "FINALS" || isDrawPart(partOf(a)))) {
+        return { success: false, error: "Invalid assignment part" };
+      }
+    }
     const dedupedMap = new Map<string, AssignmentInput>();
     for (const a of assignments) {
-      dedupedMap.set(a.category_id, a);
+      dedupedMap.set(keyOf(a.category_id, partOf(a)), a);
     }
     const cleanAssignments = Array.from(dedupedMap.values());
     const validAssignments = cleanAssignments.filter((a) => a.ring_id !== null);
@@ -87,16 +97,33 @@ export async function saveAssignments(
 
     const currentMap = new Map<string, { status: string; matchesCompleted: number; completedAt: Date | null }>();
     currentAssignments.forEach((a) => {
-      currentMap.set(a.categoryId, {
+      currentMap.set(keyOf(a.categoryId, a.part), {
         status: a.status,
         matchesCompleted: a.matchesCompleted ?? 0,
         completedAt: a.completedAt,
       });
     });
 
+    // A split category is changed only by splitting or unsplitting it: cards for its parts can
+    // move between tatamis and reorder, but none can appear, vanish or merge here.
+    const splitCategoryIds = new Set(currentAssignments.filter((a) => a.part !== "ALL").map((a) => a.categoryId));
+    const incomingKeys = new Set(validAssignments.map((a) => keyOf(a.category_id, partOf(a))));
+    for (const a of validAssignments) {
+      const key = keyOf(a.category_id, partOf(a));
+      const isSplitCard = partOf(a) !== "ALL";
+      if (isSplitCard !== splitCategoryIds.has(a.category_id) || (isSplitCard && !currentMap.has(key))) {
+        return { success: false, error: `SPLIT_CATEGORY_CHANGED:${a.category_id}` };
+      }
+    }
+    for (const a of currentAssignments) {
+      if (splitCategoryIds.has(a.categoryId) && cleanAssignments.some((c) => c.category_id === a.categoryId) && !incomingKeys.has(keyOf(a.categoryId, a.part))) {
+        return { success: false, error: `SPLIT_CATEGORY_CHANGED:${a.categoryId}` };
+      }
+    }
+
     // 4. Guard: reject if a running/paused category is displaced from queue_order 0
     for (const a of validAssignments) {
-      const live = currentMap.get(a.category_id);
+      const live = currentMap.get(keyOf(a.category_id, partOf(a)));
       if (live && (live.status === "running" || live.status === "paused")) {
         if (a.queue_order !== 0) {
           return { success: false, error: `RUNNING_CATEGORY_DISPLACED:${a.category_id}` };
@@ -108,7 +135,10 @@ export async function saveAssignments(
     await db.transaction(async (tx) => {
       // Remove categories that were moved out of all rings (now unassigned)
       const incomingCategoryIds = new Set(validAssignments.map((a) => a.category_id));
-      const toDelete = Array.from(currentMap.keys()).filter((catId) => !incomingCategoryIds.has(catId));
+      // A split category is never dropped by a save; unsplit it first.
+      const toDelete = Array.from(new Set(currentAssignments.map((a) => a.categoryId))).filter(
+        (catId) => !incomingCategoryIds.has(catId) && !splitCategoryIds.has(catId)
+      );
 
       if (toDelete.length > 0) {
         await tx
@@ -123,11 +153,12 @@ export async function saveAssignments(
 
       if (validAssignments.length > 0) {
         const rows = validAssignments.map((a) => {
-          const live = currentMap.get(a.category_id);
+          const live = currentMap.get(keyOf(a.category_id, partOf(a)));
           const isExplicitRevert = a.status === "pending" && live?.status === "completed";
           return {
             ringId: a.ring_id!,
             categoryId: a.category_id,
+            part: partOf(a),
             queueOrder: a.queue_order,
             status:
               isExplicitRevert || a.status === "pending"
@@ -147,8 +178,10 @@ export async function saveAssignments(
           };
         });
 
-        const existingRows = rows.filter((r) => currentMap.has(r.categoryId));
-        const newRows = rows.filter((r) => !currentMap.has(r.categoryId));
+        const existingRows = rows.filter((r) => currentMap.has(keyOf(r.categoryId, r.part)));
+        const newRows = rows.filter((r) => !currentMap.has(keyOf(r.categoryId, r.part)));
+        const sameCard = (r: { categoryId: string; part: string }) =>
+          and(eq(categoryAssignmentsTable.categoryId, r.categoryId), eq(categoryAssignmentsTable.part, r.part));
 
         // (ring_id, queue_order) is unique, so park every row being moved on a
         // temporary negative slot first; otherwise swapping two categories'
@@ -158,7 +191,7 @@ export async function saveAssignments(
           await tx
             .update(categoryAssignmentsTable)
             .set({ queueOrder: parking-- })
-            .where(eq(categoryAssignmentsTable.categoryId, r.categoryId));
+            .where(sameCard(r));
         }
 
         // Update existing rows in place
@@ -172,7 +205,7 @@ export async function saveAssignments(
               matchesCompleted: r.matchesCompleted,
               completedAt: r.completedAt,
             })
-            .where(eq(categoryAssignmentsTable.categoryId, r.categoryId));
+            .where(sameCard(r));
         }
 
         // Insert new rows
@@ -186,8 +219,8 @@ export async function saveAssignments(
       tournamentId,
       actor: admin,
       action: "ASSIGNMENTS_SAVED",
-      before: currentAssignments.map((a) => ({ categoryId: a.categoryId, ringId: a.ringId, queueOrder: a.queueOrder, status: a.status })),
-      after: validAssignments.map((a) => ({ categoryId: a.category_id, ringId: a.ring_id, queueOrder: a.queue_order })),
+      before: currentAssignments.map((a) => ({ categoryId: a.categoryId, part: a.part, ringId: a.ringId, queueOrder: a.queueOrder, status: a.status })),
+      after: validAssignments.map((a) => ({ categoryId: a.category_id, part: partOf(a), ringId: a.ring_id, queueOrder: a.queue_order })),
     });
 
     // Broadcast immediately so Mod, Organiser, Stager receive updates with zero latency
@@ -234,6 +267,7 @@ export async function getBalancingAssignments(ringIds: string[]) {
 
     return rows.map((row) => ({
       category_id: row.categoryId,
+      part: row.part,
       ring_id: row.ringId,
       matches_completed: row.matchesCompleted || 0,
       status: row.status || "pending",

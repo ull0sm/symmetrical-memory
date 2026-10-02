@@ -375,13 +375,14 @@ export async function advanceKataPoolFinalists(categoryId: string) {
     }
 
     // 6. Broadcast SSE updates
-    const [assignment] = await db
-      .select({ ringId: categoryAssignments.ringId })
+    // The medal flight runs on the primary assignment's tatami (the finals tatami when the pools
+    // are split); every tatami of the category refreshes its desk.
+    const assignments = await db
+      .select({ ringId: categoryAssignments.ringId, part: categoryAssignments.part })
       .from(categoryAssignments)
-      .where(eq(categoryAssignments.categoryId, categoryId))
-      .limit(1);
+      .where(eq(categoryAssignments.categoryId, categoryId));
 
-    const ringId = assignment?.ringId;
+    const ringId = (assignments.find((a) => a.part === "ALL" || a.part === "FINALS") ?? assignments[0])?.ringId;
 
     for (const mId of updatedMatchIds) {
       broadcastLiveEvent({
@@ -393,10 +394,10 @@ export async function advanceKataPoolFinalists(categoryId: string) {
       });
     }
 
-    if (ringId) {
+    for (const rId of new Set(assignments.map((a) => a.ringId))) {
       try {
-        revalidatePath(`/moderator/ring/${ringId}/current`);
-        revalidatePath(`/scoreboard/${ringId}`);
+        revalidatePath(`/moderator/ring/${rId}/current`);
+        revalidatePath(`/scoreboard/${rId}`);
       } catch {}
     }
 
