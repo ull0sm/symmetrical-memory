@@ -401,8 +401,9 @@ export async function advanceKataPoolFinalists(categoryId: string) {
     }
 
     return { success: true, updatedMatchIds, poolStandings };
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown error in advanceKataPoolFinalists";
     console.error("Error in advanceKataPoolFinalists:", err);
-    return { success: false, error: err.message };
+    return { success: false, error: errorMessage };
   }
 }

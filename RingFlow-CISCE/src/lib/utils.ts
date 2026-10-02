@@ -15,7 +15,7 @@ const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /**
  * Returns YYYY-MM-DD string in a timezone-safe manner
  */
-export function getEventDateKey(dateVal: any): string {
+export function getEventDateKey(dateVal: string | Date | null | undefined): string {
   if (!dateVal) return "";
   const clean = String(dateVal).trim();
   const match = clean.match(/^(\d{4})-(\d{2})-(\d{2})/);

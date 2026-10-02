@@ -1,4 +1,4 @@
-import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, PDFFont, PDFPage, PDFImage, rgb, StandardFonts } from "pdf-lib";
 import type { BracketMatchView } from "@/lib/draws/assembleDraw";
 import fs from "fs";
 import path from "path";
@@ -100,7 +100,7 @@ export async function generateCategoryDrawPdfBytes(
   }
 
   // Load official branding PNG from public/branding
-  let brandImg: any = null;
+  let brandImg: PDFImage | null = null;
   try {
     const brandPath = path.join(process.cwd(), "public", "branding", "ringflow-powered.png");
     if (fs.existsSync(brandPath)) {
