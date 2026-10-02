@@ -39,6 +39,14 @@ async function main() {
   } finally {
     await sql.end();
   }
+
+  // Pool and finals cards of categories split before their sizes were stored get them from the draw.
+  const { db } = await import("../src/db");
+  const { rings } = await import("../src/db/schema");
+  const { healPartSizes } = await import("../src/lib/draws/partRouting");
+  await healPartSizes((await db.select({ id: rings.id }).from(rings)).map((r) => r.id), { recompute: true });
+  console.log("  pool sizes ... ok");
+  process.exit(0);
 }
 
 main().catch((err) => {
