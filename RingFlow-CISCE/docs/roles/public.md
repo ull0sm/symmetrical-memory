@@ -11,7 +11,8 @@ page. No login.
 
 - Route: `/public/event/[id]`, reached from a shared link or QR code. No login, nothing to install.
   A tournament still in `draft` has no public floor view yet.
-- Shows every tatami's status: current category and bout, queue, progress and estimated finish.
+- Shows every tatami's status: current category and bout, queue, progress and estimated finish. A
+  category split across tatamis appears as a card per pool and for the finals ("Category · Pool 3").
 - Athlete search by name or chest number shows the tatami and category and whether they are up soon.
 - Brackets are visible when the admin turns on "show draws publicly"
   (`tournaments.show_public_draws`). An athlete's own bracket, reached by searching their name, is

@@ -45,7 +45,7 @@ For anyone changing the code. For what the product does, read
 | Kumite result and bracket advancement | `src/actions/matches.ts`, `src/lib/bouts/results.ts`, `src/engine/draw-engine/resolution.ts` |
 | Kata voting, totals, pool advancement | `src/actions/kata.ts`, `src/lib/kata/` |
 | Where a category runs (whole, or pools on different tatamis; parts, finals waiting) | `src/actions/categoryRouting.ts`, `src/lib/draws/partRouting.ts` (apply), `src/lib/draws/routingPlan.ts` (rules), `src/engine/draw-engine/parts.ts` |
-| Draw generation | `src/actions/draws.ts`, `src/lib/draws/`, `src/engine/draw-engine/` |
+| Draw generation, profile rules, seeds, hand swap | `src/actions/draws.ts`, `src/lib/draws/` (`drawRules.ts`, `generateDraws.ts`, `manualSwap.ts`), `src/engine/draw-engine/` |
 | Rules (durations, scoring, penalties) | `src/engine/rules-engine/rulesets/` |
 | Match clock | `src/actions/clock.ts`, `src/lib/matchClock.ts`, `src/lib/ringClockStore.ts`, `src/hooks/useMatchClock.ts` |
 | Live updates | `src/lib/realtime/` (`bus.ts`, `liveStream.ts`), `src/app/api/live/`, `src/hooks/useLiveEvents.ts` |

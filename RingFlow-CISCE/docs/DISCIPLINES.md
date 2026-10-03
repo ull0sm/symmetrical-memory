@@ -27,20 +27,46 @@ the offset to the server clock from recent samples and compensate for drift. The
 is 180 seconds (`DEFAULT_BOUT_DURATION_MS`) and can be set per tatami. The sides can be swapped to
 match the referee's orientation.
 
-**Draws**: single elimination, padded to a power of two with byes. Medal structure is set per
-tournament (`default_bronze_medals`) and can be overridden per category (`bronze_medals`):
+**Draws**: single elimination, padded to a power of two with byes. A large bracket is divided into
+pools of 16 places (a 64-place bracket is four pools) so its pools can run on different tatamis (see
+[roles/admin.md](roles/admin.md)).
 
-| Value | Result |
-|---|---|
-| 0 | No bronze bout |
-| 1 | A single bronze bout between the two ladder winners |
-| 2 | Repechage: everyone beaten by a finalist gets a second chance, and two bronzes are awarded (WKF default) |
+*Draw profile.* Each tournament is either **Official** (strict WKF procedure) or **Local / Unofficial
+rules** (WKF as a base, tweaked by the organiser), and a category can override the tournament
+(`draw_profile`). The profile is resolved once by `src/lib/draws/drawRules.ts`:
 
-Bracket generation is deterministic for a given random seed. Entrants
-from the same school or club can be kept apart in the first round. Walkovers and empty matches are
-resolved without a contest and are excluded from the bout count, so progress bars reach 100%.
-Confirming a result advances the winner (and sends the loser to repechage) through the stored draw
-graph (`src/lib/bouts/results.ts`).
+| | Official | Local / Unofficial |
+|---|---|---|
+| Bronze medals | Repechage with two bronzes | Set per tournament (`default_bronze_medals`) and per category (`bronze_medals`) |
+| Club separation | Always on | On or off (`draw_separation`) |
+| Hand swap of first-round athletes | Not allowed | Allowed in a draft bracket |
+
+Bronze values are 0 (no bronze bout), 1 (a single bronze bout between the two ladder winners) and 2
+(repechage: everyone beaten by a finalist gets a second chance, and two bronzes are awarded, the WKF
+default).
+
+*Seeding and separation.* Seeds are optional (`setCategorySeeds`): seeded athletes take the standard
+seed positions and the rest are drawn at random around them. Entrants from the same club or school are
+kept apart for as long as the bracket allows; athletes with no club are never grouped. The random seed
+is stored with the draw and shown with its checksum, and generation is deterministic for a given seed
+and roster.
+
+*Hand swap* (`swapDrawAthletes`, Local only): the admin can trade two first-round athletes in a draft
+bracket. The new graph is stored as the next draw version, so the history keeps the original. It is
+refused for official draws, locked draws, categories with fought bouts, and kata flights. Audited.
+
+*Safety.* A draw cannot be regenerated while any bout is live or confirmed, or while the draw is locked,
+and the check runs inside the same transaction as the rewrite. The only way to discard fought bouts is
+**Flush**, which needs the typed word `FLUSH` and a reason, is admin only and is audited.
+
+Walkovers and empty matches are resolved without a contest and are excluded from the bout count, so
+progress bars reach 100%. Confirming a result advances the winner (and sends the loser to repechage)
+through the stored draw graph (`src/lib/bouts/results.ts`).
+
+*Draw sheets* are PDFs for staff. An unlocked draw prints as a Draft with a DRAFT watermark on every page. A locked draw is
+"Official" under the Official profile and "Final" under Local rules. They show the draw only (no scores). Names print in Latin, Devanagari and
+Kannada using bundled Noto Sans fonts (`public/fonts/pdf`), so they work offline. Each pool page prints
+the tatami that runs it.
 
 ## Kata
 
@@ -51,12 +77,13 @@ A kata category chooses a **format** and a **scoring mode** (`updateCategoryKata
 | `kata_format` | `GROUP_POOLS` (default), `BRACKET` | Pools with a medal flight, or a head-to-head knockout tree |
 | `kata_scoring_mode` | `FLAG` (default), `POINTS` | Majority vote of the panel, or marks from 5.0 to 10.0 |
 | `pool_size` | default 8 | Athletes per pool |
-| `advance_per_pool` | default 2 | Pool finalists who reach the medal flight |
+| `advance_per_pool` | default 2 | Stored and editable, but not yet used: advancement fills the medal-flight bouts the draw contains |
 
 ### Group pools
 
 Athletes are split into at most two balanced pools (Pool A and Pool B; larger categories simply get
-larger pools), with larger clubs spread across pools. Each athlete performs solo, once. Their mark
+larger pools). Clubs are spread across the pools and club-mates are not paired in a pool bout where
+the numbers allow. The draw is reproducible from its stored seed. Each athlete performs solo, once. Their mark
 ranks them within their pool only.
 
 When the pool bouts are finished, the top finalists from each pool advance automatically

@@ -85,9 +85,9 @@ in step.
 | Group | Tables |
 |---|---|
 | Accounts and sessions | `admins`, `admin_sessions`, `organiser_requests`, `stager_requests`, `moderator_requests`, `judge_sessions` |
-| Event setup | `tournaments`, `rings` (tatamis), `categories`, `category_assignments` (queue and status per tatami), `tournament_category_definitions`, `category_documents` |
+| Event setup | `tournaments` (including `draw_profile` and `draw_separation`), `rings` (tatamis), `categories` (including an optional `draw_profile` override), `category_assignments` (queue, status and `part` per tatami), `tournament_category_definitions`, `category_documents` |
 | People | `athletes`, `tournament_registrations`, `category_entries`, `category_attendance` |
-| Draws | `draws`, `draw_versions` (the full graph as JSON), `matches`, `match_slots`, `match_events` |
+| Draws | `draws`, `draw_versions` (the full graph as JSON; every hand swap adds a version), `matches` (with `part` for split categories), `match_slots`, `match_events` |
 | Kata | `kata_scores` (one row per judge seat and side), kata columns on `categories` and `matches` |
 | Records | `audit_log` (append-only), `event_log` (operational feed) |
 
@@ -113,11 +113,14 @@ Both live in `src/engine/` as pure modules with unit tests, with no database or 
 - **rules-engine**: WKF rulesets as validated data (zod schema in `schema.ts`) plus helpers such as
   `matchDurationSeconds`, `pointsFor` and `hikiwakeAllowed`.
 - **draw-engine**: builds a single-elimination graph with byes, seeding, club separation and a
-  repechage ladder (`generate.ts`), resolves results into advancement (`resolution.ts`), and builds
-  kata pools and a medal flight (`kataFlightDraw.ts`). Output is canonical JSON with a checksum.
+  repechage ladder (`generate.ts`), resolves results into advancement (`resolution.ts`), builds kata
+  pools and a medal flight (`kataDraw.ts`, `kataFlightDraw.ts`), labels the bouts of each pool and the
+  finals for split categories (`parts.ts`), and swaps first-round athletes (`manualSwap.ts`). Output
+  is canonical JSON with a checksum, and all randomness comes from a seeded generator.
 
-`src/lib/draws/` turns an engine graph into `draws`, `matches` and `match_slots` rows, and
-`src/lib/bouts/results.ts` commits a confirmed result and advances the draw. Seed scripts call the
+`src/lib/draws/` turns an engine graph into `draws`, `matches` and `match_slots` rows, resolves the
+draw rules from the profile (`drawRules.ts`), and decides where a category runs (`routingPlan.ts`,
+`partRouting.ts`). `src/lib/bouts/results.ts` commits a confirmed result and advances the draw. Seed scripts call the
 same cores that the guarded actions wrap.
 
 ## Audit
@@ -134,7 +137,8 @@ official record.
 
 ## Reports
 
-- Draw-sheet PDFs (`src/lib/pdf/drawPdfGenerator.ts`): admin only, never public.
+- Draw-sheet PDFs (`src/lib/pdf/drawPdfGenerator.ts` and `src/lib/pdf/draw/`): admin only, never public.
+  Names are embedded with bundled Noto Sans fonts (`src/lib/pdf/pdfText.ts`, `public/fonts/pdf`).
 - Results CSV and PDF (`src/lib/results/`, `src/lib/pdf/resultsPdfGenerator.ts`): one row per bout
   with athletes, score line, decision, winner and the officiating moderator, plus corrections.
 - Category athlete-list PDFs uploaded by the admin are stored in Postgres (`category_documents`) and
