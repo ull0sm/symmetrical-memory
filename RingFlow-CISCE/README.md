@@ -17,7 +17,7 @@ hosted server.
   drift on every screen.
 - **Arena scoreboards** for each tatami, fullscreen on a TV, for kumite and kata.
 - **Draw and bracket engine**: single elimination with byes, seeding, club separation, repechage and
-  bronze options, an Official or Local rules profile, hand swaps, pools split across tatamis, and automatic advancement when a result is confirmed.
+  bronze options, an Official or organiser's rules profile, hand swaps, pools split across tatamis, and automatic advancement when a result is confirmed.
 - **Kata** with pool flights and medal bouts or a knockout bracket, scored by flags or by marks.
   Judges vote from their own phones, or the moderator enters marks at the desk. Totals are computed
   on the server.

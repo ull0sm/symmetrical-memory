@@ -7,6 +7,9 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireTournamentAdmin } from "@/lib/auth/guards";
+import { DEFAULT_BELT_LEVELS } from "@/lib/constants";
+import { tournamentTypeLock } from "@/lib/local/tournamentType";
+import { TOURNAMENT_TYPES, type TournamentType } from "@/lib/statuses";
 
 const TOURNAMENT_STATUSES = ["draft", "active", "completed"] as const;
 type TournamentStatus = (typeof TOURNAMENT_STATUSES)[number];
@@ -123,6 +126,46 @@ export async function updateTournamentSettings(
   } catch {}
 
   return { success: true, defaultBronzeMedals };
+}
+
+/**
+ * Switches a tournament between Official and Local. Allowed only while it has no
+ * categories and no Local divisions; after that the type is fixed. Admin only.
+ */
+export async function setTournamentType(tournamentId: string, type: TournamentType) {
+  const admin = await requireTournamentAdmin(tournamentId);
+  if (!TOURNAMENT_TYPES.includes(type)) return { success: false, error: "Unknown tournament type." };
+
+  const [before] = await db
+    .select({ tournamentType: tournaments.tournamentType, beltLevels: tournaments.beltLevels })
+    .from(tournaments)
+    .where(eq(tournaments.id, tournamentId));
+  if (!before) return { success: false, error: "Tournament not found." };
+  if (before.tournamentType === type) return { success: true };
+
+  const lock = await tournamentTypeLock(tournamentId);
+  if (!lock.canChange) return { success: false, error: lock.reason ?? "The type can no longer change." };
+
+  // A tournament turned Local starts with the default belt list if it has none.
+  const beltLevels = type === "LOCAL" && before.beltLevels.length === 0 ? [...DEFAULT_BELT_LEVELS] : before.beltLevels;
+  await db
+    .update(tournaments)
+    .set({ tournamentType: type, beltLevels, updatedAt: new Date() })
+    .where(eq(tournaments.id, tournamentId));
+
+  await audit({
+    tournamentId,
+    actor: admin,
+    action: "TOURNAMENT_TYPE_CHANGED",
+    targetType: "tournament",
+    targetId: tournamentId,
+    before: { tournamentType: before.tournamentType },
+    after: { tournamentType: type },
+  });
+
+  revalidatePath(`/admin/event/${tournamentId}`, "layout");
+  revalidatePath(`/admin`);
+  return { success: true };
 }
 
 export async function deleteTournament(tournamentId: string) {

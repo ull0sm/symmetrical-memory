@@ -65,6 +65,8 @@ function buildTournament(t: TournamentRow & Record<string, unknown>) {
     default_bronze_medals: t.defaultBronzeMedals ?? 2,
     draw_profile: asDrawProfile(t.drawProfile) ?? "LOCAL",
     draw_separation: t.drawSeparation === "OFF" ? ("OFF" as const) : ("CLUB" as const),
+    tournament_type: t.tournamentType === "LOCAL" ? ("LOCAL" as const) : ("OFFICIAL" as const),
+    belt_levels: Array.isArray(t.beltLevels) ? t.beltLevels : [],
     tunnel_url: t.tunnelUrl ?? null,
     tunnelUrl: t.tunnelUrl ?? null,
     created_at: iso(t.createdAt),

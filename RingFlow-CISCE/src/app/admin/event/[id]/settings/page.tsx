@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { tournaments as tournamentsTable, organiserRequests as organiserRequestsTable } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { serializeTournamentForAdmin, serializeOrganiserRequest } from "@/lib/serializers";
+import { tournamentTypeLock } from "@/lib/local/tournamentType";
 
 export default async function AdminSettings({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
@@ -31,6 +32,7 @@ export default async function AdminSettings({ params }: { params: Promise<{ id: 
 
   const tournament = tournamentRows[0];
   if (!tournament) redirect("/admin");
+  const typeLock = await tournamentTypeLock(tournamentId);
 
   return (
     <>
@@ -38,6 +40,7 @@ export default async function AdminSettings({ params }: { params: Promise<{ id: 
       <SettingsClient 
         tournament={serializeTournamentForAdmin(tournament)} 
         initialOrganiserRequests={requestRows.map((row) => serializeOrganiserRequest(row))} 
+        typeLock={typeLock}
       />
     </>
   );

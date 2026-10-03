@@ -6,6 +6,8 @@ import { requireAdmin } from "@/lib/auth/guards";
 import { uniqueOrganiserCode, uniqueRingAccessCode } from "@/lib/accessCodes";
 import { inferEventType } from "@/lib/categories/eventType";
 import { parseInput, tournamentInputSchema } from "@/lib/validation";
+import { DEFAULT_BELT_LEVELS } from "@/lib/constants";
+import type { TournamentType } from "@/lib/statuses";
 
 export type CategoryInput = {
   name: string;
@@ -22,6 +24,8 @@ export type TournamentInput = {
   categories: CategoryInput[];
   ringCount?: number;
   ring_count?: number;
+  /** OFFICIAL (default) or LOCAL. Fixed once the tournament has groups. */
+  tournament_type?: TournamentType;
 };
 
 export async function createTournament(rawInput: TournamentInput) {
@@ -43,6 +47,9 @@ export async function createTournament(rawInput: TournamentInput) {
     throw new Error("Ring count must be an integer between 1 and 50.");
   }
 
+  // A Local tournament's categories are set up later as divisions, never from the wizard's list.
+  const isLocal = input.tournament_type === "LOCAL";
+
   // 1. Create Tournament via Drizzle ORM
   const [tournament] = await db
     .insert(tournaments)
@@ -54,6 +61,8 @@ export async function createTournament(rawInput: TournamentInput) {
       city,
       status: "draft",
       organiserCode: await uniqueOrganiserCode(),
+      tournamentType: isLocal ? "LOCAL" : "OFFICIAL",
+      beltLevels: isLocal ? [...DEFAULT_BELT_LEVELS] : [],
     })
     .returning({ id: tournaments.id });
 
@@ -64,7 +73,7 @@ export async function createTournament(rawInput: TournamentInput) {
   const tournamentId = tournament.id;
 
   // 2. Create Categories via Drizzle ORM
-  if (Array.isArray(input.categories) && input.categories.length > 0) {
+  if (!isLocal && Array.isArray(input.categories) && input.categories.length > 0) {
     const validCats = input.categories
       .filter((c) => (c.name || "").trim().length > 0)
       .map((c) => {

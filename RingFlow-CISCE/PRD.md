@@ -49,11 +49,12 @@ Full permission matrix: [docs/roles/README.md](docs/roles/README.md).
 
 ## 6. Event lifecycle
 **Setup (admin)**
-1. Create the tournament: name, date, venue, default bronze medals, public toggles.
+1. Create the tournament: its type (Official or Local), name, date, venue, default bronze medals, public
+   toggles. The type can be switched until the tournament has categories.
 2. Add tatamis. Each one gets an access code (for the moderator) and a judge PIN.
 3. Load category definitions (a preset such as CISCE Official, or custom age/weight/gender/event type).
 4. Import athletes (Excel/CSV or manual). They're placed into categories automatically.
-5. Choose the draw profile (Official WKF or Local / Unofficial rules), optionally seed athletes, then generate draws (preflight report → generate → review → **lock**). Pools of a large category can be split across tatamis. Draw-sheet PDFs are for staff only.
+5. Choose the draw profile (Official WKF or organiser's rules), optionally seed athletes, then generate draws (preflight report → generate → review → **lock**). Pools of a large category can be split across tatamis. Draw-sheet PDFs are for staff only.
 6. Balance the tatamis: drag categories onto tatamis and order each queue. Load is measured in bouts.
 7. Issue codes, then approve organisers, stagers, and one moderator per tatami.
 

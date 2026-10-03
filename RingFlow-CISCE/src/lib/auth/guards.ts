@@ -14,6 +14,13 @@ import {
   type Principal,
 } from "./principal";
 import { scopeForMatch, tournamentIdForRing, type MatchScope } from "./scope";
+import {
+  holdOfDivision,
+  scopeForDivision,
+  stagerCodeHashFor,
+  tournamentTypeOf,
+  type DivisionScope,
+} from "./localScope";
 
 /**
  * Authorization guards. Every exported server action calls one of these
@@ -148,6 +155,61 @@ export async function requireJudge(ringId: string): Promise<JudgePrincipal> {
     throw new AuthError("This phone is not an approved judge on this tatami.", "FORBIDDEN");
   }
   return judge;
+}
+
+// ─── Local tournaments ─────────────────────────────────────────────────────
+
+/** Refuses an Official tournament, so no Local action can ever touch one. */
+export async function requireLocalTournament(tournamentId: string): Promise<void> {
+  if ((await tournamentTypeOf(tournamentId)) !== "LOCAL") {
+    throw new AuthError("This is only available in a Local tournament.", "FORBIDDEN");
+  }
+}
+
+export interface DivisionHolder {
+  principal: Principal;
+  scope: DivisionScope;
+}
+
+/**
+ * The caller who holds this division (a Local "Category") right now: the stager
+ * whose stager code holds it, or the tournament's own admin when the admin holds
+ * it. One person at a time edits a division's groups, the admin included.
+ */
+export async function getDivisionHolder(divisionId: string): Promise<DivisionHolder | null> {
+  let scope: DivisionScope;
+  try {
+    scope = await scopeForDivision(divisionId);
+  } catch (err) {
+    if (err instanceof AuthError) return null;
+    throw err;
+  }
+  if (scope.tournamentType !== "LOCAL") return null;
+
+  const hold = await holdOfDivision(divisionId);
+  if (!hold) return null;
+
+  const principals = await getPrincipals();
+  if (hold.holderKind === "admin") {
+    const admin = principals.find((p): p is AdminPrincipal => p.role === "admin" && p.adminId === hold.adminId);
+    if (admin && (await ownerOfTournament(scope.tournamentId)) === admin.adminId) return { principal: admin, scope };
+    return null;
+  }
+
+  for (const p of principals) {
+    if (p.role !== "stager" || p.tournamentId !== scope.tournamentId) continue;
+    const codeHash = await stagerCodeHashFor(p.requestId);
+    if (codeHash !== null && codeHash === hold.stagerCodeHash) return { principal: p, scope };
+  }
+  return null;
+}
+
+export async function requireDivisionHolder(divisionId: string): Promise<DivisionHolder> {
+  const holder = await getDivisionHolder(divisionId);
+  if (!holder) {
+    throw new AuthError("Take this category on the stager desk before changing it.", "FORBIDDEN");
+  }
+  return holder;
 }
 
 /** Human-readable actor for logs and audit rows. */

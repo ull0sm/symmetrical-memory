@@ -85,10 +85,11 @@ in step.
 | Group | Tables |
 |---|---|
 | Accounts and sessions | `admins`, `admin_sessions`, `organiser_requests`, `stager_requests`, `moderator_requests`, `judge_sessions` |
-| Event setup | `tournaments` (including `draw_profile` and `draw_separation`), `rings` (tatamis), `categories` (including an optional `draw_profile` override), `category_assignments` (queue, status and `part` per tatami), `tournament_category_definitions`, `category_documents` |
+| Event setup | `tournaments` (including `tournament_type`, `draw_profile` and `draw_separation`), `rings` (tatamis), `categories` (including an optional `draw_profile` override), `category_assignments` (queue, status and `part` per tatami), `tournament_category_definitions`, `category_documents` |
 | People | `athletes`, `tournament_registrations`, `category_entries`, `category_attendance` |
 | Draws | `draws`, `draw_versions` (the full graph as JSON; every hand swap adds a version), `matches` (with `part` for split categories), `match_slots`, `match_events` |
 | Kata | `kata_scores` (one row per judge seat and side), kata columns on `categories` and `matches` |
+| Local tournaments | `divisions` (an age, belt and sex block, "Category" in the Local UI), `division_events` (kumite or kata in a division, with its plan), `group_drafts` (a group's seed and pinned places before it is locked), `division_holds` (who is preparing a division); `division_event_id` and `group_no` on `categories` (a group is a category), `division_event_id` and `guest` on `category_entries`, `division_id` and `attendance` on `tournament_registrations`, `walk_in` and `needs_review` on `athletes` |
 | Records | `audit_log` (append-only), `event_log` (operational feed) |
 
 Notes:

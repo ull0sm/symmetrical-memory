@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { updateTournamentSettings, deleteTournament } from "@/actions/settings";
+import { updateTournamentSettings, deleteTournament, setTournamentType } from "@/actions/settings";
+import type { TournamentType } from "@/lib/statuses";
 import { 
   approveOrganiserRequest, 
   rejectOrganiserRequest, 
@@ -38,6 +39,7 @@ interface Tournament {
   default_bronze_medals?: number | null;
   draw_profile?: "OFFICIAL" | "LOCAL" | null;
   draw_separation?: "CLUB" | "OFF" | null;
+  tournament_type?: TournamentType;
   tunnel_url?: string | null;
   tunnelUrl?: string | null;
 }
@@ -45,10 +47,43 @@ interface Tournament {
 interface Props {
   tournament: Tournament;
   initialOrganiserRequests?: OrganiserRequest[];
+  /** Whether the tournament type may still change (only before anything is set up). */
+  typeLock?: { canChange: boolean; reason: string | null };
 }
 
-export default function SettingsClient({ tournament, initialOrganiserRequests = [] }: Props) {
+const TYPE_LABEL: Record<TournamentType, { title: string; desc: string }> = {
+  OFFICIAL: {
+    title: "Official",
+    desc: "Categories by age, weight and sex. The system generates the draws.",
+  },
+  LOCAL: {
+    title: "Local",
+    desc: "Categories by age, belt and sex. Stagers build each category's groups at the call desk.",
+  },
+};
+
+export default function SettingsClient({ tournament, initialOrganiserRequests = [], typeLock }: Props) {
   const router = useRouter();
+  const tournamentType: TournamentType = tournament.tournament_type === "LOCAL" ? "LOCAL" : "OFFICIAL";
+  const isLocal = tournamentType === "LOCAL";
+  const [typeError, setTypeError] = useState<string | null>(null);
+  const [typeSaving, setTypeSaving] = useState(false);
+
+  const handleTypeChange = async (next: TournamentType) => {
+    if (next === tournamentType || typeSaving) return;
+    if (!confirm(`Make this a ${TYPE_LABEL[next].title} tournament?`)) return;
+    setTypeSaving(true);
+    setTypeError(null);
+    try {
+      const res = await setTournamentType(tournament.id, next);
+      if (!res.success) setTypeError(res.error ?? "Could not change the type.");
+      else router.refresh();
+    } catch (err) {
+      setTypeError(err instanceof Error ? err.message : "Could not change the type.");
+    } finally {
+      setTypeSaving(false);
+    }
+  };
 
   const [form, setForm] = useState({
     name: tournament.name,
@@ -250,6 +285,40 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
         </div>
 
         <div className="space-y-8">
+          {/* Tournament type: Official or Local, fixed once anything is set up */}
+          <section className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 shadow-sm">
+            <h3 className="font-label-caps text-label-caps text-secondary mb-2">Tournament Type</h3>
+            <p className="text-body-xs text-on-surface-variant max-w-xl mb-4">
+              {typeLock?.canChange
+                ? "You can switch the type until the tournament has categories."
+                : typeLock?.reason ?? "The type is fixed."}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {(["OFFICIAL", "LOCAL"] as const).map((value) => {
+                const selected = tournamentType === value;
+                const disabled = !typeLock?.canChange && !selected;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={selected}
+                    disabled={disabled || typeSaving}
+                    onClick={() => handleTypeChange(value)}
+                    className={`min-h-[60px] rounded-xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 ${
+                      selected
+                        ? "border-secondary bg-secondary/5 ring-1 ring-secondary/40"
+                        : "border-outline-variant bg-surface-container-lowest hover:bg-surface-container-low disabled:opacity-50 disabled:hover:bg-surface-container-lowest"
+                    }`}
+                  >
+                    <div className="font-bold text-xs text-primary">{TYPE_LABEL[value].title}</div>
+                    <div className="text-[11px] text-on-surface-variant mt-0.5 leading-snug">{TYPE_LABEL[value].desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {typeError && <p className="mt-2 text-xs text-error">{typeError}</p>}
+          </section>
+
           {/* General Info */}
           <section className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 shadow-sm">
             <h3 className="font-label-caps text-label-caps text-secondary mb-6">General Information</h3>
@@ -346,14 +415,16 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                 </button>
               </div>
 
-              {/* Draw profile: official WKF procedure or local tweaks */}
+              {/* Draw profile and bronze default apply to Official tournaments; Local groups have their own settings. */}
+              {!isLocal && (<>
+              {/* Draw profile: official WKF procedure or organiser's tweaks */}
               <div className="pt-6 border-t border-outline-variant/60">
                 <div className="flex items-start gap-2">
                   <span className="material-symbols-outlined text-[18px] text-secondary">account_tree</span>
                   <div className="flex-1">
                     <label className="font-label-caps text-[11px] font-bold text-primary">DRAW PROFILE</label>
                     <p className="text-body-xs text-on-surface-variant max-w-xl mt-1">
-                      Official events follow WKF procedure strictly. Local / unofficial events use WKF as a base and let you tweak
+                      Official events follow WKF procedure strictly. Organiser's rules use WKF as a base and let you tweak
                       it. A single category can override this from its draw panel.
                     </p>
                   </div>
@@ -362,7 +433,7 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {[
                     { value: "OFFICIAL", title: "Official (WKF)", desc: "Repechage with two bronzes and club-mates kept apart. Bronze and separation settings below are ignored." },
-                    { value: "LOCAL", title: "Local / Unofficial rules", desc: "WKF rules as a base; you choose the bronze format and whether clubs are kept apart." },
+                    { value: "LOCAL", title: "Organiser's rules", desc: "WKF rules as a base; you choose the bronze format and whether clubs are kept apart." },
                   ].map((option) => (
                     <button
                       key={option.value}
@@ -402,7 +473,7 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                       REPECHAGE & BRONZE FORMAT
                     </label>
                     <p className="text-body-xs text-on-surface-variant max-w-xl mt-1">
-                      Event default for tournament categories. Choose between standard WKF repechage, local official express formats (only semifinal losers fight for bronze, or joint bronzes), or no bronze.
+                      Event default for tournament categories. Choose between standard WKF repechage, the organiser&apos;s shorter formats (only semi-final losers fight for bronze, or joint bronzes), or no bronze.
                     </p>
                   </div>
                 </div>
@@ -416,12 +487,12 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                     },
                     {
                       value: 1,
-                      title: "Local Official (1 Bronze Playoff)",
+                      title: "Single bronze bout",
                       desc: "Earlier losers eliminated; losing semi-finalists play a single bronze match.",
                     },
                     {
                       value: 3,
-                      title: "Local Official (Joint 3rd · 2 Bronzes)",
+                      title: "Joint bronze (2, no extra bout)",
                       desc: "Both semi-final losers awarded bronze directly (no extra bouts).",
                     },
                     {
@@ -447,6 +518,8 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
                   ))}
                 </div>
               </div>
+
+              </>)}
 
               {/* Arena scoreboard access */}
               <div className="pt-6 border-t border-outline-variant/60 flex items-center justify-between gap-4">

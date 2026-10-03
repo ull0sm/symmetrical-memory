@@ -9,6 +9,8 @@ const T1 = "11111111-1111-4111-8111-111111111111";
 const T2 = "22222222-2222-4222-8222-222222222222";
 const R1 = "33333333-3333-4333-8333-333333333333";
 const R2 = "44444444-4444-4444-8444-444444444444";
+const D1 = "66666666-6666-4666-8666-666666666666";
+const D2 = "77777777-7777-4777-8777-777777777777";
 
 const state = vi.hoisted(() => ({
   principals: [] as Array<Record<string, unknown>>,
@@ -16,6 +18,10 @@ const state = vi.hoisted(() => ({
   owners: new Map<string, string>(),
   rings: new Map<string, string>(),
   matchScope: null as Record<string, unknown> | null,
+  tournamentTypes: new Map<string, string>(),
+  divisions: new Map<string, { tournamentId: string; tournamentType: string }>(),
+  holds: new Map<string, { holderKind: string; stagerCodeHash: string | null; adminId: string | null }>(),
+  stagerCodes: new Map<string, string>(),
 }));
 
 vi.mock("react", () => ({ cache: <T,>(fn: T) => fn }));
@@ -46,6 +52,24 @@ vi.mock("./scope", () => ({
   scopeForMatch: async () => state.matchScope,
 }));
 
+vi.mock("./localScope", async () => {
+  const { AuthError } = await import("./errors");
+  return {
+    tournamentTypeOf: async (tournamentId: string) => {
+      const type = state.tournamentTypes.get(tournamentId);
+      if (!type) throw new AuthError("Tournament not found", "NOT_FOUND");
+      return type;
+    },
+    scopeForDivision: async (divisionId: string) => {
+      const d = state.divisions.get(divisionId);
+      if (!d) throw new AuthError("Category not found", "NOT_FOUND");
+      return { divisionId, ...d };
+    },
+    holdOfDivision: async (divisionId: string) => state.holds.get(divisionId) ?? null,
+    stagerCodeHashFor: async (requestId: string) => state.stagerCodes.get(requestId) ?? null,
+  };
+});
+
 const guards = await import("./guards");
 
 const admin = (adminId: string) => ({ role: "admin", adminId, name: "Director", sessionId: "s" });
@@ -69,6 +93,19 @@ beforeEach(() => {
     [R2, T2],
   ]);
   state.matchScope = null;
+  state.tournamentTypes = new Map([
+    [T1, "LOCAL"],
+    [T2, "OFFICIAL"],
+  ]);
+  state.divisions = new Map([
+    [D1, { tournamentId: T1, tournamentType: "LOCAL" }],
+    [D2, { tournamentId: T2, tournamentType: "OFFICIAL" }],
+  ]);
+  state.holds = new Map();
+  state.stagerCodes = new Map([
+    ["stager-1", "hash-code-1"],
+    ["stager-2", "hash-code-2"],
+  ]);
 });
 
 describe("admin tenancy", () => {
@@ -165,6 +202,59 @@ describe("judges", () => {
     state.judge = { role: "judge", sessionId: "j", name: "J", ringId: R1, seat: 2, tournamentId: T1 };
     expect(await guards.getTournamentStaff(T1)).toBeNull();
     await expect(guards.requireRingOperator(R1)).rejects.toThrow();
+  });
+});
+
+describe("Local tournaments", () => {
+  const stager = (requestId: string, tournamentId = T1) => ({ role: "stager", requestId, name: requestId, tournamentId });
+
+  it("refuses Local actions on an Official tournament", async () => {
+    await expect(guards.requireLocalTournament(T1)).resolves.toBeUndefined();
+    await expect(guards.requireLocalTournament(T2)).rejects.toThrow(/only available in a Local tournament/);
+  });
+
+  it("lets only the stager whose code holds the category change it", async () => {
+    state.holds.set(D1, { holderKind: "stager", stagerCodeHash: "hash-code-1", adminId: null });
+
+    state.principals = [stager("stager-1")];
+    await expect(guards.requireDivisionHolder(D1)).resolves.toMatchObject({ principal: { requestId: "stager-1" } });
+
+    state.principals = [stager("stager-2")];
+    expect(await guards.getDivisionHolder(D1)).toBeNull();
+    await expect(guards.requireDivisionHolder(D1)).rejects.toThrow(/Take this category/);
+  });
+
+  it("does not let a stager of another tournament through, even with the same code", async () => {
+    state.holds.set(D1, { holderKind: "stager", stagerCodeHash: "hash-code-1", adminId: null });
+    state.principals = [stager("stager-1", T2)];
+    expect(await guards.getDivisionHolder(D1)).toBeNull();
+  });
+
+  it("does not let the admin edit a category a stager holds", async () => {
+    state.holds.set(D1, { holderKind: "stager", stagerCodeHash: "hash-code-1", adminId: null });
+    state.principals = [admin("admin-a")];
+    expect(await guards.getDivisionHolder(D1)).toBeNull();
+  });
+
+  it("lets the owning admin edit a category the admin holds, but not another admin", async () => {
+    state.holds.set(D1, { holderKind: "admin", stagerCodeHash: null, adminId: "admin-a" });
+    state.principals = [admin("admin-a")];
+    await expect(guards.requireDivisionHolder(D1)).resolves.toMatchObject({ principal: { role: "admin" } });
+
+    state.holds.set(D1, { holderKind: "admin", stagerCodeHash: null, adminId: "admin-b" });
+    state.principals = [admin("admin-b")];
+    expect(await guards.getDivisionHolder(D1)).toBeNull();
+  });
+
+  it("refuses a category nobody holds, an Official tournament's division, and an unknown one", async () => {
+    state.principals = [stager("stager-1"), admin("admin-a")];
+    expect(await guards.getDivisionHolder(D1)).toBeNull();
+
+    state.holds.set(D2, { holderKind: "stager", stagerCodeHash: "hash-code-1", adminId: null });
+    state.principals = [stager("stager-1", T2)];
+    expect(await guards.getDivisionHolder(D2)).toBeNull();
+
+    expect(await guards.getDivisionHolder("88888888-8888-4888-8888-888888888888")).toBeNull();
   });
 });
 

@@ -30,7 +30,7 @@ RingFlow has six kinds of user. Each has its own page in this folder:
 | Add or delete tatamis, regenerate access codes | O | - | - | - | - | - |
 | Categories and category definitions | O | R | R | R (own queue) | - | names only |
 | Athlete roster, import, moves | O | R | R | R (current bout) | - | search only |
-| Choose the draw profile, set seeds, generate, lock, unlock, flush draws, swap athletes by hand (Local profile only) | O | - | - | - | - | - |
+| Choose the draw profile, set seeds, generate, lock, unlock, flush draws, swap athletes by hand (organiser's rules only) | O | - | - | - | - | - |
 | Split a category's pools across tatamis, move or merge them | O | - | - | - | - | - |
 | View draws and brackets | O | R | R | R | - | if "show draws publicly", or their own athlete |
 | Draw-sheet PDFs | O | - | - | - | - | - |

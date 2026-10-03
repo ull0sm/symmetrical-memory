@@ -14,7 +14,7 @@ export type CategoryDrawPdfData = {
   bronzeMedals?: number;
   /** 'LOCKED' draws are the official draw; anything else prints as a draft. */
   drawState?: string | null;
-  /** How the draw was made: WKF procedure, or local / unofficial rules. */
+  /** How the draw was made: WKF procedure, or organiser's rules. */
   profile?: "OFFICIAL" | "LOCAL" | null;
   podium?: {
     goldRegistrationId?: string | null;
@@ -109,9 +109,9 @@ export async function createSheetContext(data: CategoryDrawPdfData) {
   const pageMarginX = 24;
 
   const isOfficialSheet = data.drawState === "LOCKED";
-  // A locked draw under WKF procedure is "Official"; under local / unofficial rules it is simply "Final".
+  // A locked draw under WKF procedure is "Official"; under organiser's rules it is simply "Final".
   const sheetLabel = !isOfficialSheet ? "Draft Draw Sheet" : data.profile === "LOCAL" ? "Final Draw Sheet" : "Official Draw Sheet";
-  const profileLabel = data.profile === "OFFICIAL" ? "WKF procedure" : data.profile === "LOCAL" ? "Local / unofficial rules" : null;
+  const profileLabel = data.profile === "OFFICIAL" ? "WKF procedure" : data.profile === "LOCAL" ? "Organiser's rules" : null;
 
   // What the bronze rounds on the sheet mean depends on the format the draw was made with.
   const medalRoundsTitle =

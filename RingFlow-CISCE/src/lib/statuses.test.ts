@@ -5,14 +5,23 @@ import { STATUS_CHECKS, sqlList } from "./statuses";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const schema = fs.readFileSync(path.join(root, "src/db/schema/index.ts"), "utf8");
-/** Checks created inline by their own migration rather than by migration 14. */
-const INLINE_CHECKS = new Set([
-  "category_attendance_status_check", // migration 13
-  "tournaments_draw_profile_check", // migration 15
-  "tournaments_draw_separation_check",
-  "categories_draw_profile_check",
-]);
-const migration = fs.readFileSync(path.join(root, "db/migrations/migration14_status_checks.sql"), "utf8");
+const readMigration = (file: string) => fs.readFileSync(path.join(root, "db/migrations", file), "utf8");
+/** Checks created by their own migration rather than by migration 14, keyed to that migration. */
+const OWN_MIGRATION: Record<string, string> = {
+  tournaments_draw_profile_check: "migration15_draw_profile.sql",
+  tournaments_draw_separation_check: "migration15_draw_profile.sql",
+  categories_draw_profile_check: "migration15_draw_profile.sql",
+  tournaments_tournament_type_check: "migration18_local_tournaments.sql",
+  tournaments_local_event_order_check: "migration18_local_tournaments.sql",
+  categories_kata_format_check: "migration18_local_tournaments.sql",
+  tournament_registrations_attendance_check: "migration18_local_tournaments.sql",
+  divisions_sex_check: "migration18_local_tournaments.sql",
+  division_events_event_type_check: "migration18_local_tournaments.sql",
+  division_holds_holder_kind_check: "migration18_local_tournaments.sql",
+};
+/** Written as a column CHECK by migration 13, so it has no named constraint text to compare. */
+const UNNAMED_CHECKS = new Set(["category_attendance_status_check"]);
+const migration14 = readMigration("migration14_status_checks.sql");
 
 describe("status CHECK constraints", () => {
   it("are declared in the Drizzle schema", () => {
@@ -24,9 +33,10 @@ describe("status CHECK constraints", () => {
 
   it("match the SQL migration value for value", () => {
     for (const [name, , column, values, nullable] of STATUS_CHECKS) {
-      if (INLINE_CHECKS.has(name)) continue;
+      if (UNNAMED_CHECKS.has(name)) continue;
+      const sqlText = OWN_MIGRATION[name] ? readMigration(OWN_MIGRATION[name]) : migration14;
       const expr = `${column} IN ${sqlList(values)}`;
-      expect(migration, name).toContain(`CONSTRAINT ${name} CHECK (${nullable ? `${column} IS NULL OR ${expr}` : expr})`);
+      expect(sqlText, name).toContain(`CONSTRAINT ${name} CHECK (${nullable ? `${column} IS NULL OR ${expr}` : expr})`);
     }
   });
 

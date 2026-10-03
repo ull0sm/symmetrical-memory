@@ -15,7 +15,7 @@ every tatami live.
 
 | Area | Route | Actions file |
 |---|---|---|
-| List and create tournaments | `/admin`, `/admin/create` | `tournament.ts` |
+| List and create tournaments, choosing Official or Local (switchable in settings until the tournament has categories) | `/admin`, `/admin/create` | `tournament.ts`, `settings.ts` |
 | Event settings: name, date, venue, status, public toggles, default bronze medals, tunnel URL, delete | `/admin/event/[id]/settings` | `settings.ts` |
 | Organiser code and approvals | settings page | `organiser.ts` |
 | Tatamis: add, delete, regenerate access code | `/admin/event/[id]/rings` | `rings.ts` |
@@ -23,7 +23,7 @@ every tatami live.
 | Moderator approvals and revocation | dashboard widget, tatamis page | `moderator.ts` |
 | Categories, category definitions, presets, kata settings, category PDFs | `/admin/event/[id]/categories` | `categories.ts`, `categoryDefinitions.ts`, `categoryDocs.ts` |
 | Athletes: add, bulk import, move, delete | `/admin/event/[id]/athletes` | `athletes.ts`, `officialImport.ts` |
-| Draws: preflight, generate, lock, unlock, seeds, draw profile (Official / Local-unofficial rules), hand swap (local only), flush, draw-sheet PDFs | categories page and draw drawer | `draws.ts`, `drawPdfs.ts` |
+| Draws: preflight, generate, lock, unlock, seeds, draw profile (Official or organiser's rules), hand swap (organiser's rules only), flush, draw-sheet PDFs | categories page and draw drawer | `draws.ts`, `drawPdfs.ts` |
 | Ring balancing: assign categories to tatamis and order each queue | `/admin/event/[id]/rings/balance` | `balancing.ts` |
 | Where a category runs: one tatami, or pools on different tatamis (split, move, put back together) | split icon on a queued category card | `categoryRouting.ts` |
 | Live dashboard: all tatamis, pause or resume one or all, activity feed, assistance requests | `/admin/event/[id]/dashboard` | `admin.ts`, `rings.ts`, `clock.ts` |
@@ -88,7 +88,7 @@ that a rollback happened.
 
 1. Create the tournament, then add tatamis and load category definitions (a preset or custom).
 2. Import athletes. Categories fill automatically.
-3. Choose the draw profile (Official WKF or Local / Unofficial rules) in settings, optionally seed athletes, run the draw preflight, generate draws, review them, then lock them. A draw is never regenerated over fought bouts; the only way past them is an audited flush with a reason.
+3. Choose the draw profile (Official WKF or organiser's rules) in settings, optionally seed athletes, run the draw preflight, generate draws, review them, then lock them. A draw is never regenerated over fought bouts; the only way past them is an audited flush with a reason.
 4. Balance categories across tatamis.
 5. Share the codes. Approve organisers, stagers and one moderator per tatami.
 6. On the day, watch the dashboard, handle alerts, pause or resume tatamis.

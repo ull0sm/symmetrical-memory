@@ -31,3 +31,15 @@ export const LIVE_FALLBACK_POLL_MS = 15_000;
 
 /** Default kumite bout length (the column default in schema/index.ts must match). */
 export const DEFAULT_BOUT_DURATION_MS = 180_000;
+
+/** Belt list a new Local tournament starts with, lowest first. The admin can edit it. */
+export const DEFAULT_BELT_LEVELS: readonly string[] = [
+  "White",
+  "Yellow",
+  "Orange",
+  "Green",
+  "Blue",
+  "Purple",
+  "Brown",
+  "Black",
+];

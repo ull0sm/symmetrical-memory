@@ -287,7 +287,7 @@ export async function getCategoryDrawSetup(categoryId: string) {
 
 /**
  * Trades two athletes' places in the first round of a draft bracket. Only under
- * local / unofficial rules, only before the draw is locked or any bout is
+ * organiser's rules, only before the draw is locked or any bout is
  * fought, and never for a kata pool flight. The result is stored as the next
  * draw version (so the history shows what the draw was before) and audited.
  * Admin only.

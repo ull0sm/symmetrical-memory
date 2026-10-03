@@ -40,6 +40,20 @@ export const KATA_SCORE_TYPES = ["FLAG", "POINT"] as const;
 export const DRAW_STATES = ["DRAFT", "LOCKED"] as const;
 export const DRAW_PROFILES = ["OFFICIAL", "LOCAL"] as const;
 export const DRAW_SEPARATIONS = ["CLUB", "OFF"] as const;
+/**
+ * Tournament type. OFFICIAL is today's flow; LOCAL adds divisions and groups the
+ * stager builds by hand. Unrelated to the LOCAL draw profile ("Organiser's rules").
+ */
+export const TOURNAMENT_TYPES = ["OFFICIAL", "LOCAL"] as const;
+/** RANKED: a Local kata group where everyone performs once and is ranked by marks. */
+export const KATA_FORMATS = ["BRACKET", "GROUP_POOLS", "RANKED"] as const;
+/** Events a Local division can hold. */
+export const DIVISION_EVENT_TYPES = ["kumite", "kata"] as const;
+export const DIVISION_SEXES = ["M", "F", "any"] as const;
+/** Which of a division's events goes first in its tatami slot. */
+export const LOCAL_EVENT_ORDERS = ["KUMITE_FIRST", "KATA_FIRST"] as const;
+/** Who holds a division while preparing its groups. */
+export const HOLDER_KINDS = ["stager", "admin"] as const;
 
 export type TournamentStatus = (typeof TOURNAMENT_STATUSES)[number];
 export type RingTimerStatus = (typeof RING_TIMER_STATUSES)[number];
@@ -57,6 +71,12 @@ export type KataVotingState = (typeof KATA_VOTING_STATES)[number];
 export type KataTargetSide = (typeof KATA_TARGET_SIDES)[number];
 export type KataScoreType = (typeof KATA_SCORE_TYPES)[number];
 export type DrawState = (typeof DRAW_STATES)[number];
+export type TournamentType = (typeof TOURNAMENT_TYPES)[number];
+export type KataFormat = (typeof KATA_FORMATS)[number];
+export type DivisionEventType = (typeof DIVISION_EVENT_TYPES)[number];
+export type DivisionSex = (typeof DIVISION_SEXES)[number];
+export type LocalEventOrder = (typeof LOCAL_EVENT_ORDERS)[number];
+export type HolderKind = (typeof HOLDER_KINDS)[number];
 
 /** SQL list for a CHECK constraint: ('a', 'b'). Values are fixed literals above, never input. */
 export function sqlList(values: readonly string[]): string {
@@ -87,4 +107,12 @@ export const STATUS_CHECKS: ReadonlyArray<readonly [string, string, string, read
   ["tournaments_draw_profile_check", "tournaments", "draw_profile", DRAW_PROFILES, false],
   ["tournaments_draw_separation_check", "tournaments", "draw_separation", DRAW_SEPARATIONS, false],
   ["categories_draw_profile_check", "categories", "draw_profile", DRAW_PROFILES, true],
+  // Local tournaments (migration 18).
+  ["tournaments_tournament_type_check", "tournaments", "tournament_type", TOURNAMENT_TYPES, false],
+  ["tournaments_local_event_order_check", "tournaments", "local_event_order", LOCAL_EVENT_ORDERS, false],
+  ["categories_kata_format_check", "categories", "kata_format", KATA_FORMATS, false],
+  ["tournament_registrations_attendance_check", "tournament_registrations", "attendance", ATTENDANCE_STATUSES, true],
+  ["divisions_sex_check", "divisions", "sex", DIVISION_SEXES, false],
+  ["division_events_event_type_check", "division_events", "event_type", DIVISION_EVENT_TYPES, false],
+  ["division_holds_holder_kind_check", "division_holds", "holder_kind", HOLDER_KINDS, false],
 ];

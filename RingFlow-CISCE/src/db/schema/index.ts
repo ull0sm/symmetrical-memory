@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { sql, relations } from 'drizzle-orm';
 import {
   type AnyPgColumn,
+  bigint,
   boolean,
   check,
   customType,
@@ -81,6 +82,18 @@ export const tournaments = pgTable('tournaments', {
   // Local events only: keep club-mates apart ('CLUB') or draw without regard to club ('OFF').
   drawSeparation: text('draw_separation').notNull().default('CLUB'),
   tunnelUrl: text('tunnel_url'),
+  // 'OFFICIAL' is today's flow. 'LOCAL' adds divisions and groups the stager builds by hand.
+  // Chosen at creation and fixed once a group exists. Unrelated to draw_profile.
+  tournamentType: text('tournament_type').notNull().default('OFFICIAL'),
+  // Local only: the belt list in order, lowest first.
+  beltLevels: jsonb('belt_levels').$type<string[]>().notNull().default([]),
+  // Local only: defaults each division event inherits. Bronze: 2 = both semi-final losers, no bout; 1 = a bronze bout.
+  localBronzeMedals: integer('local_bronze_medals').notNull().default(2),
+  localKumiteGroupSize: integer('local_kumite_group_size').notNull().default(8),
+  localKataGroupSize: integer('local_kata_group_size').notNull().default(4),
+  // Null means "use the tatami's bout length".
+  localBoutDurationMs: integer('local_bout_duration_ms'),
+  localEventOrder: text('local_event_order').notNull().default('KUMITE_FIRST'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
@@ -91,6 +104,17 @@ export const tournaments = pgTable('tournaments', {
   statusCheck('tournaments_status_check'),
   statusCheck('tournaments_draw_profile_check'),
   statusCheck('tournaments_draw_separation_check'),
+  statusCheck('tournaments_tournament_type_check'),
+  statusCheck('tournaments_local_event_order_check'),
+  check('tournaments_local_bronze_medals_check', sql`local_bronze_medals IN (1, 2)`),
+  check(
+    'tournaments_local_group_sizes_check',
+    sql`local_kumite_group_size BETWEEN 1 AND 32 AND local_kata_group_size BETWEEN 1 AND 32`
+  ),
+  check(
+    'tournaments_local_bout_duration_check',
+    sql`local_bout_duration_ms IS NULL OR local_bout_duration_ms BETWEEN 10000 AND 600000`
+  ),
 ]);
 
 export const rings = pgTable(
@@ -157,13 +181,22 @@ export const categories = pgTable('categories', {
   kataScoringMode: text('kata_scoring_mode').notNull().default('FLAG'), // 'FLAG' | 'POINTS'
   poolSize: integer('pool_size').notNull().default(8),
   advancePerPool: integer('advance_per_pool').notNull().default(2),
+  // Local tournaments: this category is group `group_no` of a division event. Null otherwise.
+  divisionEventId: uuid('division_event_id').references((): AnyPgColumn => divisionEvents.id, {
+    onDelete: 'cascade',
+  }),
+  groupNo: integer('group_no'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
-}, () => [
+}, (table) => [
   statusCheck('categories_event_type_check'),
   statusCheck('categories_kata_scoring_mode_check'),
   statusCheck('categories_draw_profile_check'),
+  statusCheck('categories_kata_format_check'),
+  uniqueIndex('categories_division_event_group_unique')
+    .on(table.divisionEventId, table.groupNo)
+    .where(sql`division_event_id IS NOT NULL`),
 ]);
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
@@ -207,6 +240,9 @@ export const athletes = pgTable('athletes', {
   schoolCode: text('school_code'),
   sportsId: text('sports_id'),
   weight: numeric('weight', { precision: 5, scale: 2 }),
+  // Local tournaments: registered at the venue by a stager, and not yet confirmed by the admin.
+  walkIn: boolean('walk_in').notNull().default(false),
+  needsReview: boolean('needs_review').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),
@@ -451,11 +487,20 @@ export const tournamentRegistrations = pgTable(
     kumite: boolean('kumite').notNull().default(false),
     teamKata: boolean('team_kata').notNull().default(false),
     teamKumite: boolean('team_kumite').notNull().default(false),
+    // Local tournaments: the athlete's one division, and call-desk attendance (null = not taken, counts as present).
+    divisionId: uuid('division_id').references((): AnyPgColumn => divisions.id, { onDelete: 'set null' }),
+    attendance: text('attendance'),
+    attendanceSetBy: text('attendance_set_by'),
+    attendanceSetAt: timestamp('attendance_set_at', { withTimezone: true, mode: 'date' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
   },
-  (table) => [unique().on(table.tournamentId, table.athleteId)]
+  (table) => [
+    unique().on(table.tournamentId, table.athleteId),
+    index('tournament_registrations_division_idx').on(table.divisionId),
+    statusCheck('tournament_registrations_attendance_check'),
+  ]
 );
 
 /**
@@ -499,11 +544,22 @@ export const categoryEntries = pgTable(
       .notNull()
       .references(() => athletes.id, { onDelete: 'cascade' }),
     seed: integer('seed'),
+    // Local tournaments: the division event of the group, so an athlete is in one group per event.
+    divisionEventId: uuid('division_event_id').references((): AnyPgColumn => divisionEvents.id, {
+      onDelete: 'cascade',
+    }),
+    // Local tournaments: an admin's late placement into another division's group.
+    guest: boolean('guest').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .defaultNow(),
   },
-  (table) => [unique().on(table.categoryId, table.athleteId)]
+  (table) => [
+    unique().on(table.categoryId, table.athleteId),
+    uniqueIndex('category_entries_division_event_athlete_unique')
+      .on(table.divisionEventId, table.athleteId)
+      .where(sql`division_event_id IS NOT NULL`),
+  ]
 );
 
 // =========================================================================
@@ -662,7 +718,118 @@ export const matchEvents = pgTable(
 );
 
 // =========================================================================
-// 4. Relational Mappings
+// 4. Local tournaments
+//
+// A division ("Category" in the Local UI) is an age · belt · sex block. Its
+// division events (kumite, kata) each hold groups, and every group is an
+// ordinary `categories` row with its own draw. A stager holds one division at
+// a time while building its groups.
+// =========================================================================
+
+export const divisions = pgTable(
+  'divisions',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    tournamentId: uuid('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    sex: text('sex').notNull().default('any'), // 'M' | 'F' | 'any'
+    ageMin: integer('age_min'),
+    ageMax: integer('age_max'),
+    // Belt names from the tournament's belt list; empty means any belt.
+    belts: jsonb('belts').$type<string[]>().notNull().default([]),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique().on(table.tournamentId, table.name),
+    index('divisions_tournament_idx').on(table.tournamentId, table.sortOrder),
+    statusCheck('divisions_sex_check'),
+    check('divisions_age_range_check', sql`age_min IS NULL OR age_max IS NULL OR age_min <= age_max`),
+  ]
+);
+
+/** Kumite or kata inside a division, with its plan. Null settings inherit the tournament's Local defaults. */
+export const divisionEvents = pgTable(
+  'division_events',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    divisionId: uuid('division_id')
+      .notNull()
+      .references(() => divisions.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(), // 'kumite' | 'kata'
+    enabled: boolean('enabled').notNull().default(true),
+    groupSize: integer('group_size'),
+    bronzeMedals: integer('bronze_medals'),
+    boutDurationMs: integer('bout_duration_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique().on(table.divisionId, table.eventType),
+    statusCheck('division_events_event_type_check'),
+    check('division_events_group_size_check', sql`group_size IS NULL OR group_size BETWEEN 1 AND 32`),
+    check('division_events_bronze_medals_check', sql`bronze_medals IS NULL OR bronze_medals IN (1, 2)`),
+    check(
+      'division_events_bout_duration_check',
+      sql`bout_duration_ms IS NULL OR bout_duration_ms BETWEEN 10000 AND 600000`
+    ),
+  ]
+);
+
+/**
+ * The layout of a group before it is locked: members live in `category_entries`,
+ * this row holds the seed the unpinned athletes are placed from and the athletes
+ * pinned by hand (athlete id -> place, 1-based). `version` guards concurrent edits.
+ */
+export const groupDrafts = pgTable('group_drafts', {
+  categoryId: uuid('category_id')
+    .primaryKey()
+    .references(() => categories.id, { onDelete: 'cascade' }),
+  seed: bigint('seed', { mode: 'number' }).notNull(),
+  pins: jsonb('pins').$type<Record<string, number>>().notNull().default({}),
+  version: integer('version').notNull().default(1),
+  updatedBy: text('updated_by'),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
+/**
+ * Who is preparing a division right now: one holder per division, one division
+ * per holder. A stager's hold belongs to their stager code (stored as a hash,
+ * never the code), so signing in again on the same code keeps it.
+ */
+export const divisionHolds = pgTable(
+  'division_holds',
+  {
+    divisionId: uuid('division_id')
+      .primaryKey()
+      .references(() => divisions.id, { onDelete: 'cascade' }),
+    tournamentId: uuid('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    holderKind: text('holder_kind').notNull(), // 'stager' | 'admin'
+    stagerCodeHash: text('stager_code_hash'),
+    adminId: uuid('admin_id').references(() => admins.id, { onDelete: 'cascade' }),
+    holderName: text('holder_name').notNull(),
+    holderLabel: text('holder_label'),
+    takenAt: timestamp('taken_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+    lastActiveAt: timestamp('last_active_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('division_holds_stager_code_unique')
+      .on(table.stagerCodeHash)
+      .where(sql`stager_code_hash IS NOT NULL`),
+    uniqueIndex('division_holds_admin_unique').on(table.adminId).where(sql`admin_id IS NOT NULL`),
+    statusCheck('division_holds_holder_kind_check'),
+    check(
+      'division_holds_holder_check',
+      sql`(holder_kind = 'stager' AND stager_code_hash IS NOT NULL AND admin_id IS NULL) OR (holder_kind = 'admin' AND admin_id IS NOT NULL AND stager_code_hash IS NULL)`
+    ),
+  ]
+);
+
+// =========================================================================
+// 5. Relational Mappings
 // =========================================================================
 
 export const tournamentsRelations = relations(tournaments, ({ one, many }) => ({
@@ -680,6 +847,7 @@ export const categoriesRelations = relations(categories, ({ one, many }) => ({
   draw: one(draws, { fields: [categories.id], references: [draws.categoryId] }),
   matches: many(matches),
   assignment: one(categoryAssignments, { fields: [categories.id], references: [categoryAssignments.categoryId] }),
+  divisionEvent: one(divisionEvents, { fields: [categories.divisionEventId], references: [divisionEvents.id] }),
 }));
 
 export const athletesRelations = relations(athletes, ({ one, many }) => ({
@@ -732,6 +900,16 @@ export const matchesRelations = relations(matches, ({ one, many }) => ({
   slots: many(matchSlots),
   events: many(matchEvents),
   kataScores: many(kataScores),
+}));
+
+export const divisionsRelations = relations(divisions, ({ one, many }) => ({
+  tournament: one(tournaments, { fields: [divisions.tournamentId], references: [tournaments.id] }),
+  events: many(divisionEvents),
+}));
+
+export const divisionEventsRelations = relations(divisionEvents, ({ one, many }) => ({
+  division: one(divisions, { fields: [divisionEvents.divisionId], references: [divisions.id] }),
+  groups: many(categories),
 }));
 
 export const kataScoresRelations = relations(kataScores, ({ one }) => ({

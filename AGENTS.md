@@ -53,6 +53,7 @@ For anyone changing the code. For what the product does, read
 | PDFs and exports | `src/lib/pdf/`, `src/lib/results/`, `src/actions/resultsExport.ts` |
 | Environment and deployment mode | `src/lib/env.ts`, `src/lib/offline.ts`, `src/lib/http/` |
 | Screens | `src/app/<role>/...` (admin, organiser, stager, moderator, judge, public, scoreboard) and `src/components/<role or feature>/` |
+| Local tournaments (divisions, groups, stager holds) | `src/lib/local/`, `src/lib/auth/localScope.ts` |
 
 ## Anatomy of an action (illustrative)
 
@@ -84,7 +85,18 @@ Guard cheat sheet (`src/lib/auth/guards.ts`):
 | A moderator or the owning admin (clock, judge panel) | `requireRingOperator(ringId)` |
 | Scoring a bout | `requireMatchModerator(matchId)` (also checks the category is running or paused on that tatami) |
 | A judge phone on a tatami | `requireJudge(ringId)` |
+| Any Local-only action | `requireLocalTournament(tid)` (refuses an Official tournament) |
+| Changing a Local division's groups | `requireDivisionHolder(divisionId)` (the stager or admin holding it) |
 | Resolve which tournament a row belongs to | `src/lib/auth/scope.ts` |
+
+## Local tournaments: naming
+
+A tournament is Official or Local (`tournaments.tournament_type`). In a Local tournament the UI word
+"Category" means an age, belt and sex block, which the code calls a **division** (`divisions`). A
+division has kumite and kata **division events**, and each event has **groups**. A group is an
+ordinary `categories` row, so everything from the draw onward is shared with Official tournaments.
+In code and docs never call a division a category, and never show "division" in the Local UI. The
+draw profile value `LOCAL` ("Organiser's rules") is unrelated to the tournament type.
 
 ## Database changes
 

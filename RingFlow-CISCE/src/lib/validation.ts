@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TOURNAMENT_TYPES } from "@/lib/statuses";
 
 /**
  * Input schemas for server actions that take objects from the browser.
@@ -40,6 +41,7 @@ export const tournamentInputSchema = z.object({
   categories: z.array(categoryInputSchema.partial({ age_bracket: true, weight_class: true })).max(2000).default([]),
   ringCount: z.coerce.number().int().min(1).max(50).optional(),
   ring_count: z.coerce.number().int().min(1).max(50).optional(),
+  tournament_type: z.enum(TOURNAMENT_TYPES).default("OFFICIAL"),
 });
 
 export const athleteInputSchema = z.object({

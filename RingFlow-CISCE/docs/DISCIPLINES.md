@@ -31,11 +31,12 @@ match the referee's orientation.
 pools of 16 places (a 64-place bracket is four pools) so its pools can run on different tatamis (see
 [roles/admin.md](roles/admin.md)).
 
-*Draw profile.* Each tournament is either **Official** (strict WKF procedure) or **Local / Unofficial
+*Draw profile.* Each tournament's draws follow either **Official** (strict WKF procedure) or **Organiser's
 rules** (WKF as a base, tweaked by the organiser), and a category can override the tournament
-(`draw_profile`). The profile is resolved once by `src/lib/draws/drawRules.ts`:
+(`draw_profile`). The profile is resolved once by `src/lib/draws/drawRules.ts`. It is unrelated to the
+tournament type (Official or Local), which decides who builds the draw:
 
-| | Official | Local / Unofficial |
+| | Official | Organiser's rules |
 |---|---|---|
 | Bronze medals | Repechage with two bronzes | Set per tournament (`default_bronze_medals`) and per category (`bronze_medals`) |
 | Club separation | Always on | On or off (`draw_separation`) |
@@ -51,7 +52,7 @@ kept apart for as long as the bracket allows; athletes with no club are never gr
 is stored with the draw and shown with its checksum, and generation is deterministic for a given seed
 and roster.
 
-*Hand swap* (`swapDrawAthletes`, Local only): the admin can trade two first-round athletes in a draft
+*Hand swap* (`swapDrawAthletes`, organiser's rules only): the admin can trade two first-round athletes in a draft
 bracket. The new graph is stored as the next draw version, so the history keeps the original. It is
 refused for official draws, locked draws, categories with fought bouts, and kata flights. Audited.
 
@@ -64,7 +65,7 @@ progress bars reach 100%. Confirming a result advances the winner (and sends the
 through the stored draw graph (`src/lib/bouts/results.ts`).
 
 *Draw sheets* are PDFs for staff. An unlocked draw prints as a Draft with a DRAFT watermark on every page. A locked draw is
-"Official" under the Official profile and "Final" under Local rules. They show the draw only (no scores). Names print in Latin, Devanagari and
+"Official" under the Official profile and "Final" under organiser's rules. They show the draw only (no scores). Names print in Latin, Devanagari and
 Kannada using bundled Noto Sans fonts (`public/fonts/pdf`), so they work offline. Each pool page prints
 the tatami that runs it.
 
