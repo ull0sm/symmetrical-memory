@@ -11,7 +11,12 @@ export type DrawInputIssueCode =
   | 'MISSING_RANDOM_SEED'
   | 'FORMAT_NOT_ALLOWED'
   | 'UNSUPPORTED_FORMAT'
-  | 'UNSUPPORTED_SEPARATION_RULE';
+  | 'UNSUPPORTED_SEPARATION_RULE'
+  | 'GROUP_TOO_LARGE'
+  | 'PIN_NOT_A_MEMBER'
+  | 'PIN_OUT_OF_RANGE'
+  | 'PIN_PLACE_TAKEN'
+  | 'PINS_LEAVE_EMPTY_BOUT';
 
 export interface DrawInputIssue {
   path: string;
@@ -33,6 +38,25 @@ export class DrawInputError extends Error {
     super(`Draw input is invalid:\n${issues.map((i) => `  - ${i.path}: ${i.message}`).join('\n')}`);
     this.name = 'DrawInputError';
     this.issues = issues;
+  }
+}
+
+export type GroupChangeErrorCode =
+  | 'NOT_A_GROUP_DRAW'
+  | 'UNKNOWN_SLOT'
+  | 'NOT_A_BYE'
+  | 'ALREADY_IN_DRAW'
+  | 'BOUT_STARTED'
+  | 'NEXT_BOUT_STARTED';
+
+/** Thrown when a late change cannot be made to a group's drawn bracket or performance order. */
+export class GroupChangeError extends Error {
+  constructor(
+    readonly code: GroupChangeErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'GroupChangeError';
   }
 }
 

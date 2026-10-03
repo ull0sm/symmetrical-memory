@@ -116,8 +116,11 @@ Both live in `src/engine/` as pure modules with unit tests, with no database or 
 - **draw-engine**: builds a single-elimination graph with byes, seeding, club separation and a
   repechage ladder (`generate.ts`), resolves results into advancement (`resolution.ts`), builds kata
   pools and a medal flight (`kataDraw.ts`, `kataFlightDraw.ts`), labels the bouts of each pool and the
-  finals for split categories (`parts.ts`), and swaps first-round athletes (`manualSwap.ts`). Output
-  is canonical JSON with a checksum, and all randomness comes from a seeded generator.
+  finals for split categories (`parts.ts`), and swaps first-round athletes (`manualSwap.ts`). For Local
+  tournaments it builds a group's knockout bracket around athletes pinned by hand (`groupDraw.ts`), a
+  ranked kata group's performance order (`rankedKataDraw.ts`), and puts a late athlete into a bye
+  (`fillBye.ts`). Output is canonical JSON with a checksum, and all randomness comes from a seeded
+  generator.
 
 `src/lib/draws/` turns an engine graph into `draws`, `matches` and `match_slots` rows, resolves the
 draw rules from the profile (`drawRules.ts`), and decides where a category runs (`routingPlan.ts`,

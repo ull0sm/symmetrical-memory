@@ -1,4 +1,4 @@
-import { createRng, shuffle } from './seeding';
+import { createRng, deriveSeed, shuffle } from './seeding';
 import type { DrawWarning } from './types';
 
 export interface KataFlightParticipant {
@@ -85,10 +85,6 @@ const SEPARATION_ATTEMPTS = 24;
 function clubOf(p: KataFlightParticipant): string {
   const name = (p.school?.trim() || p.dojo?.trim() || '').toLowerCase();
   return name === '' ? `independent:${p.id}` : name;
-}
-
-function deriveSeed(base: number, attempt: number): number {
-  return (base + Math.imul(attempt, 0x9e3779b1)) >>> 0;
 }
 
 /** Splits athletes into pool buckets, then orders each bucket (neighbours become a bout). */

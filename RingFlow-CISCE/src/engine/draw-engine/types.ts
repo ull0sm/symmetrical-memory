@@ -151,7 +151,8 @@ export interface DrawWarning {
 /** The engine's output: a complete, deterministic bracket description. */
 export interface DrawGraph {
   categoryId: string;
-  format: DrawFormat;
+  /** KATA_RANKED: a Local kata group where everyone performs once and is ranked by marks. */
+  format: DrawFormat | 'KATA_RANKED';
   rulesetId: string;
   /** Bracket size — the next power of two at or above the entrant count. */
   tournamentSize: number;

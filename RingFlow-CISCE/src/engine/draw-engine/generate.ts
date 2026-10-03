@@ -3,7 +3,7 @@ import { checksumOf } from './canonical';
 import { DrawInputError, type DrawInputIssue } from './errors';
 import { buildEliminationBracket } from './placement';
 import { buildRepechage, REPECHAGE_ROUND_NAME } from './repechage';
-import { orderParticipants } from './seeding';
+import { deriveSeed, orderParticipants } from './seeding';
 import { applySeparation, separationPenalty } from './separation';
 import { byeCount, nextPowerOfTwo, totalRounds } from './sizing';
 import type { DrawGraph, DrawInput, DrawWarning, Participant } from './types';
@@ -52,10 +52,6 @@ export function generateDraw(input: DrawInput, ruleset: Ruleset): DrawGraph {
 
 /** Candidate draws tried per generation when separating groups. */
 const SEPARATION_ATTEMPTS = 24;
-
-function deriveSeed(base: number, attempt: number): number {
-  return (base + Math.imul(attempt, 0x9e3779b1)) >>> 0;
-}
 
 function penaltyOf(graph: DrawGraph, input: DrawInput): number {
   if (input.separation === undefined) return 0;
@@ -175,7 +171,7 @@ function buildOnce(
   return { ...body, checksum: checksumOf(body) };
 }
 
-function entrantWarnings(entrantCount: number): DrawWarning[] {
+export function entrantWarnings(entrantCount: number): DrawWarning[] {
   if (entrantCount === 1) {
     return [
       {

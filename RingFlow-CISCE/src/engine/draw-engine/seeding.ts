@@ -27,6 +27,15 @@ export function createRng(seed: number): () => number {
   };
 }
 
+/**
+ * A seed for the n-th candidate draw, derived from the stored one. Generators that
+ * try several candidates (to keep club-mates apart) stay reproducible from the one
+ * stored seed this way.
+ */
+export function deriveSeed(base: number, attempt: number): number {
+  return (base + Math.imul(attempt, 0x9e3779b1)) >>> 0;
+}
+
 /** Fisher-Yates, driven by a seeded PRNG. */
 export function shuffle<T>(values: readonly T[], rng: () => number): T[] {
   const result = [...values];

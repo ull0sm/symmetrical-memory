@@ -9,7 +9,9 @@ import type { DrawWarning, MatchNode, Participant, SeparationOptions, SlotNode }
  * a clash would silently contradict the organiser's own seeding.
  *
  * If the constraint cannot be satisfied the function reports it rather than
- * quietly producing a bad draw.
+ * quietly producing a bad draw. With `allowMovingProtected: false` a protected
+ * entrant is never moved at all (an athlete a stager pinned by hand), and a clash
+ * that only moving one would fix is reported instead.
  */
 export function applySeparation(
   slots: SlotNode[],
@@ -18,6 +20,7 @@ export function applySeparation(
   options: SeparationOptions,
   protectedRegistrations: ReadonlySet<string>,
   warnings: DrawWarning[],
+  { allowMovingProtected = true }: { allowMovingProtected?: boolean } = {},
 ): void {
   const firstRound = matches.filter((match) => match.roundNo === 0);
   const slotByMatchAndPosition = new Map<string, SlotNode>();
@@ -67,7 +70,7 @@ export function applySeparation(
     // Prefer a swap that leaves the organiser's seeds untouched. Only if no
     // such swap exists do we consider moving a seeded athlete — which is the
     // only way to separate two seeds that were drawn against each other.
-    const fixed = tryFix(conflicted, false) || tryFix(conflicted, true);
+    const fixed = tryFix(conflicted, false) || (allowMovingProtected && tryFix(conflicted, true));
     if (!fixed) break;
   }
 

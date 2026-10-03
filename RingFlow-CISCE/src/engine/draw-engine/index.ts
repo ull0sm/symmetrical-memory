@@ -1,5 +1,21 @@
 export { canonicalJson, checksumOf } from './canonical';
-export { DrawInputError, issue, type DrawInputIssue, type DrawInputIssueCode } from './errors';
+export {
+  DrawInputError,
+  GroupChangeError,
+  issue,
+  type DrawInputIssue,
+  type DrawInputIssueCode,
+  type GroupChangeErrorCode,
+} from './errors';
+export { fillByeWithEntrant } from './fillBye';
+export { chooseByePlaces, generateGroupDraw, groupBracketSize, MAX_GROUP_SIZE, placesOf, type GroupDrawInput } from './groupDraw';
+export {
+  appendRankedPerformer,
+  generateRankedKataDraw,
+  performanceOrder,
+  RANKED_POOL_NAME,
+  type RankedKataInput,
+} from './rankedKataDraw';
 export { generateDraw } from './generate';
 export { generateKataDraw } from './kataDraw';
 export { generateKataFlightDraw, type KataFlightDrawResult, type KataFlightParams } from './kataFlightDraw';
@@ -16,7 +32,7 @@ export {
   type ResolvedMatchStatus,
   type ResolvedSlot,
 } from './resolution';
-export { createRng, orderParticipants, shuffle, type OrderedParticipant } from './seeding';
+export { createRng, deriveSeed, orderParticipants, shuffle, type OrderedParticipant } from './seeding';
 export { applySeparation } from './separation';
 export {
   byeCount,
