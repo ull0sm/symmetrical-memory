@@ -144,7 +144,7 @@ export default function EventCreationWizard() {
                       </button>
                     ))}
                   </div>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant mt-2">The type can&apos;t be changed once a Local tournament has groups.</p>
+                  <p className="font-body-sm text-body-sm text-on-surface-variant mt-2">You can switch the type in settings until the tournament has categories.</p>
                 </fieldset>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-6">
