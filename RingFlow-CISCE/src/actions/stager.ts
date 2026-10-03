@@ -14,7 +14,7 @@ import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from "@/lib/auth/cookies";
 import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
 import { hashToken, newSessionToken } from "@/lib/auth/tokens";
-import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { requireOfficialTournament, requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
 import { releaseHoldsOfCode } from "@/lib/local/holds";
 import { getStagerPrincipal } from "@/lib/auth/principal";
 import { SESSION_TTL_SECONDS } from "@/lib/constants";
@@ -392,6 +392,8 @@ export async function updateCategoryStagerStatus(
   let actor;
   try {
     actor = await requireTournamentStaff(tournamentId, ["stager", "admin"]);
+    // A Local tournament has no calling board: its stagers lock groups at the desk instead.
+    await requireOfficialTournament(tournamentId);
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Unauthorized" };
   }

@@ -43,7 +43,7 @@ For anyone changing the code. For what the product does, read
 | Allowed status values | `src/lib/statuses.ts` (then the schema check and a migration) |
 | Shared tunables (session lifetimes, judge seats, polling, bout length) | `src/lib/constants/index.ts` |
 | Kumite result and bracket advancement | `src/actions/matches.ts`, `src/lib/bouts/results.ts`, `src/engine/draw-engine/resolution.ts` |
-| Kata voting, totals, pool advancement | `src/actions/kata.ts`, `src/lib/kata/` |
+| Kata voting, totals, pool advancement, Local ranked groups (ranking, tie decisions) | `src/actions/kata.ts`, `src/lib/kata/` (`ranking.ts`, `rankedGroup.ts`) |
 | Where a category runs (whole, or pools on different tatamis; parts, finals waiting) | `src/actions/categoryRouting.ts`, `src/lib/draws/partRouting.ts` (apply), `src/lib/draws/routingPlan.ts` (rules), `src/engine/draw-engine/parts.ts` |
 | Draw generation, profile rules, seeds, hand swap | `src/actions/draws.ts`, `src/lib/draws/` (`drawRules.ts`, `generateDraws.ts`, `manualSwap.ts`), `src/engine/draw-engine/` |
 | Rules (durations, scoring, penalties) | `src/engine/rules-engine/rulesets/` |

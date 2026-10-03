@@ -44,6 +44,8 @@ RingFlow has six kinds of user. Each has its own page in this folder:
 | Correct a confirmed result | O (reason required) | - | - | own tatami, while on the mat (reason required) | - | - |
 | Run the bout clock | O (override) | - | - | own tatami | - | - |
 | Kata votes | - | - | - | open, close, void, override | own seat, current bout | - |
+| Ranked kata: decide a tie that decides a medal (Local) | - | - | - | own tatami, while the group is on the mat | - | - |
+| Ranked kata standings (Local) | R | R | R | R | - | - |
 | Mark a category calling or ready (Official) | O | - | O | R | - | - |
 | Athlete attendance | O | - | O | R | - | - |
 | Live dashboard of all tatamis | O | R | - | own tatami | - | public floor view |

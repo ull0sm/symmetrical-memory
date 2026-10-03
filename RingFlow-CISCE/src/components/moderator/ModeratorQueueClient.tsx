@@ -4,7 +4,15 @@ import { useRouter } from "next/navigation";
 import { startCategory, reorderCategory } from "@/actions/moderator";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 
-export default function ModeratorQueueClient({ ringId, initialAssignments }: { ringId: string, initialAssignments: any[] }) {
+/** A Local group's card: only a group its stager has locked ("ready") can start. */
+const STAGE_LABEL: Record<string, (holder: string | null) => { text: string; tone: string }> = {
+  waiting: () => ({ text: "Waiting for stager", tone: "bg-surface-container text-on-surface-variant border-outline-variant" }),
+  preparing: (holder) => ({ text: `Being prepared${holder ? ` by ${holder}` : ""}`, tone: "bg-amber-50 text-amber-800 border-amber-200" }),
+  ready: () => ({ text: "Ready", tone: "bg-emerald-50 text-emerald-700 border-emerald-200" }),
+};
+const canStart = (a: { local_stage?: string | null }) => !a.local_stage || a.local_stage === "ready";
+
+export default function ModeratorQueueClient({ ringId, tournamentId, initialAssignments }: { ringId: string; tournamentId: string; initialAssignments: any[] }) {
   const [assignments, setAssignments] = useState(initialAssignments);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -16,9 +24,18 @@ export default function ModeratorQueueClient({ ringId, initialAssignments }: { r
 
   // A change on this mat re-reads the queue — no waiting on a poll.
   useLiveEvents({ ringId }, () => router.refresh(), { feed: "staff" });
+  // A stager taking, handing back or sending a Local group changes its card's label.
+  useLiveEvents<{ table?: string }>(
+    { tournamentId },
+    (event) => {
+      if (event?.table === "division_holds" || event?.table === "draws" || event?.table === "group_drafts") router.refresh();
+    },
+    { feed: "staff", debounceMs: 500 }
+  );
 
   const activeAssignment = assignments.find(a => a.status === 'running' || a.status === 'paused');
   const pendingAssignments = assignments.filter(a => a.status === 'pending').sort((a, b) => a.queue_order - b.queue_order);
+  const firstStartable = pendingAssignments.find(canStart);
 
   const handleStartCategory = async (assignmentId: string) => {
     setLoading(true);
@@ -54,15 +71,19 @@ export default function ModeratorQueueClient({ ringId, initialAssignments }: { r
             <span className="material-symbols-outlined text-3xl sm:text-4xl text-outline" style={{fontVariationSettings: '"FILL" 1'}}>event_busy</span>
           </div>
           <h2 className="font-headline-sm text-base sm:text-headline-sm mb-1.5">No category running</h2>
-          <p className="text-on-surface-variant text-sm mb-6 max-w-xs">Initialize the first category below to begin.</p>
+          <p className="text-on-surface-variant text-sm mb-6 max-w-xs">
+            {firstStartable ? "Initialize the first category below to begin." : "Waiting for the stager to send the next group."}
+          </p>
+          {firstStartable && (
           <button 
             disabled={loading}
-            onClick={() => handleStartCategory(pendingAssignments[0].id)}
+            onClick={() => handleStartCategory(firstStartable.id)}
             className="bg-primary text-on-primary px-6 sm:px-8 py-3 rounded-lg font-bold flex items-center gap-2 hover:opacity-80 transition-opacity disabled:opacity-50 text-sm sm:text-base active:scale-[0.98]"
           >
             <span className="material-symbols-outlined text-[20px]" style={{fontVariationSettings: '"FILL" 1'}}>play_arrow</span>
-            Start First Category
+            {firstStartable === pendingAssignments[0] ? "Start First Category" : `Start ${firstStartable.categories?.name ?? "the next ready category"}`}
           </button>
+          )}
         </section>
       )}
 
@@ -120,11 +141,16 @@ export default function ModeratorQueueClient({ ringId, initialAssignments }: { r
                     <p className="text-on-surface-variant text-[10px] sm:text-xs">
                       {assignment.categories?.expected_matches || 0} Matches
                     </p>
+                    {assignment.local_stage && STAGE_LABEL[assignment.local_stage] && (
+                      <span className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold sm:text-[11px] ${STAGE_LABEL[assignment.local_stage](assignment.local_holder).tone}`}>
+                        {STAGE_LABEL[assignment.local_stage](assignment.local_holder).text}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {/* Start button — visible when no category is running */}
-                  {!activeAssignment && (
+                  {/* Start button — visible when no category is running (and, for a Local group, once it is sent) */}
+                  {!activeAssignment && canStart(assignment) && (
                     <button
                       disabled={loading}
                       onClick={() => handleStartCategory(assignment.id)}

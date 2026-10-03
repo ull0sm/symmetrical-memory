@@ -88,7 +88,7 @@ in step.
 | Event setup | `tournaments` (including `tournament_type`, `draw_profile` and `draw_separation`), `rings` (tatamis), `categories` (including an optional `draw_profile` override), `category_assignments` (queue, status and `part` per tatami), `tournament_category_definitions`, `category_documents` |
 | People | `athletes`, `tournament_registrations`, `category_entries`, `category_attendance` |
 | Draws | `draws`, `draw_versions` (the full graph as JSON; every hand swap adds a version), `matches` (with `part` for split categories), `match_slots`, `match_events` |
-| Kata | `kata_scores` (one row per judge seat and side), kata columns on `categories` and `matches` |
+| Kata | `kata_scores` (one row per judge seat and side), kata columns on `categories` and `matches`, `kata_tie_decisions` (the moderator's order for a tie that decides a medal in a Local ranked group) |
 | Local tournaments | `divisions` (an age, belt and sex block, "Category" in the Local UI), `division_events` (kumite or kata in a division, with its plan), `group_drafts` (a group's seed and pinned places before it is locked), `division_holds` (who is preparing a division); `division_event_id` and `group_no` on `categories` (a group is a category), `division_event_id` and `guest` on `category_entries`, `division_id` and `attendance` on `tournament_registrations`, `walk_in` and `needs_review` on `athletes` |
 | Records | `audit_log` (append-only), `event_log` (operational feed) |
 
@@ -129,7 +129,10 @@ Local settings (`divisions.ts`), the roster (`localRoster.ts`), starting groups 
 admin pages' read models (`setupView.ts`). The stager's side is there too: holds (`holds.ts`), a
 group's draw and validation from its draft (`groupBuild.ts`, used by both the preview and the lock),
 the draft changes, the stager's undo (`restoreEventDraftCore`) and the lock (`groupDraft.ts`), the desk and workspace read models
-(`stagingView.ts`) and the rule that only a locked group starts (`startGate.ts`). The actions that
+(`stagingView.ts`), the rule that only a locked group starts (`startGate.ts`) and the moderator queue's
+card labels (`queueLabels.ts`). A ranked kata group's ranking is pure (`src/lib/kata/ranking.ts`); reading
+it from the bouts, confirming a pair with no winner and the desk's tie decisions are in
+`src/lib/kata/rankedGroup.ts`. The actions that
 guard them are `actions/divisions.ts` and `actions/localAthletes.ts` (admin setup) and
 `actions/staging.ts` (the stager desk, and the admin's release and reassign of a hold). Locking a
 group writes its draw through `writeDrawGraph` in `src/lib/draws/generateDraws.ts`, the same path a

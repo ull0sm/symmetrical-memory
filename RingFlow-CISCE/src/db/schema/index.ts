@@ -828,6 +828,33 @@ export const divisionHolds = pgTable(
   ]
 );
 
+/**
+ * A desk decision on a ranked kata tie that decided a medal, after a
+ * re-performance or a flag vote. One per set of tied athletes in a group
+ * (`tie_key`: their ids, sorted and joined); recording it again replaces it.
+ * A decision whose athletes no longer tie is simply not used.
+ */
+export const kataTieDecisions = pgTable(
+  'kata_tie_decisions',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => categories.id, { onDelete: 'cascade' }),
+    tieKey: text('tie_key').notNull(),
+    /** The tied athletes, best first. */
+    athleteIds: jsonb('athlete_ids').$type<string[]>().notNull(),
+    method: text('method').notNull(),
+    note: text('note').notNull(),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('kata_tie_decisions_category_tie_unique').on(table.categoryId, table.tieKey),
+    statusCheck('kata_tie_decisions_method_check'),
+  ]
+);
+
 // =========================================================================
 // 5. Relational Mappings
 // =========================================================================

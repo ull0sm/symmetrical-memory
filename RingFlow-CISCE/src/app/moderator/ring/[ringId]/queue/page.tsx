@@ -7,9 +7,14 @@ import {
 } from "@/db/schema";
 import { eq, inArray, and, asc } from "drizzle-orm";
 import { serializeCategoryAssignment } from "@/lib/serializers";
+import { redirect } from "next/navigation";
+import { getRingModerator } from "@/lib/auth/guards";
+import { localCardStages } from "@/lib/local/queueLabels";
 
 export default async function ModeratorQueuePage({ params }: { params: Promise<{ id?: string; ringId: string }> }) {
   const { ringId } = await params;
+  const moderator = await getRingModerator(ringId);
+  if (!moderator) redirect("/login/mod");
 
   const rawAssignments = await db
     .select()
@@ -32,9 +37,13 @@ export default async function ModeratorQueuePage({ params }: { params: Promise<{
     cats.forEach((c) => catMap.set(c.id, c));
   }
 
-  const assignments = rawAssignments.map((a) =>
-    serializeCategoryAssignment(a, catMap.get(a.categoryId))
-  );
+  // A Local group says whether its stager has sent it yet.
+  const stages = await localCardStages(categoryIds);
+  const assignments = rawAssignments.map((a) => ({
+    ...serializeCategoryAssignment(a, catMap.get(a.categoryId)),
+    local_stage: stages.get(a.categoryId)?.stage ?? null,
+    local_holder: stages.get(a.categoryId)?.holderName ?? null,
+  }));
 
-  return <ModeratorQueueClient ringId={ringId} initialAssignments={assignments} />;
+  return <ModeratorQueueClient ringId={ringId} tournamentId={moderator.tournamentId} initialAssignments={assignments} />;
 }

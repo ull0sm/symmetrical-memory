@@ -18,6 +18,7 @@ const OWN_MIGRATION: Record<string, string> = {
   divisions_sex_check: "migration18_local_tournaments.sql",
   division_events_event_type_check: "migration18_local_tournaments.sql",
   division_holds_holder_kind_check: "migration18_local_tournaments.sql",
+  kata_tie_decisions_method_check: "migration19_kata_tie_decisions.sql",
 };
 /** Written as a column CHECK by migration 13, so it has no named constraint text to compare. */
 const UNNAMED_CHECKS = new Set(["category_attendance_status_check"]);

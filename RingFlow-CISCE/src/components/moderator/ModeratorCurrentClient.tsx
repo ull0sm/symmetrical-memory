@@ -19,6 +19,7 @@ import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { BoutScoringPad } from "@/components/moderator/BoutScoringPad";
 import { KataScoringPad } from "@/components/moderator/KataScoringPad";
 import { KataPoolTableDraw } from "@/components/draw/KataPoolTableDraw";
+import { RankingPanel } from "@/components/moderator/RankingPanel";
 import { BoutPickerModal } from "@/components/moderator/BoutPickerModal";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
 import { AttendanceHint } from "@/components/moderator/AttendanceHint";
@@ -219,6 +220,16 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
 
   const activeAssignment = assignments.find(a => a.status === 'running' || a.status === 'paused');
 
+  // A ranked kata group whose performances are all in opens on its ranking: the podium, and any tie to decide.
+  const rankedAllDone =
+    activeAssignment?.categories?.kata_format === "RANKED" &&
+    Array.isArray(boutData?.matches) &&
+    boutData.matches.length > 0 &&
+    boutData.matches.every((m: { isFinished?: boolean }) => m.isFinished);
+  useEffect(() => {
+    if (rankedAllDone) setKataViewTab("table");
+  }, [rankedAllDone]);
+
   if (!activeAssignment) {
     return (
       <section className="flex flex-col items-center justify-center py-20 text-center">
@@ -316,7 +327,11 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
           await adjustMatchCount(activeAssignment.id, ringId, diff);
         }
       }
-      await finishCategory(activeAssignment.id, ringId);
+      const res = await finishCategory(activeAssignment.id, ringId);
+      if (res && !res.success) {
+        alert(res.error);
+        return;
+      }
       router.push(`/moderator/ring/${ringId}/queue`);
     } catch (e) {
       console.error(e);
@@ -595,6 +610,8 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
                 activeAssignment?.categories?.name?.toLowerCase().includes("kata") ||
                 Boolean(boutData.currentMatch.kata_scoring_mode || boutData.currentMatch.kataScoringMode);
 
+              // A Local ranked kata group: no winners, a ranking instead of pool tables.
+              const isRanked = activeAssignment?.categories?.kata_format === "RANKED";
               if (isKataCategory) {
                 return (
                   <div className="space-y-4">
@@ -621,7 +638,7 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
                               : "text-[#68645A] hover:bg-[#FAF9F5]"
                           }`}
                         >
-                          Pool Draw Tables
+                          {isRanked ? "Ranking" : "Pool Draw Tables"}
                         </button>
                       </div>
 
@@ -642,6 +659,24 @@ export default function ModeratorCurrentClient({ ringId, initialAssignments, all
                           router.refresh();
                         }}
                         onViewDrawTable={() => setKataViewTab("table")}
+                        ranked={isRanked}
+                        onBoutConfirmed={() => {
+                          // Follow the tatami: a ranked group moves on to its next pair by itself.
+                          setSelectedMatchId(null);
+                          void loadBoutData("");
+                          refreshAssignments();
+                          router.refresh();
+                        }}
+                      />
+                    ) : isRanked ? (
+                      <RankingPanel
+                        categoryId={activeAssignment.category_id ?? activeAssignment.categories?.id}
+                        ringId={ringId}
+                        currentMatchId={boutData.currentMatch?.id ?? null}
+                        onSelectBout={(matchId) => {
+                          setKataViewTab("pad");
+                          void handleSelectBout(matchId);
+                        }}
                       />
                     ) : (
                       <KataPoolTableDraw

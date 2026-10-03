@@ -10,6 +10,18 @@ const sql = postgres(process.env.DATABASE_URL, { max: 2 });
 const [T1] = process.argv.slice(2); // the seeded Official tournament
 const denied = (r) => (r.status >= 300 && r.status < 400) || !r.ok || r.value?.success === false || r.value === null;
 const page = (path, jar) => fetch(BASE + path, { headers: { Cookie: jar.header() }, redirect: "manual" });
+/**
+ * The request gate only checks that a stager cookie is there; a made-up one lets the call reach the
+ * action's own guard, which is what the "cannot" checks are about.
+ */
+function pastGate(jar) {
+  const j = new Jar();
+  for (const [k, v] of jar.c) j.c.set(k, v);
+  if (!j.c.has("stager_token")) j.c.set("stager_token", "not-a-session");
+  return j;
+}
+/** Refused by the action itself: not a gate redirect, and not "no such action on this route" (an empty {}). */
+const refused = (r) => !(r.status >= 300 && r.status < 400) && r.raw?.trim() !== "{}" && (r.value === undefined || r.value === null || r.value?.success === false);
 /** A redirect, as a 3xx or (once a layout has streamed) inside the page payload. */
 async function redirectsTo(res, path) {
   if (res.status >= 300 && res.status < 400) return (res.headers.get("location") ?? "").endsWith(path);
@@ -95,15 +107,15 @@ for (const [name, args] of [
   ["searchDeskAthletes", [L, "Desk"]],
   ["releaseHold", [DM.id, "no reason"]],
 ]) {
-  check(`a visitor cannot ${name}`, A[name] && denied(await call(A, name, args, anon, "/")));
+  check(`a visitor cannot ${name}`, A[name] && refused(await call(A, name, args, pastGate(anon), DESK)));
 }
 for (const [who, jar] of [["the moderator", mod], ["the organiser", org], ["another tournament's stager", stOther.jar]]) {
-  check(`${who} cannot read the desk`, denied(await call(A, "getStagerDesk", [L], jar, DESK)));
-  check(`${who} cannot take a category`, denied(await call(A, "takeDivision", [DM.id], jar, DESK)));
+  check(`${who} cannot read the desk`, refused(await call(A, "getStagerDesk", [L], pastGate(jar), DESK)));
+  check(`${who} cannot take a category`, refused(await call(A, "takeDivision", [DM.id], pastGate(jar), DESK)));
 }
-check("the Official tournament has no desk", denied(await call(A, "getStagerDesk", [T1], stOther.jar, DESK)));
-check("a stager cannot release a hold", denied(await call(A, "releaseHold", [DM.id, "trying it"], stB.jar, DESK)));
-check("a stager cannot list the stagers to hand on to", denied(await call(A, "listStagersForHolds", [L], stB.jar, DESK)));
+check("the Official tournament has no desk", refused(await call(A, "getStagerDesk", [T1], stOther.jar, DESK)));
+check("a stager cannot release a hold", refused(await call(A, "releaseHold", [DM.id, "trying it"], stB.jar, DESK)));
+check("a stager cannot list the stagers to hand on to", refused(await call(A, "listStagersForHolds", [L], stB.jar, DESK)));
 
 // ── Taking: one holder per category, one category per stager ──
 const race = await Promise.all([call(A, "takeDivision", [DF.id], stA.jar, DESK), call(A, "takeDivision", [DF.id], stB.jar, DESK)]);
@@ -144,9 +156,9 @@ for (const [name, args] of [
   ["restoreEventDraft", [DM.id, "kumite", { groups: [] }, {}]],
   ["handBackDivision", [DM.id]],
 ]) {
-  check(`only the holder can ${name}: not another stager`, denied(await call(A, name, args, stB.jar, WS(DM.id))));
+  check(`only the holder can ${name}: not another stager`, refused(await call(A, name, args, stB.jar, WS(DM.id))));
   if (["moveAthlete", "lockGroup", "addGroup"].includes(name)) {
-    check(`only the holder can ${name}: not the admin while a stager holds it`, denied(await call(A, name, args, admin, ADMIN_STAGING)));
+    check(`only the holder can ${name}: not the admin while a stager holds it`, refused(await call(A, name, args, admin, ADMIN_STAGING)));
   }
 }
 check("nothing changed", (await sql`select count(*)::int as n from category_entries where category_id=${g1.id}`)[0].n === g1.members.length);
@@ -180,6 +192,11 @@ check("the holder locks a group: the draw shown is the draw stored", lock.value?
 check("a locked group can't be changed at the desk", (await call(A, "shuffleGroup", [g1.id], stA.jar, W)).value?.success === false);
 const [lockAudit] = await sql`select actor_role, actor_name from audit_log where tournament_id=${L} and action='GROUP_LOCKED' and target_id=${g1.id}`;
 check("the lock is audited with the stager's name", lockAudit?.actor_role === "stager" && lockAudit.actor_name === "Asha");
+
+// ── No calling board in a Local tournament ──
+await call(A, "updateCategoryStagerStatus", [g1.id, L, "calling"], stA.jar, `/stager/event/${T1}/balance`);
+const [flag] = await sql`select stager_status from category_assignments where category_id=${g1.id}`;
+check("the calling and ready flags aren't used in a Local tournament", flag?.stager_status === null);
 
 // ── The admin's hand on holds ──
 check("a release needs a reason", (await call(A, "releaseHold", [DM.id, "x"], admin, ADMIN_STAGING)).value?.success === false);

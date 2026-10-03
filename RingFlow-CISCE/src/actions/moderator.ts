@@ -2,6 +2,7 @@
 
 import { poolsFinalsWaitFor } from "@/lib/draws/partRouting";
 import { localGroupStartCheck } from "@/lib/local/startGate";
+import { loadRankedStandings } from "@/lib/kata/rankedGroup";
 import { persistRingClock, readRingClockRow } from "@/lib/ringClockStore";
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
@@ -507,6 +508,14 @@ export async function adjustMatchCount(assignmentId: string, ringId: string, del
 export async function finishCategory(assignmentId: string, ringId: string) {
   const moderator = await requireRingModerator(ringId);
   const assignment = await loadAssignmentOnRing(assignmentId, ringId);
+
+  // A ranked kata group whose medals hang on a tie can't close until the desk decides it.
+  const ranked = await loadRankedStandings(assignment.categoryId);
+  const undecided = ranked?.complete ? ranked.medalTies.find((t) => !t.decided) : undefined;
+  if (ranked && undecided) {
+    const names = undecided.athleteIds.map((id) => ranked.performers.find((p) => p.athleteId === id)?.name ?? "an athlete");
+    return { success: false as const, error: `Decide the tie first: ${names.join(" and ")} are level for ${undecided.medals[0] ?? "a medal"}.` };
+  }
 
   await db
     .update(categoryAssignments)

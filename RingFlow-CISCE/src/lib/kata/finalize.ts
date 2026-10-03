@@ -78,6 +78,18 @@ export async function finalizeKataMatch(params: {
     .set({ status: "CONFIRMED", winnerSide, winnerId, decisionMethod })
     .where(eq(matches.id, matchId));
 
+  const assignment = await countPoolBout(match);
+  await advanceKataPoolFinalists(match.categoryId);
+  if (assignment) await announcePoolBout(assignment, match, { winnerId, winnerSide }, actor);
+
+  return { success: true, winnerId };
+}
+
+type MatchRow = typeof matches.$inferSelect;
+export type PoolAssignment = { id: string; ringId: string; tournamentId: string };
+
+/** Counts a pool-style bout as done on its tatami card. Returns the card it runs on, if any. */
+export async function countPoolBout(match: MatchRow): Promise<PoolAssignment | null> {
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(matches)
@@ -106,42 +118,44 @@ export async function finalizeKataMatch(params: {
     )
     .limit(1);
 
-  if (assignment) {
-    await db
-      .update(categoryAssignments)
-      .set({ matchesCompleted: Number(count) || 0 })
-      .where(eq(categoryAssignments.id, assignment.id));
-  }
+  if (!assignment) return null;
+  await db
+    .update(categoryAssignments)
+    .set({ matchesCompleted: Number(count) || 0 })
+    .where(eq(categoryAssignments.id, assignment.id));
+  return assignment;
+}
 
-  await advanceKataPoolFinalists(match.categoryId);
-
-  if (assignment) {
-    await db.insert(eventLog).values({
-      tournamentId: assignment.tournamentId,
-      ringId: assignment.ringId,
-      categoryId: match.categoryId,
-      action: "BOUT_RESULT_CONFIRMED",
-      metadata: {
-        matchId,
-        matchNo: match.matchNo,
-        roundName: match.roundName,
-        winnerId,
-        winningSide: winnerSide,
-        discipline: "kata",
-        confirmedBy: actor ?? null,
-      },
-    });
-    broadcastLiveEvent({
-      table: "matches",
-      op: "UPDATE",
-      id: matchId,
-      matchId,
-      ringId: assignment.ringId,
-      tournamentId: assignment.tournamentId,
-      categoryId: match.categoryId,
-      status: "CONFIRMED",
-    });
-  }
-
-  return { success: true, winnerId };
+/** The event log entry and the live-feed change for a confirmed pool-style bout. */
+export async function announcePoolBout(
+  assignment: PoolAssignment,
+  match: MatchRow,
+  result: { winnerId: string | null; winnerSide: "AKA" | "AO" | null },
+  actor?: KataActor,
+) {
+  await db.insert(eventLog).values({
+    tournamentId: assignment.tournamentId,
+    ringId: assignment.ringId,
+    categoryId: match.categoryId,
+    action: "BOUT_RESULT_CONFIRMED",
+    metadata: {
+      matchId: match.id,
+      matchNo: match.matchNo,
+      roundName: match.roundName,
+      winnerId: result.winnerId,
+      winningSide: result.winnerSide,
+      discipline: "kata",
+      confirmedBy: actor ?? null,
+    },
+  });
+  broadcastLiveEvent({
+    table: "matches",
+    op: "UPDATE",
+    id: match.id,
+    matchId: match.id,
+    ringId: assignment.ringId,
+    tournamentId: assignment.tournamentId,
+    categoryId: match.categoryId,
+    status: "CONFIRMED",
+  });
 }

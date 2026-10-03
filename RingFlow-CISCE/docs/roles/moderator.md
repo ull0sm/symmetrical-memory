@@ -29,9 +29,19 @@ any other pool of the category even if it asks. The finals card cannot
 be started until every pool has been finished on its tatami, and a pool cannot be reopened once the
 finals have started.
 
-In a Local tournament each card is a group ("Blue · 9 · M · Kumite · Group 1"). A group can be started
-only once its stager has locked it; until then `startCategory` refuses it. Starting a kumite group sets
-the tatami clock to its event's bout length when one is set, unless a bout is on the clock.
+In a Local tournament each card is a group ("Blue · 9 · M · Kumite · Group 1"), labelled with where its
+stager is: *Waiting for stager*, *Being prepared by* (name), or *Ready* once it is locked. Only a ready
+group shows Start, and `startCategory` refuses any other; the moderator can still reorder every pending
+card. Starting a kumite group sets the tatami clock to its event's bout length when one is set, unless a
+bout is on the clock.
+
+A ranked kata group has a **Ranking** tab instead of the pool tables: the standings as performances come
+in, the performance order (tap a pair to score it), and any tie that decides a medal. On the scoring pad,
+*Confirm Scores* confirms a pair once both athletes have a total (there is no winner), and the next pair
+comes up; *didn't perform* confirms it without a total for an athlete who didn't come out. When two
+athletes are level on a medal after the tie-breaks, the moderator records the desk decision on the
+Ranking tab once everyone has performed (the order, re-performance or flag vote, and a note), and the
+group can't be finished until it is recorded (see [../DISCIPLINES.md](../DISCIPLINES.md#ranked-kata-groups)).
 
 ## What a moderator can do (own tatami only)
 
@@ -43,7 +53,9 @@ the tatami clock to its event's bout length when one is set, unless a bout is on
   through the draw.
 - **Kata bouts** (`kata.ts`): open and close judge voting, void one seat's vote, enter marks or
   flags at the desk, finalize. The server computes the totals and the winner; the moderator only
-  decides a tie. See [judge.md](judge.md) and [../DISCIPLINES.md](../DISCIPLINES.md).
+  decides a tie. In a Local ranked group: confirm a pair's scores (`notPerformed` for an athlete who
+  didn't perform), read the ranking (`getRankedStandings`) and record a medal tie's desk decision
+  (`resolveKataTie`). See [judge.md](judge.md) and [../DISCIPLINES.md](../DISCIPLINES.md).
 - **Clock** (`clock.ts`): start, pause, reset, adjust, finish, set duration, swap sides.
 - **Judge phones** (`judgePanel.ts`): the Judge phones panel in the kata pad shows the QR code and
   PIN, approves or removes phones, rotates the QR and PIN, and ends the panel.

@@ -26,6 +26,10 @@ interface KataScoringPadProps {
   scores: any[];
   onRefresh: () => void;
   onViewDrawTable?: () => void;
+  /** A Local ranked kata group: each performance is scored on its own, with no winner. */
+  ranked?: boolean;
+  /** After a bout is confirmed, so the desk can move on to the tatami's next bout. */
+  onBoutConfirmed?: () => void;
 }
 
 export function KataScoringPad({
@@ -35,6 +39,8 @@ export function KataScoringPad({
   scores,
   onRefresh,
   onViewDrawTable,
+  ranked = false,
+  onBoutConfirmed,
 }: KataScoringPadProps) {
   const [liveScores, setLiveScores] = useState<any[]>(scores || []);
   const [voting, setVoting] = useState<"idle" | "open" | "closed">(activeMatch?.kataVoting ?? "idle");
@@ -202,6 +208,13 @@ export function KataScoringPad({
 
   // Projected winner determination
   const verdict = useMemo(() => {
+    // A ranked group: each performance is scored on its own; the bout is done once every athlete has a total.
+    if (ranked) {
+      const aka = akaDeducing.hasSufficientMarks ? akaDeducing.total.toFixed(2) : null;
+      const ao = !isSoloMatch && aoDeducing.hasSufficientMarks ? aoDeducing.total.toFixed(2) : null;
+      if (aka === null || (!isSoloMatch && ao === null)) return null;
+      return { winner: "SCORED" as const, label: isSoloMatch ? `Red ${aka}` : `Red ${aka} · Blue ${ao}` };
+    }
     if (isSoloMatch) {
       if (isPointsMode) {
         if (akaDeducing.hasSufficientMarks) {
@@ -247,7 +260,7 @@ export function KataScoringPad({
       }
       return null;
     }
-  }, [isSoloMatch, isPointsMode, akaDeducing, aoDeducing, akaFlagsCount, aoFlagsCount]);
+  }, [ranked, isSoloMatch, isPointsMode, akaDeducing, aoDeducing, akaFlagsCount, aoFlagsCount]);
 
   // Fast typing auto-advance:
   // e.g. User types "7" -> becomes "7."
@@ -436,7 +449,7 @@ export function KataScoringPad({
    * Save the desk's marks/flags. The server writes only seats that changed and
    * decides the winner itself; `tiebreak` is the desk's call when the votes tie.
    */
-  const handleSaveMarks = async (finalize: boolean = false, tiebreak?: "AKA" | "AO") => {
+  const handleSaveMarks = async (finalize: boolean = false, tiebreak?: "AKA" | "AO", notPerformed?: ("AKA" | "AO")[]) => {
     setSubmittingAction(true);
     try {
       const seats = [0, 1, 2, 3, 4]
@@ -456,11 +469,13 @@ export function KataScoringPad({
         seats,
         winnerSide: tiebreak,
         finalize,
+        notPerformed,
       });
 
       if (res.success) {
         dirty.current.clear();
-        onRefresh();
+        if (finalize && onBoutConfirmed) onBoutConfirmed();
+        else onRefresh();
       } else {
         alert(res.error || "Failed to record score");
       }
@@ -536,7 +551,7 @@ export function KataScoringPad({
             className="flex items-center gap-1.5 text-xs font-bold font-data-mono px-3.5 py-2 rounded-xl bg-[#FAF9F5] hover:bg-[#F0ECE1] text-[#1B1815] border border-[#E1DDCF] transition-colors cursor-pointer"
           >
             <Table className="w-4 h-4 text-[#0E9C7C]" />
-            <span>Pool Tables</span>
+            <span>{ranked ? "Ranking" : "Pool Tables"}</span>
           </button>
         )}
       </div>
@@ -1016,6 +1031,8 @@ export function KataScoringPad({
                   ? "bg-red-50 border-red-200 text-red-900"
                   : verdict.winner === "AO"
                   ? "bg-blue-50 border-blue-200 text-blue-900"
+                  : verdict.winner === "SCORED"
+                  ? "bg-emerald-50 border-emerald-200 text-emerald-900"
                   : "bg-amber-50 border-amber-200 text-amber-900"
               }`}
             >
@@ -1025,6 +1042,8 @@ export function KataScoringPad({
                     ? "text-[#DC2626]"
                     : verdict.winner === "AO"
                     ? "text-[#2563EB]"
+                    : verdict.winner === "SCORED"
+                    ? "text-emerald-600"
                     : "text-amber-600"
                 }`}
               />
@@ -1052,6 +1071,29 @@ export function KataScoringPad({
           >
             Save Draft
           </button>
+
+          {ranked && !verdict && (() => {
+            // Whoever has no total yet; confirming without them means they didn't perform.
+            const missing = (["AKA", "AO"] as const).filter((side) =>
+              side === "AKA" ? !akaDeducing.hasSufficientMarks : !isSoloMatch && !aoDeducing.hasSufficientMarks
+            );
+            if (missing.length === 0) return null;
+            const names = missing.map((side) => (side === "AKA" ? activeMatch.aka?.name : activeMatch.ao?.name) || (side === "AKA" ? "Red" : "Blue"));
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`${names.join(" and ")} didn't perform? No total, ranked last. This is recorded in the official log.`)) {
+                    handleSaveMarks(true, undefined, [...missing]);
+                  }
+                }}
+                disabled={submittingAction}
+                className="flex-1 sm:flex-initial px-3 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 text-xs font-bold font-data-mono transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {missing.length === 1 ? `${missing[0] === "AKA" ? "Red" : "Blue"} didn't perform` : "Neither performed"}
+              </button>
+            );
+          })()}
 
           {verdict?.winner === "TIE" && (
             <>
@@ -1082,6 +1124,12 @@ export function KataScoringPad({
           >
             {submittingAction ? (
               <span>Finalizing...</span>
+            ) : ranked ? (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Confirm Scores</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </>
             ) : (
               <>
                 <Check className="w-4 h-4" />

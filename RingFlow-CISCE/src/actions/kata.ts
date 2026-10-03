@@ -8,6 +8,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { finalizeKataMatch } from "@/lib/kata/finalize";
+import { confirmRankedBout, findMedalTie, isRankedGroup, loadRankedStandings, saveTieDecision } from "@/lib/kata/rankedGroup";
+import { KATA_TIE_METHODS } from "@/lib/statuses";
 import { computeKataTally, recomputeKataTallies, MAX_JUDGE_SEATS, type KataTally } from "@/lib/kata/tally";
 import { isKataCategory } from "@/lib/categories/eventType";
 import { JUDGE_PANEL_SEATS } from "@/lib/constants";
@@ -17,9 +19,10 @@ import {
   getRingModerator,
   getTournamentStaff,
   requireMatchModerator,
+  requireTournamentStaff,
 } from "@/lib/auth/guards";
 import type { ModeratorPrincipal } from "@/lib/auth/principal";
-import { scopeForMatch, type MatchScope } from "@/lib/auth/scope";
+import { scopeForMatch, tournamentIdForCategory, type MatchScope } from "@/lib/auth/scope";
 
 /**
  * Kata scoring at the moderator desk: voting control for the judge phones,
@@ -324,6 +327,8 @@ const manualSchema = z.object({
   aoScore: deskTotal.optional(),
   winnerSide: z.enum(["AKA", "AO"]).optional(),
   finalize: z.boolean().optional(),
+  /** A ranked kata bout: sides whose athlete didn't perform (no total, ranked last). */
+  notPerformed: z.array(z.enum(["AKA", "AO"])).max(2).optional(),
 });
 
 /**
@@ -431,12 +436,107 @@ export async function submitModeratorManualKataMarks(input: z.input<typeof manua
   }
 
   if (params.finalize) {
+    if (await isRankedGroup(scope.categoryId)) return finalizeRanked(matchId, moderator, scope, params.notPerformed ?? []);
     return finalizeFromTally(matchId, moderator, scope, params.winnerSide);
   }
 
   broadcastKataChange(scope);
   revalidateRing(scope.ringId);
   return { success: true as const, winnerSide: tally?.winner === "AKA" || tally?.winner === "AO" ? tally.winner : undefined };
+}
+
+/**
+ * Confirm a ranked kata bout: every athlete on it has a total, or the desk says
+ * they didn't perform. Each performance stands on its own, so there is no winner.
+ */
+async function finalizeRanked(matchId: string, moderator: ModeratorPrincipal, scope: MatchScope, notPerformed: ("AKA" | "AO")[]) {
+  const tally = await recomputeKataTallies(matchId);
+  if (!tally) return { success: false as const, error: "Bout not found" };
+  const [m] = await db.select({ aka: matches.akaScoreTotal, ao: matches.aoScoreTotal }).from(matches).where(eq(matches.id, matchId));
+  const sides: ("AKA" | "AO")[] = tally.solo ? ["AKA"] : ["AKA", "AO"];
+  const totals: Record<"AKA" | "AO", number | null> = {
+    AKA: tally.akaTotal ?? (m?.aka === null || m?.aka === undefined ? null : Number(m.aka)),
+    AO: tally.aoTotal ?? (m?.ao === null || m?.ao === undefined ? null : Number(m.ao)),
+  };
+  for (const side of sides) {
+    const label = side === "AKA" ? "Red" : "Blue";
+    if (totals[side] === null && !notPerformed.includes(side)) {
+      return { success: false as const, error: `${label} has no total yet. Enter the marks, or mark ${label} as not performed.` };
+    }
+    if (totals[side] !== null && notPerformed.includes(side)) {
+      return { success: false as const, error: `${label} has marks. Clear them before marking ${label} as not performed.` };
+    }
+  }
+
+  const res = await confirmRankedBout(matchId, describePrincipal(moderator));
+  if (!res.success) return res;
+  await audit({
+    tournamentId: scope.tournamentId,
+    ringId: scope.ringId,
+    categoryId: scope.categoryId,
+    matchId,
+    actor: moderator,
+    action: "BOUT_CONFIRMED",
+    targetType: "match",
+    targetId: matchId,
+    after: { discipline: "kata", method: "RANKED", akaTotal: totals.AKA, aoTotal: tally.solo ? null : totals.AO, notPerformed },
+  });
+  broadcastKataChange(scope);
+  broadcastLiveEvent({ table: "rings", op: "UPDATE", id: scope.ringId!, ringId: scope.ringId!, tournamentId: scope.tournamentId });
+  revalidateRing(scope.ringId);
+  return { success: true as const, winnerSide: undefined };
+}
+
+/** A ranked kata group's standings, for the staff of its tournament. Null for any other category. */
+export async function getRankedStandings(categoryId: string) {
+  await requireTournamentStaff(await tournamentIdForCategory(categoryId));
+  return loadRankedStandings(categoryId);
+}
+
+const tieSchema = z.object({
+  /** Any bout of the group: the moderator must be running it. */
+  matchId: z.string().min(1).max(100),
+  /** The tied athletes, best first. */
+  athleteIds: z.array(z.string().uuid()).min(2).max(32),
+  method: z.enum(KATA_TIE_METHODS),
+  note: z.string().trim().min(3, "Add a short note").max(500),
+});
+
+/**
+ * The desk's decision on a ranked kata tie that decides a medal, after the tied
+ * athletes performed again or a flag vote between them. Only once everyone has
+ * performed; recording the same tie again replaces the order. Audited.
+ */
+export async function resolveKataTie(input: z.input<typeof tieSchema>) {
+  const parsed = tieSchema.safeParse(input);
+  if (!parsed.success) return { success: false as const, error: parsed.error.issues[0]?.message ?? "Check the decision." };
+  const { moderator, scope } = await requireMatchModerator(parsed.data.matchId);
+  const { athleteIds, method, note } = parsed.data;
+
+  const standings = await loadRankedStandings(scope.categoryId);
+  if (!standings) return { success: false as const, error: "Only a ranked kata group has ties to decide here." };
+  if (!standings.complete) return { success: false as const, error: "Score every performance first (or mark who didn't perform)." };
+  if (new Set(athleteIds).size !== athleteIds.length) return { success: false as const, error: "Each athlete once, please." };
+  const tie = findMedalTie(standings, athleteIds);
+  if (!tie) return { success: false as const, error: "Those athletes aren't tied for a medal." };
+
+  const before = await saveTieDecision(scope.categoryId, { athleteIds, method, note, decidedBy: describePrincipal(moderator).name });
+  const names = new Map(standings.performers.map((p) => [p.athleteId, p.name]));
+  await audit({
+    tournamentId: scope.tournamentId,
+    ringId: scope.ringId,
+    categoryId: scope.categoryId,
+    actor: moderator,
+    action: "KATA_TIE_DECIDED",
+    targetType: "category",
+    targetId: scope.categoryId,
+    before: before ? { order: before.map((id) => names.get(id) ?? id) } : null,
+    after: { order: athleteIds.map((id) => names.get(id) ?? id), athleteIds, method, position: tie.position },
+    reason: note,
+  });
+  broadcastLiveEvent({ table: "kata_tie_decisions", op: "UPDATE", categoryId: scope.categoryId, ringId: scope.ringId ?? undefined, tournamentId: scope.tournamentId });
+  revalidateRing(scope.ringId);
+  return { success: true as const, standings: await loadRankedStandings(scope.categoryId) };
 }
 
 /** Server tally for the desk's live display (totals, flags, dropped marks, verdict). */

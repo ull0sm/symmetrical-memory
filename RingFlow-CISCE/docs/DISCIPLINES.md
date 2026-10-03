@@ -91,6 +91,31 @@ group is a performance order called in pairs, with a solo for an odd last athlet
 stores exactly the draw the stager was shown (same members, pins and seed, same checksum) as a locked
 draw, and only then can it start.
 
+### Ranked kata groups
+
+Every athlete of a ranked group performs once and is scored with marks (judge phones or the desk, as
+for any kata bout; always points, never flags). A pair is called to the mat together, but each
+performance stands on its own: confirming the bout needs a total for each athlete, names no winner
+(`decision_method` `RANKED`), and brings the next pair up on the tatami. An athlete who doesn't perform
+is confirmed with no total and ranks last, with no medal ("DNP").
+
+The ranking (`src/lib/kata/ranking.ts`) orders athletes by:
+
+1. the higher total;
+2. then, when 5 or 7 judges marked, the higher of the lowest dropped marks (with 7, the lower of the
+   two is compared first);
+3. then the higher of the highest dropped marks.
+
+Medals go by position: gold, silver, bronze, and a second bronze for 4th under the 2-bronze setting
+(a group of 3 is gold, silver, bronze; of 2, gold and silver; of 1, gold). A tie still standing after
+the tie-breaks is shared ("5=") unless it decides a medal (for example level for gold and silver).
+Then, once everyone has performed, the moderator records a **desk decision** after a re-performance
+or a flag vote between the tied athletes: their order, the method and a note
+(`resolveKataTie`, stored in `kata_tie_decisions` and audited as `KATA_TIE_DECIDED`). Recording the same
+tie again replaces the order. A tie that is level on bronze under the 2-bronze setting (3rd and 4th)
+shares bronze and needs no decision. The podium is final once every performance is confirmed and
+every medal tie is decided, and the group can't be finished on the tatami before that.
+
 ## Kata
 
 A kata category chooses a **format** and a **scoring mode** (`updateCategoryKataSettings`):

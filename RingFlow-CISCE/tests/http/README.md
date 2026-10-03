@@ -14,6 +14,7 @@ authorization, sessions and the flows that need a database.
 | `test-attendance.mjs` | Attendance permissions, the desk hint, staff-only visibility |
 | `test-pool-split.mjs` | Splitting a category's pools across tatamis: who may split, which tatami may score which bout, finals waiting for pools, the balancing board leaving pools alone |
 | `test-local-setup.mjs` | Local setup: settings, the category generator, the roster import and its report, chest numbers, starting groups (sizes, club spread, drafts, counts), a category's tatami, moves and participation, what a locked group or a hold protects, the organiser's read-only views, and who is refused (organiser, stager, another admin, Official tournaments, Official tools in a Local one) |
+| `test-local-ranked.mjs` | A Local ranked kata group on the mat: the moderator queue's labels (waiting, being prepared, ready), confirming pairs with no winner, an athlete who didn't perform, the ranking and its tie-breaks, the desk decision on a medal tie (who may record it, and only once everyone has performed), and that the group can't be finished while a medal tie is undecided |
 | `test-local-staging.mjs` | The Local stager desk: the screens, who may read the desk or take a category, the take race, one holder per category and one category per stager, drafts seen only by the holder (and the admin, read only), every change refused to anyone but the holder, stale views, undo, walk-ins, locking the shown draw, the admin's release and hand-on with reasons, a hold surviving a fresh sign-in, removing a code, and no stager code in any response |
 | `test-local-tournaments.mjs` | Local tournaments: choosing the type at creation, switching it in settings only before anything is set up, who may switch it, and the database check on the type |
 
@@ -50,6 +51,11 @@ DATABASE_URL=postgres://event_suite:event_suite@127.0.0.1:55432/ringflow npm run
 ## How it works
 - `rbac-lib.mjs` reads action ids from `.next/dev/server/server-reference-manifest.json`, so every page
   has to be compiled first. `run-suite.sh` and `warm.mjs` load them.
+- An action answers only on routes whose bundle includes it. Posted to any other page, Next replies
+  with an empty `{}`, which a loose "denied" check would count as a refusal. The Local suites use a
+  `refused()` check that rejects that, and post to the action's own page. The request gate only looks
+  for a session cookie, so to test an action's own guard for a caller the gate would turn away, they
+  add a made-up cookie (`pastGate()`).
 - Next only runs an action that is bundled into the page it's posted to, and cookies set by an action
   only stick on its own page. That's why calls often pass a page path.
 - Login rate limits live in memory in the dev server, so restart it if a suite is throttled. Guessing

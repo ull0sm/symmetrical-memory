@@ -54,6 +54,8 @@ export const DIVISION_SEXES = ["M", "F", "any"] as const;
 export const LOCAL_EVENT_ORDERS = ["KUMITE_FIRST", "KATA_FIRST"] as const;
 /** Who holds a division while preparing its groups. */
 export const HOLDER_KINDS = ["stager", "admin"] as const;
+/** How the desk broke a ranked kata tie that decided a medal: the athletes performed again, or a flag vote. */
+export const KATA_TIE_METHODS = ["REPERFORMANCE", "FLAG_VOTE"] as const;
 
 export type TournamentStatus = (typeof TOURNAMENT_STATUSES)[number];
 export type RingTimerStatus = (typeof RING_TIMER_STATUSES)[number];
@@ -77,6 +79,7 @@ export type DivisionEventType = (typeof DIVISION_EVENT_TYPES)[number];
 export type DivisionSex = (typeof DIVISION_SEXES)[number];
 export type LocalEventOrder = (typeof LOCAL_EVENT_ORDERS)[number];
 export type HolderKind = (typeof HOLDER_KINDS)[number];
+export type KataTieMethod = (typeof KATA_TIE_METHODS)[number];
 
 /** SQL list for a CHECK constraint: ('a', 'b'). Values are fixed literals above, never input. */
 export function sqlList(values: readonly string[]): string {
@@ -115,4 +118,6 @@ export const STATUS_CHECKS: ReadonlyArray<readonly [string, string, string, read
   ["divisions_sex_check", "divisions", "sex", DIVISION_SEXES, false],
   ["division_events_event_type_check", "division_events", "event_type", DIVISION_EVENT_TYPES, false],
   ["division_holds_holder_kind_check", "division_holds", "holder_kind", HOLDER_KINDS, false],
+  // Ranked kata tie decisions (migration 19).
+  ["kata_tie_decisions_method_check", "kata_tie_decisions", "method", KATA_TIE_METHODS, false],
 ];
