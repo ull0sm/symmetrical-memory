@@ -11,7 +11,7 @@ This folder contains the RingFlow database schema and migrations for PostgreSQL 
 
 ## Supplemental Migrations
 
-**`migration8_realtime_notify.sql` through `migration14_status_checks.sql`** (hand-written)
+**`migration8_realtime_notify.sql` through `migration17_part_sizes.sql`** (hand-written)
 - Applied via `npm run db:migrate`.
 - These add triggers, backfills, data fixes, and constraints that Drizzle cannot express (e.g. audit-log immutability, status CHECKs).
 - Each migration is **idempotent** — running them multiple times is safe.
