@@ -1,10 +1,10 @@
 "use server";
 
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { stagerRequests } from "@/db/schema";
+import { athletes, stagerRequests } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import {
@@ -46,6 +46,8 @@ import {
   type HolderIdentity,
 } from "@/lib/local/holds";
 import { readRegistration, setParticipationCore } from "@/lib/local/localRoster";
+import { changeLockedGroupCore, previewLateChangeCore, unlockGroupCore, type LateChange } from "@/lib/local/lateChanges";
+import { placesInGraph } from "@/lib/local/lateChangePlan";
 import { loadStagerDesk, loadWorkspace } from "@/lib/local/stagingView";
 
 /**
@@ -461,4 +463,146 @@ export async function listStagersForHolds(tournamentId: string) {
     out.push({ requestId: r.id, name: r.name || "Stager", label: identity?.kind === "stager" ? identity.label : null });
   }
   return out;
+}
+
+// ── The admin's changes after lock ─────────────────────────────────────────
+
+const lateReason = z.string().trim().min(5).max(500);
+const LATE_REASON = "Give a reason (at least 5 characters).";
+
+/** The admin of a Local group's tournament, resolved from the group row. */
+async function adminOfGroup(groupId: string) {
+  const scope = await scopeForGroup(groupId);
+  const admin = await requireTournamentAdmin(scope.tournamentId);
+  await requireLocalTournament(scope.tournamentId);
+  return { admin, scope };
+}
+
+function groupChanged(tournamentId: string, groups: { id: string; ringId: string | null }[]) {
+  for (const g of groups) {
+    broadcastLiveEvent({ table: "draws", op: "UPDATE", id: g.id, categoryId: g.id, tournamentId, ringId: g.ringId ?? undefined });
+    broadcastLiveEvent({ table: "matches", op: "UPDATE", categoryId: g.id, tournamentId, ringId: g.ringId ?? undefined });
+  }
+  broadcastLiveEvent({ table: "category_assignments", op: "UPDATE", tournamentId });
+  changed(tournamentId, "group_drafts");
+  revalidatePath(`/admin/event/${tournamentId}/staging`);
+}
+
+/**
+ * Sends a locked group back to Draft. Only before its first bout, and not while it is on the mat.
+ * Its bouts are deleted and its draw hidden; whoever takes the category next finds the same layout.
+ */
+export async function unlockGroup(groupId: string, why: string) {
+  const { admin, scope } = await adminOfGroup(groupId);
+  const reasonText = lateReason.safeParse(why);
+  if (!reasonText.success) return { success: false as const, error: LATE_REASON };
+  const result = await settle(async () => unlockGroupCore(groupId));
+  if (result.success) {
+    await audit({
+      tournamentId: scope.tournamentId,
+      categoryId: groupId,
+      ringId: result.group.ringId,
+      actor: admin,
+      action: "GROUP_UNLOCKED",
+      targetType: "category",
+      targetId: groupId,
+      before: { name: result.group.name, ...result.before },
+      after: { state: "DRAFT" },
+      reason: reasonText.data,
+    });
+    groupChanged(scope.tournamentId, [{ id: groupId, ringId: result.group.ringId }]);
+    return { success: true as const };
+  }
+  return result;
+}
+
+const lateChangeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("add"), athleteId: uuid, place: z.number().int().min(1).max(32).optional() }),
+  z.object({ kind: z.literal("remove"), athleteId: uuid }),
+  z.object({ kind: z.literal("move"), athleteId: uuid, toGroupId: uuid, place: z.number().int().min(1).max(32).optional() }),
+]);
+
+/**
+ * What a change to a locked group would do, for the admin to check before confirming: the new
+ * draw of each group it touches, who meets whom differently, and whether the athlete joins as a
+ * guest. `fingerprint` goes back with the confirm.
+ */
+export async function previewLateChange(groupId: string, raw: z.input<typeof lateChangeSchema>) {
+  const { scope } = await adminOfGroup(groupId);
+  const change = lateChangeSchema.safeParse(raw);
+  if (!change.success) return { success: false as const, error: "Choose an athlete and what to do." };
+  const result = await settle(async () => previewLateChangeCore(groupId, change.data as LateChange));
+  if (!result.success) return result;
+
+  const ids = [...new Set(result.groups.flatMap((g) => g.graph.slots.map((s) => s.registrationId).filter((id): id is string => Boolean(id))))];
+  const people = ids.length
+    ? await db
+        .select({ id: athletes.id, name: athletes.name, club: athletes.school, dojo: athletes.dojo, chestNumber: athletes.chestNumber })
+        .from(athletes)
+        .where(and(inArray(athletes.id, ids), eq(athletes.tournamentId, scope.tournamentId)))
+    : [];
+  return {
+    success: true as const,
+    fingerprint: result.fingerprint,
+    newcomer: result.newcomer,
+    groups: result.groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      mode: g.mode,
+      lines: g.lines,
+      places: placesInGraph(g.graph, g.graph.format === "KATA_RANKED" ? "kata" : "kumite"),
+    })),
+    people: people.map((p) => ({ id: p.id, name: p.name, club: p.club ?? p.dojo, chestNumber: p.chestNumber })),
+  };
+}
+
+/**
+ * Changes a locked group, with a reason: adds an athlete (from this category, or as a guest from
+ * another), takes one out, or moves one to another locked group of the same event. Before the
+ * first bout the draw is rebuilt with everyone else in place; once under way only a kumite bye can
+ * be filled or a kata performer appended. Refused when the draws differ from `fingerprint`, the
+ * preview the admin confirmed.
+ */
+export async function changeLockedGroup(groupId: string, raw: z.input<typeof lateChangeSchema>, why: string, fingerprint?: string) {
+  const { admin, scope } = await adminOfGroup(groupId);
+  const change = lateChangeSchema.safeParse(raw);
+  if (!change.success) return { success: false as const, error: "Choose an athlete and what to do." };
+  const reasonText = lateReason.safeParse(why);
+  if (!reasonText.success) return { success: false as const, error: LATE_REASON };
+  if (fingerprint !== undefined && (typeof fingerprint !== "string" || !/^[0-9a-f]{64}(:[0-9a-f]{64})?$/.test(fingerprint))) {
+    return { success: false as const, error: "Check the change again before confirming." };
+  }
+  const by = describePrincipal(admin).name;
+  const result = await settle(async () => changeLockedGroupCore(groupId, change.data as LateChange, by, reasonText.data, fingerprint));
+  if (!result.success) return result;
+
+  const kind = change.data.kind;
+  for (const g of result.groups) {
+    const what =
+      kind === "move" ? (g.removed ? "move-out" : "move-in") : kind === "remove" ? "remove" : g.mode === "fill-bye" ? "fill-bye" : g.mode === "append" ? "append" : "add";
+    const athlete = g.added ?? g.removed;
+    await audit({
+      tournamentId: scope.tournamentId,
+      categoryId: g.id,
+      ringId: g.ringId,
+      actor: admin,
+      action: "GROUP_CHANGED_AFTER_LOCK",
+      targetType: "category",
+      targetId: g.id,
+      before: { name: g.name, stage: g.stage, members: g.membersBefore, drawVersion: g.drawVersionBefore, checksum: g.checksumBefore },
+      after: {
+        change: what,
+        athleteId: athlete?.athleteId ?? null,
+        athleteName: athlete?.name ?? null,
+        guest: g.added?.guest ?? false,
+        markedPresent: g.added?.wasAway ?? null,
+        drawVersion: g.drawVersionAfter,
+        checksum: g.checksumAfter,
+        effects: g.lines,
+      },
+      reason: reasonText.data,
+    });
+  }
+  groupChanged(scope.tournamentId, result.groups.map((g) => ({ id: g.id, ringId: g.ringId })));
+  return { success: true as const, groups: result.groups.map((g) => ({ id: g.id, name: g.name, mode: g.mode })) };
 }

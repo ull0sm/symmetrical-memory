@@ -91,6 +91,31 @@ group is a performance order called in pairs, with a solo for an odd last athlet
 stores exactly the draw the stager was shown (same members, pins and seed, same checksum) as a locked
 draw, and only then can it start.
 
+### Changes after lock
+
+Only the admin changes a locked group, with a reason, and each change is a new draw version
+(`src/lib/local/lateChanges.ts`). Before the group's first bout the draw is rebuilt from its new
+members with everyone else pinned where they were (`kumitePinCandidates` in
+`src/lib/local/lateChangePlan.ts`): a late kumite athlete takes a bye, and the athlete who had it now
+has an opponent; an athlete taken out leaves a bye. If that would leave a bout with nobody in it (the
+leaver had the bye), one athlete moves into it rather than the draw being redone. A bracket that has to
+grow or shrink to the next size is drawn again from the group's seed. In kata the order closes up or
+the newcomer performs last.
+
+Once bouts have been fought, nothing that has been fought changes:
+
+- **Kumite: fill a bye.** A late athlete takes a first-round bye whose holder hasn't started their next
+  bout (`fillByeWithEntrant`). That bout becomes a real one, the walkover is undone, and the next bout
+  waits for its winner. Once the bye-holder has fought on, that bye is closed; if no bye is open the
+  athlete goes into a group that hasn't started, or a new one.
+- **Kata: append.** A late athlete performs at the end (`appendRankedPerformer`): in the last solo if it
+  hasn't started, otherwise as a new solo after it. The ranking waits for their performance, so the
+  podium stays open until then.
+- **Withdrawals** need no change: kiken in the bout, or "didn't perform" in a ranked group.
+
+A finished group never changes. A guest (an athlete from another category, entered by the admin)
+competes like any member and is marked as a guest; their own category is unchanged.
+
 ### Ranked kata groups
 
 Every athlete of a ranked group performs once and is scored with marks (judge phones or the desk, as

@@ -32,7 +32,8 @@ every tatami live.
 | Local tournament: belt list and group defaults | settings page | `divisions.ts` |
 | Local tournament: categories, each event's plan, starting groups, tatami per category | `/admin/event/[id]/categories` | `divisions.ts` |
 | Local tournament: roster import, category per athlete, kumite and kata participation | `/admin/event/[id]/athletes` | `localAthletes.ts` |
-| Local tournament: staging (who is preparing which category, release or hand on a hold, look at or take a category) | `/admin/event/[id]/staging` | `staging.ts` |
+| Local tournament: staging (who is preparing which category, release or hand on a hold, look at or take a category, walk-ins to review or merge) | `/admin/event/[id]/staging` | `staging.ts`, `localAthletes.ts` |
+| Local tournament: unlock a group, or change a locked group (add, take out, move, a guest from another category) | `/admin/event/[id]/staging/[divisionId]` | `staging.ts` |
 
 ## What an admin cannot do
 
@@ -112,8 +113,44 @@ athletes stay in the roster without a category.
 [stager desk](stager.md#local-tournament-the-stager-desk). *Staging* shows every category's status,
 who holds it and when they last changed something. *Release* frees a hold (the groups stay as they
 are) and *Hand to…* gives the category to another signed-in stager; both need a reason and are
-audited. *Open* shows a category's groups read only. To change them the admin takes the category
-(when nobody holds it) and works in the same workspace as a stager.
+audited. *Open* shows a category's groups. To change its drafts the admin takes the category (when
+nobody holds it) and works in the same workspace as a stager; locked groups are the admin's to change
+whoever holds it (see below).
+
+**Walk-ins** a stager registered wait at the top of *Staging* for the admin. *Details are right*
+confirms one, *Correct* fixes its name, club, age, belt or sex first, and *Same person as…* merges it
+into the registered athlete it turned out to be (likely matches are suggested). A merge keeps the
+registered athlete's record and chest number and deletes the walk-in; the athlete then competes
+wherever one of the two is already in a group, or, if neither is, where the walk-in was registered. A
+merge is refused once either has fought a bout, and while both are in groups. Reviews and merges are
+audited.
+
+### Changing a Local group after lock
+
+Once a group is locked only the admin can change it, from the category's page under *Staging*. Every
+change needs a reason of at least five characters, shows the new draw and what it changes (who meets
+whom, who performs when) before it is confirmed, writes a new draw version, and is audited. A confirm
+against a group that changed since the preview is refused.
+
+- **Unlock** sends a group back to Draft, only before its first bout and while it isn't on the mat
+  (the moderator can return it to the queue first). Its bouts are deleted and its draw hidden; whoever
+  takes the category next finds the same layout (after a late change, with every athlete pinned where
+  they were) and locks it again.
+- **Before the first bout**: *Add* an athlete who is in no group (one marked absent is marked present),
+  *Take out* one, or *Move* one to another locked group of the same event. The draw is rebuilt with
+  everyone else where they were, so only the bouts the change touches differ; a bracket that has to
+  grow (a full one) or shrink is drawn again. The last athlete can't be taken out: unlock the group
+  instead.
+- **Under way**: only *Add*. A kumite athlete takes a first-round bye whose holder hasn't fought their
+  next bout yet; a kata athlete performs at the end (see
+  [DISCIPLINES.md](../DISCIPLINES.md#changes-after-lock)). Nobody leaves: an athlete who can't go on
+  gets kiken, or "didn't perform", on the tatami.
+- **Finished**: nothing changes. Put the athlete in another group.
+- **A guest** is an athlete from another category added the same way, for example a child who missed
+  their own category. Their own category doesn't change, the groups on the stager desk and under
+  *Staging* mark them *guest*, and at home they no longer count as unplaced in that event. An athlete
+  is in at most one group per event, at home or as a guest. A group with a guest can't be unlocked
+  until the guest is taken out.
 
 ## Correcting a result
 

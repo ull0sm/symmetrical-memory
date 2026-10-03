@@ -63,7 +63,8 @@ export default function DivisionWorkspace({
     }
   };
 
-  const athletes = useMemo(() => new Map(ws.athletes.map((a) => [a.id, a])), [ws.athletes]);
+  // Guests compete here through an admin's entry; they are named in the draws but aren't on the roll call.
+  const athletes = useMemo(() => new Map([...ws.guests, ...ws.athletes].map((a) => [a.id, a])), [ws.athletes, ws.guests]);
   const event = tab === "athletes" ? null : (ws.events.find((e) => e.eventType === tab) ?? null);
   useEffect(() => {
     if (tab !== "athletes" && !ws.events.some((e) => e.eventType === tab)) setTab("athletes");
@@ -80,6 +81,8 @@ export default function DivisionWorkspace({
   const take = () => void run("Take this category", () => takeDivision(divisionId));
 
   const notHere = ws.athletes.filter((a) => a.attendance === "absent" || a.attendance === "withdrawn").length;
+  const groups = ws.events.flatMap((e) => e.groups);
+  const allSent = groups.length > 0 && groups.every((g) => g.locked);
   const tabs: { key: Tab; label: string; count: string }[] = [
     { key: "athletes", label: "Athletes", count: `${ws.athletes.length - notHere}/${ws.athletes.length}` },
     ...ws.events.map((e) => ({ key: e.eventType as Tab, label: EVENT_LABEL[e.eventType], count: `${e.groups.filter((g) => g.locked).length}/${e.groups.length}` })),
@@ -142,10 +145,13 @@ export default function DivisionWorkspace({
             <span className="material-symbols-outlined text-[18px]">visibility</span>
             <span className="flex-1">
               {ws.holder
-                ? `You're looking at it. ${ws.holder.name} holds it: release or hand it on from Staging to change it.`
-                : "You're looking at it. Take it to change its groups."}
+                ? `You're looking at it. ${ws.holder.name} holds it: release or hand it on from Staging to change its drafts.`
+                : allSent
+                  ? "Every group has been sent."
+                  : "You're looking at it. Take it to change its drafts."}
+              {viewer === "admin" && groups.some((g) => g.locked) ? " Locked groups: change or unlock them below, with a reason." : ""}
             </span>
-            {!ws.holder && viewer === "admin" && (
+            {!ws.holder && viewer === "admin" && !allSent && (
               <button type="button" onClick={take} disabled={!!pending} className="h-10 rounded-lg bg-sky-700 px-3 font-bold text-white">
                 Take it
               </button>
@@ -204,6 +210,7 @@ export default function DivisionWorkspace({
             event={event}
             athletes={athletes}
             editable={editable}
+            viewer={viewer}
             stickyTop={headerHeight + TAB_BAR_HEIGHT}
             onLocked={(released) => {
               if (released && viewer === "admin") router.replace(homeHref);

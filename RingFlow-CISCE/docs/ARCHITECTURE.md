@@ -130,11 +130,16 @@ admin pages' read models (`setupView.ts`). The stager's side is there too: holds
 group's draw and validation from its draft (`groupBuild.ts`, used by both the preview and the lock),
 the draft changes, the stager's undo (`restoreEventDraftCore`) and the lock (`groupDraft.ts`), the desk and workspace read models
 (`stagingView.ts`), the rule that only a locked group starts (`startGate.ts`) and the moderator queue's
-card labels (`queueLabels.ts`). A ranked kata group's ranking is pure (`src/lib/kata/ranking.ts`); reading
+card labels (`queueLabels.ts`). The admin's side after lock is `lateChanges.ts` (unlock; add, take
+out and move with the draw rebuilt around everyone else; a filled bye or an appended performer written
+without touching a fought bout), its pure planning and summaries (`lateChangePlan.ts`), and the
+walk-in review and merge (`walkIns.ts`). An unlocked group keeps its draw row as a hidden `DRAFT` with
+no bouts, and its version history. A ranked kata group's ranking is pure (`src/lib/kata/ranking.ts`); reading
 it from the bouts, confirming a pair with no winner and the desk's tie decisions are in
 `src/lib/kata/rankedGroup.ts`. The actions that
 guard them are `actions/divisions.ts` and `actions/localAthletes.ts` (admin setup) and
-`actions/staging.ts` (the stager desk, and the admin's release and reassign of a hold). Locking a
+`actions/staging.ts` (the stager desk; the admin's release and reassign of a hold, unlock and changes
+after lock). Walk-in review and merge are in `actions/localAthletes.ts`. Locking a
 group writes its draw through `writeDrawGraph` in `src/lib/draws/generateDraws.ts`, the same path a
 generated Official draw takes. Official-only actions call `requireOfficialTournament` and Local-only
 ones `requireLocalTournament`, so the two models never mix. The stager desk and the category workspace

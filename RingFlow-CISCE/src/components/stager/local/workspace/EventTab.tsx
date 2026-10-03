@@ -12,10 +12,12 @@ import {
   removeGroup,
   shuffleGroup,
   swapAthletes,
+  unlockGroup,
   unpinAthletes,
 } from "@/actions/staging";
 import type { WorkspaceAthlete, WorkspaceEvent, WorkspaceGroup } from "@/lib/local/stagingView";
 import GroupDraw, { type DrawTarget } from "./GroupDraw";
+import LateChangeSheet from "./LateChangeSheet";
 import LockSheet from "./LockSheet";
 import type { WorkspaceApi } from "./useWorkspace";
 import { EVENT_LABEL } from "../format";
@@ -25,7 +27,8 @@ import { EVENT_LABEL } from "../format";
  * the draw of each group. Tap an athlete, then tap where they go: another
  * athlete of the group (swap), a bye (move there), another group, a new group or
  * Unplaced. On a phone one group shows at a time; wider screens show them side
- * by side, with drag and drop as well.
+ * by side, with drag and drop as well. The admin also changes locked groups
+ * here: unlock one that hasn't started, or add, take out and move athletes.
  */
 
 interface Selection {
@@ -41,6 +44,7 @@ export default function EventTab({
   event,
   athletes,
   editable,
+  viewer,
   stickyTop,
   onLocked,
 }: {
@@ -48,6 +52,8 @@ export default function EventTab({
   event: WorkspaceEvent;
   athletes: Map<string, WorkspaceAthlete>;
   editable: boolean;
+  /** The admin changes locked groups whether or not they hold the category. */
+  viewer: "stager" | "admin";
   /** Where the group chips stick: under the page header and the tabs. */
   stickyTop: number;
   /** After a lock: whether that ended the hold (every group sent). */
@@ -64,6 +70,8 @@ export default function EventTab({
   const [sel, setSel] = useState<Selection | null>(null);
   const [locking, setLocking] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [changing, setChanging] = useState<string | null>(null);
+  const [unlocking, setUnlocking] = useState<string | null>(null);
 
   // Keep the shown group valid as groups come and go.
   useEffect(() => {
@@ -176,7 +184,16 @@ export default function EventTab({
     }
   };
 
+  const unlock = async (group: WorkspaceGroup, reason: string) => {
+    const res = await run(`Unlock ${shortName(group)}`, () => unlockGroup(group.id, reason));
+    if (res?.success) {
+      setUnlocking(null);
+      setNotice({ tone: "info", text: `Group ${group.groupNo} is a draft again. Whoever takes the category can change it and lock it again.` });
+    }
+  };
+
   const lockTarget = locking ? groupById.get(locking) : undefined;
+  const changeTarget = changing ? groupById.get(changing) : undefined;
   const dragProps = (athleteId: string) => ({
     draggable: editable,
     onDragStart: () => setSel({ athleteId, groupId: null, place: null }),
@@ -375,6 +392,17 @@ export default function EventTab({
               }}
               onCancelRemove={() => setConfirmRemove(null)}
               onLock={() => setLocking(g.id)}
+              admin={
+                viewer === "admin" && g.locked
+                  ? {
+                      unlocking: unlocking === g.id,
+                      onChange: () => setChanging(g.id),
+                      onUnlock: () => setUnlocking(g.id),
+                      onCancelUnlock: () => setUnlocking(null),
+                      onConfirmUnlock: (reason: string) => void unlock(g, reason),
+                    }
+                  : null
+              }
             />
           ))}
         </div>
@@ -426,6 +454,23 @@ export default function EventTab({
         </div>
       )}
 
+      {changeTarget && (
+        <LateChangeSheet
+          group={changeTarget}
+          event={event}
+          divisionId={divisionId}
+          tournamentId={api.ws.division.tournamentId}
+          athletes={api.ws.athletes}
+          athleteOf={athleteOf}
+          onClose={() => setChanging(null)}
+          onDone={(text) => {
+            setChanging(null);
+            setNotice({ tone: "info", text });
+            void api.refresh();
+          }}
+        />
+      )}
+
       {lockTarget && (
         <LockSheet
           group={lockTarget}
@@ -459,6 +504,7 @@ function GroupPanel({
   onRemove,
   onCancelRemove,
   onLock,
+  admin,
 }: {
   group: WorkspaceGroup;
   hiddenOnPhone: boolean;
@@ -477,14 +523,25 @@ function GroupPanel({
   onRemove: () => void;
   onCancelRemove: () => void;
   onLock: () => void;
+  /** The admin's hand on a locked group, or null. */
+  admin: {
+    unlocking: boolean;
+    onChange: () => void;
+    onUnlock: () => void;
+    onCancelUnlock: () => void;
+    onConfirmUnlock: (reason: string) => void;
+  } | null;
 }) {
   const pins = Object.keys(group.pins).length;
+  const onMat = group.status === "running" || group.status === "paused";
   const status = group.locked
-    ? group.status === "running" || group.status === "paused"
-      ? "On the mat"
-      : group.status === "completed"
-        ? "Finished"
-        : "Locked"
+    ? group.stage === "completed"
+      ? "Finished"
+      : onMat
+        ? "On the mat"
+        : group.stage === "started"
+          ? "Under way"
+          : "Locked"
     : "Draft";
   return (
     <section className={`${hiddenOnPhone ? "hidden lg:block" : ""} rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3`} aria-label={group.name}>
@@ -542,6 +599,8 @@ function GroupPanel({
         interaction={editable ? { selectedId: selection?.athleteId ?? null, onTap, onDragStart } : undefined}
       />
 
+      {admin && <AdminLockedTools group={group} onMat={onMat} busy={busy} {...admin} />}
+
       {editable && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <ToolButton icon="shuffle" onClick={onShuffle} disabled={busy || group.members.length < 2}>
@@ -579,6 +638,74 @@ function GroupPanel({
         </div>
       )}
     </section>
+  );
+}
+
+/** The admin's controls on a locked group: change it after lock, or unlock it before its first bout. */
+function AdminLockedTools({
+  group,
+  onMat,
+  busy,
+  unlocking,
+  onChange,
+  onUnlock,
+  onCancelUnlock,
+  onConfirmUnlock,
+}: {
+  group: WorkspaceGroup;
+  onMat: boolean;
+  busy: boolean;
+  unlocking: boolean;
+  onChange: () => void;
+  onUnlock: () => void;
+  onCancelUnlock: () => void;
+  onConfirmUnlock: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  if (group.stage === "completed") {
+    return <p className="mt-3 text-[12.5px] text-[var(--ink-500)]">Finished: nothing in this group can change now.</p>;
+  }
+  const canUnlock = group.stage === "ready" && !onMat;
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <ToolButton icon="edit_note" onClick={onChange} disabled={busy}>
+          Change after lock
+        </ToolButton>
+        {canUnlock && !unlocking && (
+          <ToolButton icon="lock_open" onClick={onUnlock} disabled={busy}>
+            Unlock
+          </ToolButton>
+        )}
+      </div>
+      {unlocking && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-[var(--canvas)] p-2">
+          <input
+            autoFocus
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Why unlock it? e.g. wrong groups sent"
+            aria-label="Reason to unlock"
+            className="h-10 min-w-[200px] flex-1 rounded-lg border border-[var(--line)] bg-white px-3 text-[13.5px]"
+          />
+          <button
+            type="button"
+            onClick={() => onConfirmUnlock(reason)}
+            disabled={busy || reason.trim().length < 5}
+            className="h-10 rounded-lg bg-[var(--ink-900)] px-3 text-[13px] font-bold text-white disabled:opacity-50"
+          >
+            Unlock
+          </button>
+          <button type="button" onClick={onCancelUnlock} className="h-10 rounded-lg px-2 text-[13px] font-bold text-[var(--ink-700)]">
+            Keep locked
+          </button>
+          <p className="w-full text-[12px] text-[var(--ink-500)]">Its bouts are taken off {group.ringName ?? "the tatami"} until it is locked again.</p>
+        </div>
+      )}
+      {!canUnlock && group.stage === "ready" && onMat && (
+        <p className="text-[12px] text-[var(--ink-500)]">It is on the mat, so it can&apos;t be unlocked. The moderator can return it to the queue first.</p>
+      )}
+    </div>
   );
 }
 

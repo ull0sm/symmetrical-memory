@@ -149,6 +149,23 @@ export async function loadCategoryRoster(executor: DbExecutor, categoryId: strin
 }
 
 /**
+ * Deletes a category's bouts with their slots, scores and events, in reverse
+ * dependency order. The draw row and its version history stay. Callers check
+ * first that nothing has been fought.
+ */
+export async function deleteCategoryBouts(tx: DbExecutor, categoryId: string) {
+  const catMatches = await tx.select({ id: matches.id }).from(matches).where(eq(matches.categoryId, categoryId));
+  const matchIds = catMatches.map((m) => m.id);
+  if (matchIds.length > 0) {
+    await tx.delete(kataScores).where(inArray(kataScores.matchId, matchIds));
+    await tx.delete(matchEvents).where(inArray(matchEvents.matchId, matchIds));
+    await tx.delete(matchSlots).where(inArray(matchSlots.matchId, matchIds));
+    await tx.delete(matches).where(eq(matches.categoryId, categoryId));
+  }
+  return matchIds;
+}
+
+/**
  * Writes a category's draw from an engine graph, replacing any previous bouts:
  * the draw row (next version), the version history, the bouts and their slots,
  * and the category's expected bout count. Generated Official draws and locked
@@ -161,15 +178,7 @@ export async function writeDrawGraph(
   graph: DrawGraph,
   options: { format: string; state: "DRAFT" | "LOCKED"; bronzeMedals: number; reason: string }
 ) {
-  // Delete existing matches, slots, scores, and events cleanly in reverse FK dependency order
-  const catMatches = await tx.select({ id: matches.id }).from(matches).where(eq(matches.categoryId, categoryId));
-  const matchIds = catMatches.map((m) => m.id);
-  if (matchIds.length > 0) {
-    await tx.delete(kataScores).where(inArray(kataScores.matchId, matchIds));
-    await tx.delete(matchEvents).where(inArray(matchEvents.matchId, matchIds));
-    await tx.delete(matchSlots).where(inArray(matchSlots.matchId, matchIds));
-    await tx.delete(matches).where(eq(matches.categoryId, categoryId));
-  }
+  await deleteCategoryBouts(tx, categoryId);
 
   // Upsert draw record. A version number is never reused, even if the row has fallen behind its history.
   const [existingDraw] = await tx.select().from(draws).where(eq(draws.categoryId, categoryId));

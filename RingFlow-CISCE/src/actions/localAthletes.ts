@@ -16,11 +16,13 @@ import {
   setParticipationCore,
 } from "@/lib/local/localRoster";
 import { loadLocalAthletes } from "@/lib/local/setupView";
+import { listWalkInsToReview, mergeWalkInCore, reviewWalkInCore } from "@/lib/local/walkIns";
 
 /**
  * The roster of a Local tournament, for its admin: adding and importing
- * athletes, putting them in a category, kumite and kata participation. Every
- * action checks the caller owns the tournament and that it is a Local one.
+ * athletes, putting them in a category, kumite and kata participation, and
+ * reviewing the walk-ins stagers registered at the venue. Every action checks
+ * the caller owns the tournament and that it is a Local one.
  */
 
 type Result<T = object> = ({ success: true } & T) | { success: false; error: string };
@@ -43,6 +45,7 @@ async function adminOfLocal(tournamentId: string) {
 function refresh(tournamentId: string) {
   revalidatePath(`/admin/event/${tournamentId}/athletes`);
   revalidatePath(`/admin/event/${tournamentId}/categories`);
+  revalidatePath(`/admin/event/${tournamentId}/staging`);
   broadcastLiveEvent({ table: "divisions", op: "UPDATE", tournamentId });
 }
 
@@ -171,4 +174,68 @@ export async function deleteLocalAthlete(tournamentId: string, athleteId: string
     refresh(tournamentId);
   }
   return result.success ? { success: true as const } : result;
+}
+
+// ── Walk-ins ───────────────────────────────────────────────────────────────
+
+/** Walk-ins waiting for the admin, each with the athletes it may duplicate. */
+export async function getWalkInsToReview(tournamentId: string) {
+  await adminOfLocal(tournamentId);
+  return listWalkInsToReview(tournamentId);
+}
+
+const reviewSchema = z.object({
+  name: z.string().trim().min(1, "The athlete needs a name").max(200).optional(),
+  club: z.string().max(200).nullish(),
+  age: z.union([z.string().max(20), z.number()]).nullish(),
+  belt: z.string().max(50).nullish(),
+  sex: z.string().max(20).nullish(),
+});
+
+/** Confirms a walk-in's details, correcting any given. */
+export async function reviewWalkIn(tournamentId: string, athleteId: string, raw: z.input<typeof reviewSchema> = {}) {
+  const admin = await adminOfLocal(tournamentId);
+  if (!uuid.safeParse(athleteId).success) return { success: false as const, error: "Unknown athlete." };
+  const details = reviewSchema.safeParse(raw ?? {});
+  if (!details.success) return { success: false as const, error: details.error.issues[0]?.message ?? "Check the details." };
+  const result = await settle(async () => reviewWalkInCore(tournamentId, athleteId, details.data));
+  if (result.success) {
+    await audit({
+      tournamentId,
+      actor: admin,
+      action: "WALK_IN_REVIEWED",
+      targetType: "athlete",
+      targetId: athleteId,
+      before: result.before,
+      after: result.after,
+    });
+    refresh(tournamentId);
+    return { success: true as const };
+  }
+  return result;
+}
+
+/**
+ * Merges a walk-in into the registered athlete it turned out to be, before either has fought a
+ * bout. The athlete keeps their own record; the walk-in is deleted.
+ */
+export async function mergeWalkIn(tournamentId: string, walkInId: string, intoAthleteId: string) {
+  const admin = await adminOfLocal(tournamentId);
+  if (!uuid.safeParse(walkInId).success || !uuid.safeParse(intoAthleteId).success) return { success: false as const, error: "Unknown athlete." };
+  const result = await settle(async () => mergeWalkInCore(tournamentId, walkInId, intoAthleteId));
+  if (result.success) {
+    await audit({
+      tournamentId,
+      actor: admin,
+      action: "WALK_IN_MERGED",
+      targetType: "athlete",
+      targetId: intoAthleteId,
+      before: { walkIn: result.walkIn, divisionId: result.divisionBefore },
+      after: { athlete: result.into, divisionId: result.divisionAfter, groups: result.groups },
+    });
+    refresh(tournamentId);
+    broadcastLiveEvent({ table: "group_drafts", op: "UPDATE", tournamentId });
+    return { success: true as const, into: result.into.name, groups: result.groups };
+  }
+  return result;
 }

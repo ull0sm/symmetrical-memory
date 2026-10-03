@@ -34,7 +34,7 @@ The calling and ready status is shown to the moderator and the admin as a status
 
 Change queue order or tatami assignments, edit categories, athletes or draws, or score. In a Local
 tournament a stager builds groups only in the category they hold, and cannot change a group once it
-is locked.
+is locked, review walk-ins, or enter a guest from another category: those are the admin's.
 
 ## Local tournament: the stager desk
 
@@ -74,9 +74,12 @@ last 20 changes to the groups. Every change is saved at once; one that fails say
 
 *Lock and send* shows the group exactly as it will be drawn, its tatami and any warnings. Locking
 stores that draw, and the moderator can start the group when its turn comes; from then on only the
-admin can change it. An empty group, an absent athlete in it, or pins that leave a bout with nobody
-in it block the lock. A group of one, more athletes than the plan, club-mates meeting in the first
-round, or a walk-in the admin hasn't reviewed only warn.
+admin can change it ([admin.md](admin.md#changing-a-local-group-after-lock)), and the stager sees it
+read only, as its stored draw. An empty group, an absent athlete in it, or pins that leave a bout with
+nobody in it block the lock. A group of one, more athletes than the plan, club-mates meeting in the
+first round, or a walk-in the admin hasn't reviewed only warn. A guest the admin entered from another
+category is marked *guest* in the group; an athlete who competes as a guest elsewhere isn't unplaced
+here and can't be put in a group of that event.
 
 | Action | Server action |
 |---|---|

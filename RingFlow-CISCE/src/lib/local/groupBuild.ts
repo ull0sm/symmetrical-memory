@@ -24,6 +24,7 @@ import type { DrawGraph, Participant } from "@/engine/draw-engine/types";
 import type { DbExecutor } from "@/lib/draws/generateDraws";
 import { clubKey } from "@/lib/draws/generateDraws";
 import type { DivisionEventType } from "@/lib/statuses";
+import type { PlacedAthlete } from "./lateChangePlan";
 
 export interface GroupMember {
   athleteId: string;
@@ -34,6 +35,8 @@ export interface GroupMember {
   attendance: string | null;
   walkIn: boolean;
   needsReview: boolean;
+  /** An admin's guest entry from another category (only ever in a locked group). */
+  guest: boolean;
 }
 
 export interface GroupState {
@@ -94,6 +97,7 @@ export async function loadGroupState(executor: DbExecutor, groupId: string): Pro
       attendance: tournamentRegistrations.attendance,
       walkIn: athletes.walkIn,
       needsReview: athletes.needsReview,
+      guest: categoryEntries.guest,
     })
     .from(categoryEntries)
     .innerJoin(athletes, eq(athletes.id, categoryEntries.athleteId))
@@ -170,11 +174,7 @@ export function buildGroupGraph(group: GroupState, pins: Record<string, number> 
   );
 }
 
-export interface PlacedAthlete {
-  place: number;
-  athleteId: string | null;
-  pinned: boolean;
-}
+export type { PlacedAthlete };
 
 export interface GroupPreview {
   graph: DrawGraph | null;

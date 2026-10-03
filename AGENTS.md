@@ -53,7 +53,7 @@ For anyone changing the code. For what the product does, read
 | PDFs and exports | `src/lib/pdf/`, `src/lib/results/`, `src/actions/resultsExport.ts` |
 | Environment and deployment mode | `src/lib/env.ts`, `src/lib/offline.ts`, `src/lib/http/` |
 | Screens | `src/app/<role>/...` (admin, organiser, stager, moderator, judge, public, scoreboard) and `src/components/<role or feature>/` |
-| Local tournaments (divisions, groups, stager holds) | `src/lib/local/`, `src/lib/auth/localScope.ts`, `src/actions/divisions.ts` (setup), `src/actions/localAthletes.ts` (roster), `src/actions/staging.ts` (stager desk), screens in `src/components/stager/local/` |
+| Local tournaments (divisions, groups, stager holds, changes after lock, walk-ins) | `src/lib/local/` (`lateChanges.ts`, `walkIns.ts` for the admin's side), `src/lib/auth/localScope.ts`, `src/actions/divisions.ts` (setup), `src/actions/localAthletes.ts` (roster, walk-in review), `src/actions/staging.ts` (stager desk, unlock, changes after lock), screens in `src/components/stager/local/` and `src/components/admin/local/` |
 
 ## Anatomy of an action (illustrative)
 

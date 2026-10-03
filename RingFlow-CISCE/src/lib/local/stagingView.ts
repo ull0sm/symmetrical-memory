@@ -24,7 +24,10 @@ import type { DivisionEventType } from "@/lib/statuses";
 import { readLocalSettings } from "./divisions";
 import { loadGroupState, previewGroup, sanitizePins, type PlacedAthlete } from "./groupBuild";
 import type { HolderIdentity } from "./holds";
+import { openByes, placesInGraph } from "./lateChangePlan";
+import { startedBouts, storedGraphOf, type LockedStage } from "./lateChanges";
 import { effectiveEventSettings } from "./rules";
+import { guestsElsewhere } from "./startingGroups";
 
 export type DeskStatus = "waiting" | "held" | "partly" | "sent" | "done";
 
@@ -163,6 +166,10 @@ export interface WorkspaceGroup {
   warnings: string[];
   ringName: string | null;
   status: string | null;
+  /** Draft, or how far a locked group has got: ready (no bout yet), started, completed. */
+  stage: "draft" | LockedStage;
+  /** A started kumite group's first-round byes a late athlete can still take. */
+  openByes: { place: number; bout: number; athleteId: string }[];
 }
 
 export interface WorkspaceEvent {
@@ -186,6 +193,8 @@ export interface WorkspaceAthlete {
   kata: boolean;
   attendance: string | null;
   walkIn: boolean;
+  /** A guest's own category: they compete in a group here through an admin's guest entry. */
+  guestFrom: string | null;
 }
 
 export async function loadWorkspace(divisionId: string) {
@@ -214,12 +223,14 @@ export async function loadWorkspace(divisionId: string) {
     kata: r.kata,
     attendance: r.attendance,
     walkIn: a.walkIn,
+    guestFrom: null,
   }));
 
   const eventRows = await db.select().from(divisionEvents).where(eq(divisionEvents.divisionId, divisionId));
   const ringNames = new Map((await db.select({ id: rings.id, name: rings.name }).from(rings).where(eq(rings.tournamentId, division.tournamentId))).map((r) => [r.id, r.name]));
   const cards: { ringId: string | null; status: string | null; queueOrder: number | null }[] = [];
   const events: WorkspaceEvent[] = [];
+  const guestIds = new Set<string>();
   for (const e of eventRows.filter((x) => x.enabled).sort((a, b) => (a.eventType < b.eventType ? 1 : -1))) {
     const eventType = e.eventType as DivisionEventType;
     const effective = effectiveEventSettings(eventType, e, settings);
@@ -231,30 +242,57 @@ export async function loadWorkspace(divisionId: string) {
       .orderBy(asc(categories.groupNo));
     const groups: WorkspaceGroup[] = [];
     cards.push(...groupRows);
+    const started = await startedBouts(db, groupRows.map((r) => r.id));
     for (const row of groupRows) {
       const state = await loadGroupState(db, row.id);
       if (!state) continue;
-      const preview = previewGroup(state);
-      groups.push({
+      for (const m of state.members.filter((x) => x.guest)) guestIds.add(m.athleteId);
+      const ringName = row.ringId ? (ringNames.get(row.ringId) ?? null) : null;
+      const base = {
         id: state.id,
         groupNo: state.groupNo,
         name: state.name,
-        locked: state.locked,
         version: state.version,
-        checksum: state.locked ? state.drawChecksum : (preview.graph?.checksum ?? null),
         seed: state.seed,
         members: state.members.map((m) => m.athleteId),
-        pins: state.locked ? {} : sanitizePins(state),
-        places: preview.places,
-        blockers: state.locked ? [] : preview.blockers,
-        warnings: state.locked ? [] : preview.warnings,
-        ringName: row.ringId ? (ringNames.get(row.ringId) ?? null) : null,
+        ringName,
         status: row.status ?? null,
+      };
+      // A locked group is shown as its stored draw, which late changes may have moved on from the draft.
+      const graph = state.locked ? await storedGraphOf(db, state.id) : null;
+      if (state.locked && graph) {
+        const fought = started.get(state.id) ?? new Set<string>();
+        const stage: LockedStage = row.status === "completed" ? "completed" : fought.size > 0 ? "started" : "ready";
+        groups.push({
+          ...base,
+          locked: true,
+          checksum: state.drawChecksum,
+          pins: {},
+          places: placesInGraph(graph, eventType),
+          blockers: [],
+          warnings: [],
+          stage,
+          openByes: stage === "started" ? openByes(graph, fought).map(({ place, bout, athleteId }) => ({ place, bout, athleteId })) : [],
+        });
+        continue;
+      }
+      const preview = previewGroup(state);
+      groups.push({
+        ...base,
+        locked: false,
+        checksum: preview.graph?.checksum ?? null,
+        pins: sanitizePins(state),
+        places: preview.places,
+        blockers: preview.blockers,
+        warnings: preview.warnings,
+        stage: "draft",
+        openByes: [],
       });
     }
-    const placed = new Set(
-      (await db.select({ id: categoryEntries.athleteId }).from(categoryEntries).where(eq(categoryEntries.divisionEventId, e.id))).map((r) => r.id)
-    );
+    const placed = new Set([
+      ...(await db.select({ id: categoryEntries.athleteId }).from(categoryEntries).where(eq(categoryEntries.divisionEventId, e.id))).map((r) => r.id),
+      ...(await guestsElsewhere(db, e.id)),
+    ]);
     const unplaced = people
       .filter((p) => (eventType === "kata" ? p.kata : p.kumite) && !placed.has(p.id) && p.attendance !== "absent" && p.attendance !== "withdrawn")
       .map((p) => p.id);
@@ -266,6 +304,30 @@ export async function loadWorkspace(divisionId: string) {
 
     events.push({ id: e.id, eventType, planSize: effective.groupSize, bronzeMedals: effective.bronzeMedals, groups, unplaced, warnings });
   }
+
+  // Guests in this category's groups: their names, and the category they come from.
+  const guests: WorkspaceAthlete[] = guestIds.size
+    ? (
+        await db
+          .select({ athlete: athletes, registration: tournamentRegistrations, from: divisions.name })
+          .from(athletes)
+          .leftJoin(tournamentRegistrations, eq(tournamentRegistrations.athleteId, athletes.id))
+          .leftJoin(divisions, eq(divisions.id, tournamentRegistrations.divisionId))
+          .where(inArray(athletes.id, [...guestIds]))
+      ).map(({ athlete: a, registration: r, from }) => ({
+        id: a.id,
+        name: a.name,
+        club: a.school ?? a.dojo,
+        chestNumber: a.chestNumber,
+        age: a.age,
+        belt: a.belt,
+        kumite: r?.kumite ?? false,
+        kata: r?.kata ?? false,
+        attendance: r?.attendance ?? null,
+        walkIn: a.walkIn,
+        guestFrom: from ?? "another category",
+      }))
+    : [];
 
   const ringIds = [...new Set(cards.map((c) => c.ringId).filter((id): id is string => id !== null))];
   const queue = ringIds.length
@@ -280,6 +342,7 @@ export async function loadWorkspace(divisionId: string) {
     holder: hold ? { name: hold.name, label: hold.label, kind: hold.kind } : null,
     tatami: tatamiPosition(cards, queue, ringNames),
     athletes: people,
+    guests,
     events,
   };
 }

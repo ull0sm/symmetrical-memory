@@ -3,29 +3,44 @@
 import React, { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { getWalkInsToReview } from "@/actions/localAthletes";
 import { getStagerDesk, listStagersForHolds, reassignHold, releaseHold, takeDivision } from "@/actions/staging";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import { useFallbackPoll } from "@/hooks/useFallbackPoll";
 import type { DeskItem } from "@/lib/local/stagingView";
 import { EVENT_LABEL, sinceLabel, statusPill, tatamiLine } from "@/components/stager/local/format";
+import WalkInReview from "./WalkInReview";
 
 /**
  * The admin's view of the stager desk: who is preparing which category, how far
  * each one is, and the admin's hand on holds (release one, or hand it to another
- * signed-in stager, with a reason). Opening a category shows its groups; the
- * admin changes them only after taking it.
+ * signed-in stager, with a reason), and the walk-ins waiting for review.
+ * Opening a category shows its groups: drafts change only in the hands of
+ * whoever holds it; locked groups the admin can change or unlock there.
  */
 
 type Desk = Awaited<ReturnType<typeof getStagerDesk>>;
 type Stager = Awaited<ReturnType<typeof listStagersForHolds>>[number];
+type WalkIn = Awaited<ReturnType<typeof getWalkInsToReview>>[number];
 type Form = { divisionId: string; kind: "release" | "reassign" } | null;
 
 const btn = "h-10 px-3 border border-outline-variant rounded text-sm font-semibold hover:bg-surface-container-low disabled:opacity-50 flex items-center gap-1.5";
 
-export default function StagingOverviewClient({ tournamentId, initialDesk, initialStagers }: { tournamentId: string; initialDesk: Desk; initialStagers: Stager[] }) {
+export default function StagingOverviewClient({
+  tournamentId,
+  initialDesk,
+  initialStagers,
+  initialWalkIns,
+}: {
+  tournamentId: string;
+  initialDesk: Desk;
+  initialStagers: Stager[];
+  initialWalkIns: WalkIn[];
+}) {
   const router = useRouter();
   const [desk, setDesk] = useState(initialDesk);
   const [stagers, setStagers] = useState(initialStagers);
+  const [walkIns, setWalkIns] = useState(initialWalkIns);
   const [form, setForm] = useState<Form>(null);
   const [reason, setReason] = useState("");
   const [target, setTarget] = useState("");
@@ -36,10 +51,11 @@ export default function StagingOverviewClient({ tournamentId, initialDesk, initi
   const refresh = useCallback(async () => {
     const n = ++seq.current;
     try {
-      const [nextDesk, nextStagers] = await Promise.all([getStagerDesk(tournamentId), listStagersForHolds(tournamentId)]);
+      const [nextDesk, nextStagers, nextWalkIns] = await Promise.all([getStagerDesk(tournamentId), listStagersForHolds(tournamentId), getWalkInsToReview(tournamentId)]);
       if (n !== seq.current) return;
       setDesk(nextDesk);
       setStagers(nextStagers);
+      setWalkIns(nextWalkIns);
     } catch (err) {
       console.error("Couldn't refresh staging:", err);
     }
@@ -80,6 +96,8 @@ export default function StagingOverviewClient({ tournamentId, initialDesk, initi
           {stagers.length} stager{stagers.length === 1 ? "" : "s"} signed in
         </p>
       </div>
+
+      <WalkInReview tournamentId={tournamentId} walkIns={walkIns} onChanged={refresh} />
 
       {desk.items.length === 0 ? (
         <p className="rounded border border-dashed border-outline-variant p-6 text-center text-sm text-on-surface-variant">

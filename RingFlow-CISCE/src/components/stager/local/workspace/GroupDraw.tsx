@@ -52,8 +52,10 @@ export default function GroupDraw({
   }
 
   if (eventType === "kata") {
+    // A locked group's order can hold an empty side: a solo that started before a late performer was added after it.
     const pairs: (typeof group.places)[] = [];
-    for (let i = 0; i < group.places.length; i += 2) pairs.push(group.places.slice(i, i + 2));
+    for (let i = 0; i < group.places.length; i += 2) pairs.push(group.places.slice(i, i + 2).filter((p) => p.athleteId !== null || interaction));
+    let performer = 0;
     return (
       <ol className="space-y-2.5">
         {pairs.map((pair, i) => (
@@ -68,7 +70,7 @@ export default function GroupDraw({
                   target={{ groupId: group.id, place: p.place, athleteId: p.athleteId }}
                   athlete={p.athleteId ? athleteOf(p.athleteId) : undefined}
                   pinned={p.pinned}
-                  number={p.place}
+                  number={(performer += 1)}
                   interaction={interaction}
                 />
               ))}
@@ -145,9 +147,16 @@ function Slot({
           <span className={`block truncate text-[14.5px] font-semibold ${away ? "text-red-700 line-through" : "text-[var(--ink-900)]"}`}>
             {athlete?.name ?? "Unknown athlete"}
             {athlete?.walkIn && <span className="ml-1.5 rounded bg-amber-100 px-1 py-px align-middle text-[10px] font-bold uppercase text-amber-800 no-underline">walk-in</span>}
+            {athlete?.guestFrom && (
+              <span title={`Guest from ${athlete.guestFrom}`} className="ml-1.5 rounded bg-sky-100 px-1 py-px align-middle text-[10px] font-bold uppercase text-sky-800 no-underline">
+                guest
+              </span>
+            )}
           </span>
           <span className="block truncate text-[11.5px] text-[var(--ink-500)]">
-            {[athlete?.club, athlete?.chestNumber ? `#${athlete.chestNumber}` : null, away ? athlete?.attendance : null].filter(Boolean).join(" · ")}
+            {[athlete?.club, athlete?.chestNumber ? `#${athlete.chestNumber}` : null, away ? athlete?.attendance : null, athlete?.guestFrom ? `from ${athlete.guestFrom}` : null]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
         </span>
       )}

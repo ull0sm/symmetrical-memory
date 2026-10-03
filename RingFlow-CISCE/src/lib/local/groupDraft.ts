@@ -27,7 +27,7 @@ import { currentPlaces, loadGroupState, previewGroup, sanitizePins, type GroupSt
 import { releaseIfAllSent, touchHold } from "./holds";
 import { addLocalAthleteCore, assignAthleteDivisionCore } from "./localRoster";
 import { distributeIntoGroups, effectiveEventSettings, engineBronze, expectedBouts, groupName } from "./rules";
-import { eventParticipants, newGroupSeed, refreshGroupCounts, removeFromDraftGroups } from "./startingGroups";
+import { eventParticipants, guestsElsewhere, newGroupSeed, refreshGroupCounts, removeFromDraftGroups } from "./startingGroups";
 import { insertGroupCards } from "./tatami";
 
 /** Runs a change on a division: one transaction, the division row locked, the hold marked active. */
@@ -169,6 +169,9 @@ export async function moveAthleteCore(
     if (input.to !== null && isAway(registration.attendance)) {
       throw new LocalSetupError(`${name} is marked ${registration.attendance}. Mark them present first.`);
     }
+    if (input.to !== null && (await guestsElsewhere(tx, event.id)).has(input.athleteId)) {
+      throw new LocalSetupError(`${name} competes in ${input.eventType} as a guest in another category.`);
+    }
 
     const from = await currentGroupOf(tx, input.athleteId, event.id);
     if (from) {
@@ -300,7 +303,8 @@ async function deleteDraftGroup(tx: DbExecutor, division: typeof divisions.$infe
     .leftJoin(draws, eq(draws.categoryId, categories.id))
     .where(and(eq(categories.divisionEventId, group.divisionEventId), sql`${categories.groupNo} > ${group.groupNo}`))
     .orderBy(asc(categories.groupNo));
-  if (later.every((g) => g.locked === null)) {
+  // An unlocked group keeps a hidden draw row; only a locked one has a name the tatami already shows.
+  if (later.every((g) => g.locked !== "LOCKED")) {
     for (const g of later) {
       const groupNo = (g.groupNo ?? 1) - 1;
       await tx.update(categories).set({ groupNo, name: groupName(division.name, group.eventType, groupNo) }).where(eq(categories.id, g.id));
@@ -338,7 +342,10 @@ export async function restoreEventDraftCore(
       throw new LocalSetupError("A group was locked or removed since, so that can't be undone.");
     }
 
-    const eligible = new Map((await eventParticipants(tx, event.id)).filter((p) => !isAway(p.attendance)).map((p) => [p.athleteId, p]));
+    const guests = await guestsElsewhere(tx, event.id);
+    const eligible = new Map(
+      (await eventParticipants(tx, event.id)).filter((p) => !isAway(p.attendance) && !guests.has(p.athleteId)).map((p) => [p.athleteId, p])
+    );
     const seen = new Set<string>();
     let skipped = 0;
     const plan = snapshot.groups.map((s) => {
@@ -380,9 +387,10 @@ export async function restoreEventDraftCore(
 /** Present athletes of an event who are in no group. */
 async function unplacedOf(tx: DbExecutor, divisionEventId: string) {
   const everyone = await eventParticipants(tx, divisionEventId);
-  const placed = new Set(
-    (await tx.select({ id: categoryEntries.athleteId }).from(categoryEntries).where(eq(categoryEntries.divisionEventId, divisionEventId))).map((r) => r.id)
-  );
+  const placed = new Set([
+    ...(await tx.select({ id: categoryEntries.athleteId }).from(categoryEntries).where(eq(categoryEntries.divisionEventId, divisionEventId))).map((r) => r.id),
+    ...(await guestsElsewhere(tx, divisionEventId)),
+  ]);
   return everyone.filter((p) => !placed.has(p.athleteId) && !isAway(p.attendance));
 }
 

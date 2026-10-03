@@ -32,6 +32,8 @@ RingFlow has six kinds of user. Each has its own page in this folder:
 | Athlete roster, import, moves | O | R | R | R (current bout) | - | search only |
 | Local tournament setup: belt list and defaults, categories, plans, starting groups, a category's tatami | O | R | - | - | - | - |
 | Local stager desk: take a category, roll call, walk-ins and moves into it, build and lock its groups | O (while holding it; release or hand on any hold) | - | O (the one category held) | - | - | - |
+| Local group after lock: unlock (before its first bout), add, take out, move, guest entry (with a reason) | O | - | - | - | - | - |
+| Local walk-ins: confirm or correct details, merge into the registered athlete | O | - | - | - | - | - |
 | Choose the draw profile, set seeds, generate, lock, unlock, flush draws, swap athletes by hand (organiser's rules only) | O | - | - | - | - | - |
 | Split a category's pools across tatamis, move or merge them | O | - | - | - | - | - |
 | View draws and brackets | O | R | R | R | - | if "show draws publicly", or their own athlete |

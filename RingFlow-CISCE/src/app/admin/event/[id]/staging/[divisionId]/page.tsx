@@ -25,8 +25,7 @@ export default async function AdminStagingCategoryPage({ params }: { params: Pro
   const [t] = await db.select({ name: tournaments.name, type: tournaments.tournamentType }).from(tournaments).where(eq(tournaments.id, tournamentId)).limit(1);
   if (!t || t.type !== "LOCAL") redirect(`/admin/event/${tournamentId}/categories`);
 
-  const workspace = await getDivisionWorkspace(divisionId);
-  if (!workspace) notFound();
+  const workspace = await getDivisionWorkspace(divisionId);  if (!workspace) notFound();
   return (
     <>
       <AdminHeader title="Staging" eventName={t.name} />

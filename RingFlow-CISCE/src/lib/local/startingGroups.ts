@@ -66,6 +66,25 @@ export async function eventParticipants(executor: DbExecutor, divisionEventId: s
 
 const isAway = (p: EventParticipant) => p.attendance === "absent" || p.attendance === "withdrawn";
 
+/**
+ * Athletes of a division event who compete in that event elsewhere, as an admin's guest entry
+ * in another category's group. They count as placed: nobody puts them in a group here too.
+ */
+export async function guestsElsewhere(executor: DbExecutor, divisionEventId: string): Promise<Set<string>> {
+  const [event] = await executor
+    .select({ divisionId: divisionEvents.divisionId, eventType: divisionEvents.eventType })
+    .from(divisionEvents)
+    .where(eq(divisionEvents.id, divisionEventId));
+  if (!event) return new Set();
+  const rows = await executor
+    .select({ id: categoryEntries.athleteId })
+    .from(categoryEntries)
+    .innerJoin(categories, eq(categories.id, categoryEntries.categoryId))
+    .innerJoin(tournamentRegistrations, eq(tournamentRegistrations.athleteId, categoryEntries.athleteId))
+    .where(and(eq(categoryEntries.guest, true), eq(categories.eventType, event.eventType), eq(tournamentRegistrations.divisionId, event.divisionId)));
+  return new Set(rows.map((r) => r.id));
+}
+
 /** Why an event's starting groups can't be rebuilt right now, or null. */
 async function rebuildRefusal(executor: DbExecutor, divisionEventId: string, divisionId: string): Promise<string | null> {
   const [hold] = await executor.select({ name: divisionHolds.holderName }).from(divisionHolds).where(eq(divisionHolds.divisionId, divisionId));
