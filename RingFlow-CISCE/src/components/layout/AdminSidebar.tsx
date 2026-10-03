@@ -10,6 +10,8 @@ import { getSidebarTournamentCounts } from "@/actions/admin";
 
 interface SidebarCounts {
   name: string;
+  /** OFFICIAL or LOCAL: a Local tournament also has the stagers' Staging page. */
+  tournamentType?: string;
   ringsCount: number;
   categoriesCount: number;
   athletesCount: number;
@@ -57,6 +59,7 @@ export default function AdminSidebar({ initialCounts }: { initialCounts?: Sideba
         if (isMounted && counts) {
           setTournamentData((prev) => ({
             name: counts.name || prev.name,
+            tournamentType: counts.tournamentType ?? prev.tournamentType,
             ringsCount: counts.ringsCount ?? prev.ringsCount,
             categoriesCount: counts.categoriesCount ?? prev.categoriesCount,
             athletesCount: counts.athletesCount ?? prev.athletesCount,
@@ -126,6 +129,17 @@ export default function AdminSidebar({ initialCounts }: { initialCounts?: Sideba
       count: tournamentData.categoriesCount || 0,
       isLive: false,
     },
+    ...(tournamentData.tournamentType === "LOCAL"
+      ? [
+          {
+            name: "Staging",
+            href: `/admin/event/${id}/staging`,
+            icon: <span className="material-symbols-outlined w-[22px] shrink-0 text-[22px]">front_hand</span>,
+            count: null,
+            isLive: true,
+          },
+        ]
+      : []),
     {
       name: "Athletes",
       href: `/admin/event/${id}/athletes`,
@@ -522,6 +536,8 @@ export default function AdminSidebar({ initialCounts }: { initialCounts?: Sideba
                     ? "balance"
                     : item.name === "Categories"
                     ? "category"
+                    : item.name === "Staging"
+                    ? "front_hand"
                     : "groups"}
                 </span>
               )}

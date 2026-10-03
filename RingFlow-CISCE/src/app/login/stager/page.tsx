@@ -47,7 +47,7 @@ function StagerLoginContent() {
     // 2. Auto-forward if session already active
     getCurrentStagerSession().then((res) => {
       if (res?.tournamentId) {
-        router.replace(`/stager/event/${res.tournamentId}/balance`);
+        router.replace(`/stager/event/${res.tournamentId}`);
       }
     }).catch(() => {});
   }, [router]);

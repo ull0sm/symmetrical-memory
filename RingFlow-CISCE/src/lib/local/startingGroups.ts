@@ -273,8 +273,9 @@ export async function removeFromDraftGroups(tx: DbExecutor, athleteId: string, d
   for (const e of entries) {
     await tx.delete(categoryEntries).where(and(eq(categoryEntries.categoryId, e.categoryId), eq(categoryEntries.athleteId, athleteId)));
     await refreshGroupCounts(tx, e.categoryId);
+    // A membership change is a new version of the draft, pinned or not.
     const [draft] = await tx.select().from(groupDrafts).where(eq(groupDrafts.categoryId, e.categoryId));
-    if (draft && athleteId in draft.pins) {
+    if (draft) {
       const pins = { ...draft.pins };
       delete pins[athleteId];
       await tx.update(groupDrafts).set({ pins, version: draft.version + 1, updatedAt: new Date() }).where(eq(groupDrafts.categoryId, e.categoryId));

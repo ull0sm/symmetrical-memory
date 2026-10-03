@@ -51,6 +51,10 @@ export default async function StagerBalancePage({
   if (!tournament) {
     redirect("/login/stager");
   }
+  // A Local tournament's stagers work at the desk; there is no calling board.
+  if (tournament.tournamentType === "LOCAL") {
+    redirect(`/stager/event/${tournamentId}`);
+  }
 
   const ringIds = ringRows.map((r) => r.id);
   let assignments: any[] = [];

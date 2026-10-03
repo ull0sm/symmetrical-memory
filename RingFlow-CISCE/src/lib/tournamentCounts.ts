@@ -24,6 +24,7 @@ export async function tournamentCounts(tournamentId: string) {
   ]);
   return {
     name: t.name,
+    tournamentType: t.type,
     ringsCount: ringsRes?.count ?? 0,
     categoriesCount: catsRes?.count ?? 0,
     athletesCount: athRes?.count ?? 0,

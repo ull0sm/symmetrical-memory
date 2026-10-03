@@ -31,6 +31,7 @@ RingFlow has six kinds of user. Each has its own page in this folder:
 | Categories and category definitions | O | R | R | R (own queue) | - | names only |
 | Athlete roster, import, moves | O | R | R | R (current bout) | - | search only |
 | Local tournament setup: belt list and defaults, categories, plans, starting groups, a category's tatami | O | R | - | - | - | - |
+| Local stager desk: take a category, roll call, walk-ins and moves into it, build and lock its groups | O (while holding it; release or hand on any hold) | - | O (the one category held) | - | - | - |
 | Choose the draw profile, set seeds, generate, lock, unlock, flush draws, swap athletes by hand (organiser's rules only) | O | - | - | - | - | - |
 | Split a category's pools across tatamis, move or merge them | O | - | - | - | - | - |
 | View draws and brackets | O | R | R | R | - | if "show draws publicly", or their own athlete |
@@ -43,7 +44,7 @@ RingFlow has six kinds of user. Each has its own page in this folder:
 | Correct a confirmed result | O (reason required) | - | - | own tatami, while on the mat (reason required) | - | - |
 | Run the bout clock | O (override) | - | - | own tatami | - | - |
 | Kata votes | - | - | - | open, close, void, override | own seat, current bout | - |
-| Mark a category calling or ready | O | - | O | R | - | - |
+| Mark a category calling or ready (Official) | O | - | O | R | - | - |
 | Athlete attendance | O | - | O | R | - | - |
 | Live dashboard of all tatamis | O | R | - | own tatami | - | public floor view |
 | Audit log | O | R | - | - | - | - |

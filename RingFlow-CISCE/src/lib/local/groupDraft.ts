@@ -287,21 +287,93 @@ export async function addGroupCore(divisionId: string, eventType: DivisionEventT
 export async function removeGroupCore(divisionId: string, groupId: string) {
   return withDivision(divisionId, async (tx, division) => {
     const group = await draftGroup(tx, divisionId, groupId);
-    await tx.delete(categories).where(eq(categories.id, groupId));
+    await deleteDraftGroup(tx, division, group);
+    return { removed: group.name, members: group.members.length };
+  });
+}
 
-    const later = await tx
-      .select({ id: categories.id, groupNo: categories.groupNo, locked: draws.state })
-      .from(categories)
-      .leftJoin(draws, eq(draws.categoryId, categories.id))
-      .where(and(eq(categories.divisionEventId, group.divisionEventId), sql`${categories.groupNo} > ${group.groupNo}`))
-      .orderBy(asc(categories.groupNo));
-    if (later.every((g) => g.locked === null)) {
-      for (const g of later) {
-        const groupNo = (g.groupNo ?? 1) - 1;
-        await tx.update(categories).set({ groupNo, name: groupName(division.name, group.eventType, groupNo) }).where(eq(categories.id, g.id));
+async function deleteDraftGroup(tx: DbExecutor, division: typeof divisions.$inferSelect, group: GroupState) {
+  await tx.delete(categories).where(eq(categories.id, group.id));
+  const later = await tx
+    .select({ id: categories.id, groupNo: categories.groupNo, locked: draws.state })
+    .from(categories)
+    .leftJoin(draws, eq(draws.categoryId, categories.id))
+    .where(and(eq(categories.divisionEventId, group.divisionEventId), sql`${categories.groupNo} > ${group.groupNo}`))
+    .orderBy(asc(categories.groupNo));
+  if (later.every((g) => g.locked === null)) {
+    for (const g of later) {
+      const groupNo = (g.groupNo ?? 1) - 1;
+      await tx.update(categories).set({ groupNo, name: groupName(division.name, group.eventType, groupNo) }).where(eq(categories.id, g.id));
+    }
+  }
+}
+
+/** How an event's draft groups looked: the stager's undo point. */
+export interface EventDraftSnapshot {
+  groups: { id: string; members: string[]; pins: Record<string, number>; seed: number }[];
+}
+
+/**
+ * Puts an event's draft groups back as they were (the stager's undo): who is in which group, the
+ * pins and the seed. Refused when the groups changed since the stager last looked
+ * (`expectedVersions`, one per draft group), or when a group of the snapshot was locked or
+ * removed since. A group added since is removed again. Athletes who can't be placed any more
+ * (absent, moved out, no longer taking part) stay out and are counted in `skipped`.
+ */
+export async function restoreEventDraftCore(
+  divisionId: string,
+  eventType: DivisionEventType,
+  snapshot: EventDraftSnapshot,
+  expectedVersions: Record<string, number>,
+  by: string
+) {
+  return withDivision(divisionId, async (tx, division) => {
+    const event = await eventOf(tx, divisionId, eventType);
+    const groups = await draftGroupsOf(tx, divisionId, event.id);
+    const current = new Map(groups.map((g) => [g.id, g]));
+    const stale =
+      groups.some((g) => expectedVersions[g.id] !== g.version) || Object.keys(expectedVersions).some((id) => !current.has(id));
+    if (stale) throw new LocalSetupError("This category changed since you looked at it, so that can't be undone.");
+    if (snapshot.groups.some((s) => !current.has(s.id))) {
+      throw new LocalSetupError("A group was locked or removed since, so that can't be undone.");
+    }
+
+    const eligible = new Map((await eventParticipants(tx, event.id)).filter((p) => !isAway(p.attendance)).map((p) => [p.athleteId, p]));
+    const seen = new Set<string>();
+    let skipped = 0;
+    const plan = snapshot.groups.map((s) => {
+      const members = s.members.filter((id) => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        if (!eligible.has(id)) skipped += 1;
+        return eligible.has(id);
+      });
+      return { group: current.get(s.id) as GroupState, members, pins: s.pins, seed: s.seed };
+    });
+
+    // Athletes in a locked group of the event stay there: only draft groups are rewritten.
+    for (const g of groups) await tx.delete(categoryEntries).where(eq(categoryEntries.categoryId, g.id));
+    const locked = new Set(
+      (await tx.select({ id: categoryEntries.athleteId }).from(categoryEntries).where(eq(categoryEntries.divisionEventId, event.id))).map((r) => r.id)
+    );
+    for (const p of plan) {
+      const members = p.members.filter((id) => !locked.has(id));
+      skipped += p.members.length - members.length;
+      for (const id of members) await addEntry(tx, p.group.id, event.id, id, eligible.get(id)?.registrationId ?? null);
+      const pins = Object.fromEntries(Object.entries(p.pins).filter(([id]) => members.includes(id)));
+      await saveDraft(tx, p.group.id, { pins, seed: p.seed }, by);
+      await refreshGroupCounts(tx, p.group.id);
+      // Pins that only worked with someone who is now missing are dropped rather than left blocking.
+      const restored = await loadGroupState(tx, p.group.id);
+      if (restored && previewGroup(restored).blockers.some((b) => b.startsWith("The pinned places"))) {
+        await tx.update(groupDrafts).set({ pins: {} }).where(eq(groupDrafts.categoryId, p.group.id));
       }
     }
-    return { removed: group.name, members: group.members.length };
+
+    const inSnapshot = new Set(snapshot.groups.map((s) => s.id));
+    const added = groups.filter((g) => !inSnapshot.has(g.id)).sort((a, b) => b.groupNo - a.groupNo);
+    for (const g of added) await deleteDraftGroup(tx, division, g);
+    return { skipped, removedGroups: added.map((g) => ({ id: g.id, name: g.name })) };
   });
 }
 

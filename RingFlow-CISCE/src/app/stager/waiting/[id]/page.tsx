@@ -11,7 +11,7 @@ export default function StagerWaitingRoom() {
 
   // The server sets the httpOnly session cookie when it reports "approved".
   const { state, message } = useAccessRequestStatus(id, checkStagerStatus, (res) => {
-    setTimeout(() => window.location.replace(`/stager/event/${res.tournamentId}/balance`), 800);
+    setTimeout(() => window.location.replace(`/stager/event/${res.tournamentId}`), 800);
   });
 
   return (

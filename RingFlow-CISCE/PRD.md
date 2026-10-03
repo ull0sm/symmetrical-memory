@@ -72,7 +72,10 @@ Full permission matrix: [docs/roles/README.md](docs/roles/README.md).
    moved on the balancing board.
 
 **Event day**
-1. Stagers call each category's athletes and mark it **calling**, then **ready**.
+1. Stagers call each category's athletes and mark it **calling**, then **ready**. In a Local
+   tournament a stager instead takes a category on the stager desk, marks who is here, adjusts its
+   groups (tap an athlete, then tap where they go) and locks each group, which sends it to its tatami.
+   A Local group can start only once it is locked.
 2. The moderator starts the next category, picks a bout, runs the clock, scores, and confirms the
    result. The draw advances automatically, and kata pool finalists move into medal bouts.
 3. Kata judges vote from their phones (or the moderator enters marks manually).

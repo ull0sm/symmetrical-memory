@@ -32,6 +32,7 @@ every tatami live.
 | Local tournament: belt list and group defaults | settings page | `divisions.ts` |
 | Local tournament: categories, each event's plan, starting groups, tatami per category | `/admin/event/[id]/categories` | `divisions.ts` |
 | Local tournament: roster import, category per athlete, kumite and kata participation | `/admin/event/[id]/athletes` | `localAthletes.ts` |
+| Local tournament: staging (who is preparing which category, release or hand on a hold, look at or take a category) | `/admin/event/[id]/staging` | `staging.ts` |
 
 ## What an admin cannot do
 
@@ -106,6 +107,13 @@ pools) are not offered, and their actions refuse a Local tournament.
 
 Every step is audited. A category can't be deleted once one of its groups is locked or on a mat; its
 athletes stay in the roster without a category.
+
+**On the day: Staging.** Stagers build and lock the groups at the
+[stager desk](stager.md#local-tournament-the-stager-desk). *Staging* shows every category's status,
+who holds it and when they last changed something. *Release* frees a hold (the groups stay as they
+are) and *Hand to…* gives the category to another signed-in stager; both need a reason and are
+audited. *Open* shows a category's groups read only. To change them the admin takes the category
+(when nobody holds it) and works in the same workspace as a stager.
 
 ## Correcting a result
 

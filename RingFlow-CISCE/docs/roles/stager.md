@@ -1,7 +1,8 @@
 # Stager (call area)
 
-Volunteers in the warm-up and call area. They gather athletes for upcoming categories and tell the
-tatami when a category is ready.
+Volunteers in the warm-up and call area. In an Official tournament they gather athletes for upcoming
+categories and tell the tatami when a category is ready. In a Local tournament they also build each
+category's groups at the venue and send them to the tatami ([the stager desk](#local-tournament-the-stager-desk)).
 
 ## Access
 
@@ -12,7 +13,7 @@ tatami when a category is ready.
 - One live session per code: approving a new request on a code revokes the previous session.
 - Scope: one tournament.
 
-## What a stager can do
+## What a stager can do (Official tournament)
 
 | Action | Where | Server action |
 |---|---|---|
@@ -31,7 +32,64 @@ The calling and ready status is shown to the moderator and the admin as a status
 
 ## What a stager cannot do
 
-Change queue order or tatami assignments, edit categories, athletes or draws, or score.
+Change queue order or tatami assignments, edit categories, athletes or draws, or score. In a Local
+tournament a stager builds groups only in the category they hold, and cannot change a group once it
+is locked.
+
+## Local tournament: the stager desk
+
+There is no calling board in a Local tournament (`/stager/event/[id]/balance` goes to the desk). The
+stager's job is to take a category from "on the list" to "on the tatami": check who is here, adjust
+the groups, and lock each one.
+
+**The desk** (`/stager/event/[id]`) lists every category, soonest first by where its next group sits
+in its tatami's queue ("Tatami 1 · 3rd in line"), with chips to filter by tatami and a search for any
+athlete's category. Each category is Waiting, With (a stager's name), Partly sent or Sent; categories
+with no athletes, and finished ones, come last. The category you hold is at the top.
+
+**Holding a category.** One person prepares a category at a time, and a stager holds one category at
+a time. *Take* gives you a category (and builds its starting groups if it has none); *Hand back*
+returns it with its groups as they are. The hold belongs to the stager code, not the phone: signing
+out, or a phone that dies, keeps it, and signing in again with the same code carries on. Locking the
+category's last group ends the hold. The admin can release a hold, or hand it to another stager.
+Other stagers see a held category's status and holder, never its draft groups.
+
+**The workspace** (`/stager/event/[id]/category/[divisionId]`) has a tab for the athletes and one per
+event:
+
+- **Athletes**: the roll call (Here, Absent), kumite and kata per athlete, and *Add athlete*: search
+  the tournament and move someone here with a reason, or register a walk-in (name and club; age, belt
+  and sex come from the category). A walk-in whose name is already entered is offered the existing
+  athlete first. Marking an athlete absent takes them out of their groups.
+- **Kumite** and **Kata**: the event's groups as chips, the present athletes in no group
+  (*Unplaced*), and each group's draw: first-round bouts with red and blue sides and byes (kumite),
+  or the performance order in pairs (kata).
+
+Tap an athlete, then tap where they go: another athlete of the group swaps them (both are then
+pinned), a bye moves them there (pinned), a group chip moves them to that group, *New group* starts
+one, *Unplaced* takes them out. On a wide screen the groups show side by side and athletes can also be
+dragged. Each group has *Shuffle* (pinned athletes stay), *Clear pins* and *Remove group*; each event
+has *Fill* (unplaced athletes into the smallest groups) and *Rebalance*. *Undo* steps back through the
+last 20 changes to the groups. Every change is saved at once; one that fails says so, with *Retry*.
+
+*Lock and send* shows the group exactly as it will be drawn, its tatami and any warnings. Locking
+stores that draw, and the moderator can start the group when its turn comes; from then on only the
+admin can change it. An empty group, an absent athlete in it, or pins that leave a bout with nobody
+in it block the lock. A group of one, more athletes than the plan, club-mates meeting in the first
+round, or a walk-in the admin hasn't reviewed only warn.
+
+| Action | Server action |
+|---|---|
+| Read the desk, find an athlete's category | `getStagerDesk`, `searchDeskAthletes` |
+| Take or hand back a category | `takeDivision`, `handBackDivision` |
+| Open the workspace (holder, or the admin read only) | `getDivisionWorkspace` |
+| Roll call, kumite and kata | `setAttendanceLocal`, `setParticipationLocal` |
+| Add an athlete | `searchAthletesForDivision`, `moveAthleteIntoDivision`, `registerWalkIn` |
+| Change the groups | `moveAthlete`, `placeAthlete`, `swapAthletes`, `unpinAthletes`, `shuffleGroup`, `addGroup`, `removeGroup`, `autoFillEvent`, `rebalanceEvent`, `restoreEventDraft` (undo) |
+| Lock and send a group | `lockGroup` |
+
+Every action checks that the caller holds the category (`requireDivisionHolder`). Taking, handing
+back, attendance, participation, moves, walk-ins, adding or removing a group and locking are audited.
 
 ## Attendance
 

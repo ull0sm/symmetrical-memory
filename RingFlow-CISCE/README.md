@@ -39,7 +39,7 @@ Full rules: [docs/roles/README.md](docs/roles/README.md).
 |---|---|---|---|
 | [Admin](docs/roles/admin.md) | `/login/admin` | Email and password | Owns an event: setup, draws, balancing, approvals, dashboard, corrections, exports |
 | [Organiser](docs/roles/organiser.md) | `/login/organiser` | Event code, admin approval | Read-only view of one event |
-| [Stager](docs/roles/stager.md) | `/login/stager` | Stager code, admin approval | Call area: calling and ready status, optional attendance |
+| [Stager](docs/roles/stager.md) | `/login/stager` | Stager code, admin approval | Call area: calling and ready status, optional attendance. In a Local tournament, builds and locks each category's groups at the stager desk |
 | [Moderator](docs/roles/moderator.md) | `/login/mod` | Tatami code, admin approval | Runs one tatami's queue and scores its bouts |
 | [Judge](docs/roles/judge.md) | `/judge/ring/[ringId]` | QR or PIN and a seat, moderator approval | Votes on kata from a phone |
 | [Public and scoreboard](docs/roles/public.md) | `/`, `/public/event/[id]`, `/scoreboard/[ringId]` | None | Follow the event live |

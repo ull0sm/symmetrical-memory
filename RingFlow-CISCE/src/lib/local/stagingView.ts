@@ -36,6 +36,8 @@ export interface DeskItem {
   status: DeskStatus;
   holderName: string | null;
   holderLabel: string | null;
+  /** When the holder last changed something (ISO), so the admin can spot a forgotten hold. */
+  holderActiveAt: string | null;
   isMine: boolean;
   /** The tatami of the division's next group to run, and how many cards are ahead of it (0 = on the mat now). */
   tatami: { ringId: string; ringName: string; ahead: number; onMat: boolean } | null;
@@ -91,18 +93,7 @@ export async function loadStagerDesk(tournamentId: string, me: HolderIdentity | 
     else if (myGroups.length > 0 && locked === myGroups.length) status = "sent";
     else if (locked > 0) status = "partly";
 
-    // Where the next unfinished group stands in its tatami's queue.
-    const next = myGroups
-      .filter((g) => g.ringId && g.status !== "completed")
-      .sort((a, b) => (a.queueOrder ?? 0) - (b.queueOrder ?? 0))[0];
-    let tatami: DeskItem["tatami"] = null;
-    if (next?.ringId) {
-      const onMat = next.status === "running" || next.status === "paused";
-      const ahead = onMat
-        ? 0
-        : queue.filter((c) => c.ringId === next.ringId && c.status !== "completed" && c.queueOrder < (next.queueOrder ?? 0)).length;
-      tatami = { ringId: next.ringId, ringName: ringName.get(next.ringId) ?? "Tatami", ahead, onMat };
-    }
+    const tatami = tatamiPosition(myGroups, queue, ringName);
 
     const isMine =
       hold !== null &&
@@ -126,6 +117,7 @@ export async function loadStagerDesk(tournamentId: string, me: HolderIdentity | 
       status,
       holderName: hold?.holderName ?? null,
       holderLabel: hold?.holderLabel ?? null,
+      holderActiveAt: hold?.lastActiveAt ? hold.lastActiveAt.toISOString() : null,
       isMine,
       tatami,
     };
@@ -137,6 +129,23 @@ export async function loadStagerDesk(tournamentId: string, me: HolderIdentity | 
   return { items, rings: ringRows, mine: items.find((i) => i.isMine)?.divisionId ?? null };
 }
 
+/** Where a division's next unfinished group stands: its tatami, and how many cards are ahead of it. */
+function tatamiPosition(
+  groups: { ringId: string | null; status: string | null; queueOrder: number | null }[],
+  queue: { ringId: string; queueOrder: number; status: string }[],
+  ringName: Map<string, string>
+): DeskItem["tatami"] {
+  const next = groups
+    .filter((g) => g.ringId && g.status !== "completed")
+    .sort((a, b) => (a.queueOrder ?? 0) - (b.queueOrder ?? 0))[0];
+  if (!next?.ringId) return null;
+  const onMat = next.status === "running" || next.status === "paused";
+  const ahead = onMat
+    ? 0
+    : queue.filter((c) => c.ringId === next.ringId && c.status !== "completed" && c.queueOrder < (next.queueOrder ?? 0)).length;
+  return { ringId: next.ringId, ringName: ringName.get(next.ringId) ?? "Tatami", ahead, onMat };
+}
+
 export interface WorkspaceGroup {
   id: string;
   groupNo: number;
@@ -144,8 +153,11 @@ export interface WorkspaceGroup {
   locked: boolean;
   version: number;
   checksum: string | null;
+  /** The draft's seed: with the members and pins, it fixes the draw (and lets an undo restore a shuffle). */
+  seed: number;
   members: string[];
-  pinned: string[];
+  /** Athletes pinned by hand, and their places. */
+  pins: Record<string, number>;
   places: PlacedAthlete[];
   blockers: string[];
   warnings: string[];
@@ -206,17 +218,19 @@ export async function loadWorkspace(divisionId: string) {
 
   const eventRows = await db.select().from(divisionEvents).where(eq(divisionEvents.divisionId, divisionId));
   const ringNames = new Map((await db.select({ id: rings.id, name: rings.name }).from(rings).where(eq(rings.tournamentId, division.tournamentId))).map((r) => [r.id, r.name]));
+  const cards: { ringId: string | null; status: string | null; queueOrder: number | null }[] = [];
   const events: WorkspaceEvent[] = [];
   for (const e of eventRows.filter((x) => x.enabled).sort((a, b) => (a.eventType < b.eventType ? 1 : -1))) {
     const eventType = e.eventType as DivisionEventType;
     const effective = effectiveEventSettings(eventType, e, settings);
     const groupRows = await db
-      .select({ id: categories.id, ringId: categoryAssignments.ringId, status: categoryAssignments.status })
+      .select({ id: categories.id, ringId: categoryAssignments.ringId, status: categoryAssignments.status, queueOrder: categoryAssignments.queueOrder })
       .from(categories)
       .leftJoin(categoryAssignments, eq(categoryAssignments.categoryId, categories.id))
       .where(eq(categories.divisionEventId, e.id))
       .orderBy(asc(categories.groupNo));
     const groups: WorkspaceGroup[] = [];
+    cards.push(...groupRows);
     for (const row of groupRows) {
       const state = await loadGroupState(db, row.id);
       if (!state) continue;
@@ -228,8 +242,9 @@ export async function loadWorkspace(divisionId: string) {
         locked: state.locked,
         version: state.version,
         checksum: state.locked ? state.drawChecksum : (preview.graph?.checksum ?? null),
+        seed: state.seed,
         members: state.members.map((m) => m.athleteId),
-        pinned: Object.keys(sanitizePins(state)),
+        pins: state.locked ? {} : sanitizePins(state),
         places: preview.places,
         blockers: state.locked ? [] : preview.blockers,
         warnings: state.locked ? [] : preview.warnings,
@@ -252,9 +267,18 @@ export async function loadWorkspace(divisionId: string) {
     events.push({ id: e.id, eventType, planSize: effective.groupSize, bronzeMedals: effective.bronzeMedals, groups, unplaced, warnings });
   }
 
+  const ringIds = [...new Set(cards.map((c) => c.ringId).filter((id): id is string => id !== null))];
+  const queue = ringIds.length
+    ? await db
+        .select({ ringId: categoryAssignments.ringId, queueOrder: categoryAssignments.queueOrder, status: categoryAssignments.status })
+        .from(categoryAssignments)
+        .where(inArray(categoryAssignments.ringId, ringIds))
+    : [];
+
   return {
     division: { id: division.id, name: division.name, tournamentId: division.tournamentId, sex: division.sex, ageMin: division.ageMin, ageMax: division.ageMax, belts: division.belts },
     holder: hold ? { name: hold.name, label: hold.label, kind: hold.kind } : null,
+    tatami: tatamiPosition(cards, queue, ringNames),
     athletes: people,
     events,
   };

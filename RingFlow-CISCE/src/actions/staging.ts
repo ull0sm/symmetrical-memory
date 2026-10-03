@@ -30,6 +30,7 @@ import {
   rebalanceCore,
   registerWalkInCore,
   removeGroupCore,
+  restoreEventDraftCore,
   searchAthletesCore,
   setAttendanceCore,
   shuffleGroupCore,
@@ -130,16 +131,28 @@ export async function handBackDivision(divisionId: string) {
   return result;
 }
 
-/** A category's workspace: for its holder, or for the admin to look at. */
+/**
+ * A category's workspace: for its holder, or for the admin to look at. Another stager of the
+ * tournament gets null: drafts are seen only by whoever holds them, and the admin.
+ */
 export async function getDivisionWorkspace(divisionId: string) {
   const holder = await getDivisionHolder(divisionId);
   if (!holder) {
     const scope = await scopeForDivision(divisionId);
-    await requireTournamentAdmin(scope.tournamentId);
+    const principal = await requireTournamentStaff(scope.tournamentId, ["stager", "admin"]);
     await requireLocalTournament(scope.tournamentId);
+    if (principal.role !== "admin") return null;
   }
   const workspace = await loadWorkspace(divisionId);
   return workspace ? { ...workspace, youHold: holder !== null } : null;
+}
+
+/** Athletes of the tournament by name, chest number or club, with their category, for the desk's search. */
+export async function searchDeskAthletes(tournamentId: string, query: string) {
+  await requireTournamentStaff(tournamentId, ["stager", "admin"]);
+  await requireLocalTournament(tournamentId);
+  if (typeof query !== "string") return [];
+  return searchAthletesCore(tournamentId, query);
 }
 
 // ── Athletes at the desk ───────────────────────────────────────────────────
@@ -345,6 +358,46 @@ export async function lockGroup(groupId: string, expectedChecksum?: string) {
     return { success: true as const, released: result.released, checksum: result.snapshot.checksum };
   }
   return result;
+}
+
+const snapshotSchema = z.object({
+  groups: z
+    .array(
+      z.object({
+        id: uuid,
+        members: z.array(uuid).max(64),
+        pins: z.record(uuid, z.number().int().min(1).max(32)),
+        seed: z.number().int().min(0).max(2 ** 32),
+      })
+    )
+    .max(64),
+});
+const versionsSchema = z.record(uuid, z.number().int());
+
+/**
+ * Undo: puts an event's draft groups back to a snapshot the stager's screen took before a change.
+ * `expectedVersions` are the draft groups' versions as the screen shows them now.
+ */
+export async function restoreEventDraft(
+  divisionId: string,
+  event: z.input<typeof eventType>,
+  snapshot: z.input<typeof snapshotSchema>,
+  expectedVersions: z.input<typeof versionsSchema>
+) {
+  const holder = await requireDivisionHolder(divisionId);
+  const parsedEvent = eventType.safeParse(event);
+  const parsedSnapshot = snapshotSchema.safeParse(snapshot);
+  const parsedVersions = versionsSchema.safeParse(expectedVersions);
+  if (!parsedEvent.success || !parsedSnapshot.success || !parsedVersions.success) return { success: false as const, error: "That can't be undone." };
+  const result = await settle(async () => restoreEventDraftCore(divisionId, parsedEvent.data, parsedSnapshot.data, parsedVersions.data, byName(holder)));
+  if (result.success) {
+    for (const g of result.removedGroups) {
+      await audit({ tournamentId: holder.scope.tournamentId, actor: holder.principal, action: "GROUP_REMOVED", targetType: "category", targetId: g.id, before: { name: g.name, members: 0 }, reason: "Undo" });
+    }
+    changed(holder.scope.tournamentId, "group_drafts");
+    if (result.removedGroups.length > 0) broadcastLiveEvent({ table: "category_assignments", op: "UPDATE", tournamentId: holder.scope.tournamentId });
+  }
+  return result.success ? { success: true as const, skipped: result.skipped, removedGroups: result.removedGroups.length } : result;
 }
 
 // ── The admin's hand on holds ──────────────────────────────────────────────

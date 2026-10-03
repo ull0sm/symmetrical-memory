@@ -128,13 +128,14 @@ Local settings (`divisions.ts`), the roster (`localRoster.ts`), starting groups 
 (`startingGroups.ts`), a division's tatami (`tatami.ts`), the type switch (`tournamentType.ts`) and the
 admin pages' read models (`setupView.ts`). The stager's side is there too: holds (`holds.ts`), a
 group's draw and validation from its draft (`groupBuild.ts`, used by both the preview and the lock),
-the draft changes and the lock (`groupDraft.ts`), the desk and workspace read models
+the draft changes, the stager's undo (`restoreEventDraftCore`) and the lock (`groupDraft.ts`), the desk and workspace read models
 (`stagingView.ts`) and the rule that only a locked group starts (`startGate.ts`). The actions that
 guard them are `actions/divisions.ts` and `actions/localAthletes.ts` (admin setup) and
 `actions/staging.ts` (the stager desk, and the admin's release and reassign of a hold). Locking a
 group writes its draw through `writeDrawGraph` in `src/lib/draws/generateDraws.ts`, the same path a
 generated Official draw takes. Official-only actions call `requireOfficialTournament` and Local-only
-ones `requireLocalTournament`, so the two models never mix.
+ones `requireLocalTournament`, so the two models never mix. The stager desk and the category workspace
+are in `src/components/stager/local/`; the admin's Staging page uses the same workspace.
 
 `src/lib/draws/` turns an engine graph into `draws`, `matches` and `match_slots` rows, resolves the
 draw rules from the profile (`drawRules.ts`), and decides where a category runs (`routingPlan.ts`,
@@ -180,6 +181,8 @@ policy, a permissions policy, and HSTS on HTTPS only so plain-HTTP LAN installs 
 - **Judge panel** shows five seats (the server handles seven) and has been exercised in a browser at
   phone size but not yet on real phones over a venue LAN or tunnel.
 - **Team events** have no floor operations (see [DISCIPLINES.md](DISCIPLINES.md)).
+- **Stager undo** lives in the open page: a reload, or another device, starts with an empty history.
+  Drag and drop works with a mouse; on touch screens the stager taps.
 - **Styling debt.** Many components use inline hex colours instead of the theme tokens, and a few
   components (`RingBalancingClient`, `BoutScoringPad`) are very large.
 - **Unreliable client IP** on a direct install: without a proxy a client can forge

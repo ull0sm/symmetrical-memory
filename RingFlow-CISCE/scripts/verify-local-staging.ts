@@ -1,6 +1,6 @@
 /**
  * Checks the Local stager's cores against a real database: holding a category, every draft change
- * (moving, pinning, swapping, shuffling, groups, filling, rebalancing), attendance and walk-ins,
+ * (moving, pinning, swapping, shuffling, groups, filling, rebalancing, undo), attendance and walk-ins,
  * locking a group into a real draw, the hold ending once everything is sent, and the rule that only
  * a locked group can start. Writes a throwaway tournament, so it refuses to run against anything but
  * the isolated test database on :55432.
@@ -212,6 +212,36 @@ async function main() {
       assert.equal(sizes[0]! + sizes[1]!, 11);
       assert.ok(Math.abs(sizes[0]! - sizes[1]!) <= 1);
     });
+    // ── Undo ──
+    const kumiteDraft = async () => {
+      const ws = await loadWorkspace(blue9.id);
+      const groups = ws!.events.find((e) => e.eventType === "kumite")!.groups.filter((g) => !g.locked);
+      return {
+        snapshot: { groups: groups.map((g) => ({ id: g.id, members: [...g.members].sort(), pins: g.pins, seed: g.seed })) },
+        versions: Object.fromEntries(groups.map((g) => [g.id, g.version])),
+      };
+    };
+    await check("undo puts members, pins and the seed back", async () => {
+      const before = await kumiteDraft();
+      const [a, b] = [(await membersOf(k1.id))[0]!, (await membersOf(k1.id))[1]!];
+      await draft.moveAthleteCore(blue9.id, { athleteId: a, eventType: "kumite", to: k2.id }, "stager:Ravi");
+      await draft.placeAthleteCore(blue9.id, { groupId: k1.id, athleteId: b, place: 2 }, "stager:Ravi");
+      await draft.shuffleGroupCore(blue9.id, k1.id, "stager:Ravi");
+      const now = await kumiteDraft();
+      const undone = await draft.restoreEventDraftCore(blue9.id, "kumite", before.snapshot, now.versions, "stager:Ravi");
+      assert.equal(undone.skipped, 0);
+      assert.deepEqual((await kumiteDraft()).snapshot, before.snapshot);
+    });
+    await check("undo removes a group added since, and refuses a stale view", async () => {
+      const before = await kumiteDraft();
+      await draft.addGroupCore(blue9.id, "kumite");
+      const now = await kumiteDraft();
+      await refused(() => draft.restoreEventDraftCore(blue9.id, "kumite", before.snapshot, before.versions, "stager:Ravi"), /changed since you looked/);
+      const undone = await draft.restoreEventDraftCore(blue9.id, "kumite", before.snapshot, now.versions, "stager:Ravi");
+      assert.equal(undone.removedGroups.length, 1);
+      assert.equal((await groupsOf(kumite.id)).length, 2);
+    });
+
     await check("an athlete held in another category can't be pulled in", async () => {
       const [girl] = await db.select({ id: tournamentRegistrations.athleteId }).from(tournamentRegistrations).where(eq(tournamentRegistrations.divisionId, yellow8.id)).limit(1);
       await holds.takeDivisionCore(yellow8.id, priya);
