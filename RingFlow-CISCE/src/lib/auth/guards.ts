@@ -166,6 +166,13 @@ export async function requireLocalTournament(tournamentId: string): Promise<void
   }
 }
 
+/** Refuses a Local tournament: Official-only tools (definitions, generated draws, hand swaps) never touch one. */
+export async function requireOfficialTournament(tournamentId: string): Promise<void> {
+  if ((await tournamentTypeOf(tournamentId)) !== "OFFICIAL") {
+    throw new AuthError("This isn't available in a Local tournament.", "FORBIDDEN");
+  }
+}
+
 export interface DivisionHolder {
   principal: Principal;
   scope: DivisionScope;

@@ -8,6 +8,9 @@ import { tournaments as tournamentsTable, categories as categoriesTable } from "
 import { eq, desc } from "drizzle-orm";
 import { serializeCategory } from "@/lib/serializers";
 import { syncTournamentCategoryCounts, getActiveAthleteCounts } from "@/lib/categories/syncCounts";
+import { tournamentTypeOf } from "@/lib/auth/localScope";
+import { loadLocalSetup } from "@/lib/local/setupView";
+import LocalCategoriesClient from "@/components/admin/local/LocalCategoriesClient";
 
 export default async function OrganiserCategoriesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
@@ -15,6 +18,20 @@ export default async function OrganiserCategoriesPage({ params }: { params: Prom
   // Organisers of this event, or its own admin previewing the organiser view.
   if (!(await getTournamentStaff(tournamentId, ["organiser", "admin"]))) {
     redirect("/");
+  }
+
+  // A Local tournament's categories, read only.
+  if ((await tournamentTypeOf(tournamentId)) === "LOCAL") {
+    const [setup, [t]] = await Promise.all([
+      loadLocalSetup(tournamentId),
+      db.select({ name: tournamentsTable.name }).from(tournamentsTable).where(eq(tournamentsTable.id, tournamentId)).limit(1),
+    ]);
+    return (
+      <>
+        <OrganiserHeader title="Categories" eventName={t?.name ?? ""} />
+        <LocalCategoriesClient tournamentId={tournamentId} setup={setup} readOnly />
+      </>
+    );
   }
 
   // Ensure DB athletes_count is synchronized with active athletes

@@ -8,6 +8,9 @@ import { sql } from "drizzle-orm";
  * - Categories with active assigned athletes will have `athletes_count` set to their exact count.
  * - If athletes have been registered in the tournament, categories without any assigned athletes are set to 0.
  * - If the tournament has zero registered athletes at all, existing placeholder counts are retained.
+ * - Expected bouts are athletes - 1, except for a Local tournament's groups: a ranked kata group
+ *   calls its athletes in pairs, and a kumite group with a single bronze bout fights one more
+ *   (`expectedBouts` in lib/local/rules.ts; the two must agree).
  */
 export async function syncTournamentCategoryCounts(tournamentId: string): Promise<void> {
   try {
@@ -34,42 +37,38 @@ export async function syncTournamentCategoryCounts(tournamentId: string): Promis
         ) p ON p.category_id = c.id
         WHERE c.tournament_id = ${tournamentId}
         GROUP BY c.id
-      )
-      UPDATE categories
-      SET 
-        athletes_count = CASE 
-          WHEN ac.real_count > 0 THEN ac.real_count
-          WHEN ta.total_athletes > 0 THEN 0
-          ELSE categories.athletes_count
-        END,
-        expected_matches = GREATEST(
-          0, 
-          (CASE 
+      ),
+      sized AS (
+        SELECT
+          c.id,
+          CASE
             WHEN ac.real_count > 0 THEN ac.real_count
             WHEN ta.total_athletes > 0 THEN 0
-            ELSE categories.athletes_count
-          END) - 1
-        )
-      FROM active_counts ac
-      CROSS JOIN tournament_athletes ta
-      WHERE categories.id = ac.category_id
-        AND (
-          categories.athletes_count != (
-            CASE 
-              WHEN ac.real_count > 0 THEN ac.real_count
-              WHEN ta.total_athletes > 0 THEN 0
-              ELSE categories.athletes_count
-            END
-          )
-          OR categories.expected_matches != GREATEST(
-            0, 
-            (CASE 
-              WHEN ac.real_count > 0 THEN ac.real_count
-              WHEN ta.total_athletes > 0 THEN 0
-              ELSE categories.athletes_count
-            END) - 1
-          )
-        );
+            ELSE c.athletes_count
+          END AS n,
+          c.division_event_id IS NOT NULL AS is_group,
+          c.kata_format,
+          c.bronze_medals
+        FROM categories c
+        INNER JOIN active_counts ac ON ac.category_id = c.id
+        CROSS JOIN tournament_athletes ta
+      ),
+      targets AS (
+        SELECT
+          id,
+          n,
+          CASE
+            WHEN is_group AND kata_format = 'RANKED' THEN (n + 1) / 2
+            WHEN is_group AND bronze_medals = 1 AND n >= 4 THEN n
+            ELSE GREATEST(0, n - 1)
+          END AS expected
+        FROM sized
+      )
+      UPDATE categories
+      SET athletes_count = t.n, expected_matches = t.expected
+      FROM targets t
+      WHERE categories.id = t.id
+        AND (categories.athletes_count != t.n OR categories.expected_matches != t.expected);
     `);
   } catch (err) {
     console.error(`[syncTournamentCategoryCounts] Error syncing tournament ${tournamentId}:`, err);

@@ -3,20 +3,19 @@
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
-  tournaments,
   rings,
   categoryAssignments,
   categories,
-  athletes,
   eventLog,
   moderatorRequests,
 } from "@/db/schema";
-import { eq, and, inArray, desc, asc, sql } from "drizzle-orm";
+import { eq, and, inArray, desc, asc } from "drizzle-orm";
 import { elapsedMs as elapsedFor, normalizeClock } from "@/lib/matchClock";
 import { persistRingClock, readRingClockRow } from "@/lib/ringClockStore";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
 import { tournamentIdForRing } from "@/lib/auth/scope";
+import { tournamentCounts } from "@/lib/tournamentCounts";
 import {
   serializeRing,
   serializeCategory,
@@ -271,25 +270,5 @@ export async function getTournamentSearchMeta(tournamentId: string) {
 export async function getSidebarTournamentCounts(tournamentId: string) {
   if (!tournamentId) return null;
   await requireTournamentStaff(tournamentId, ["admin", "organiser"]);
-
-  const [t] = await db
-    .select({ name: tournaments.name })
-    .from(tournaments)
-    .where(eq(tournaments.id, tournamentId))
-    .limit(1);
-
-  if (!t) return null;
-
-  const [[ringsRes], [catsRes], [athRes]] = await Promise.all([
-    db.select({ count: sql<number>`cast(count(*) as integer)` }).from(rings).where(eq(rings.tournamentId, tournamentId)),
-    db.select({ count: sql<number>`cast(count(*) as integer)` }).from(categories).where(eq(categories.tournamentId, tournamentId)),
-    db.select({ count: sql<number>`cast(count(*) as integer)` }).from(athletes).where(eq(athletes.tournamentId, tournamentId)),
-  ]);
-
-  return {
-    name: t.name,
-    ringsCount: ringsRes?.count ?? 0,
-    categoriesCount: catsRes?.count ?? 0,
-    athletesCount: athRes?.count ?? 0,
-  };
+  return tournamentCounts(tournamentId);
 }

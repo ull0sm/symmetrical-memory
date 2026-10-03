@@ -122,6 +122,14 @@ Both live in `src/engine/` as pure modules with unit tests, with no database or 
   (`fillBye.ts`). Output is canonical JSON with a checksum, and all randomness comes from a seeded
   generator.
 
+Local tournaments have their own request-free cores in `src/lib/local/`: the pure rules (`rules.ts`:
+names, matching an athlete to a division, group sizes, spreading clubs, expected bouts), divisions and
+Local settings (`divisions.ts`), the roster (`localRoster.ts`), starting groups and event plans
+(`startingGroups.ts`), a division's tatami (`tatami.ts`), the type switch (`tournamentType.ts`) and the
+admin pages' read models (`setupView.ts`). The admin actions that guard them are `actions/divisions.ts`
+and `actions/localAthletes.ts`. Official-only actions call `requireOfficialTournament` and Local-only
+ones `requireLocalTournament`, so the two models never mix.
+
 `src/lib/draws/` turns an engine graph into `draws`, `matches` and `match_slots` rows, resolves the
 draw rules from the profile (`drawRules.ts`), and decides where a category runs (`routingPlan.ts`,
 `partRouting.ts`). `src/lib/bouts/results.ts` commits a confirmed result and advances the draw. Seed scripts call the

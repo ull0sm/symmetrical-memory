@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { updateTournamentSettings, deleteTournament, setTournamentType } from "@/actions/settings";
 import type { TournamentType } from "@/lib/statuses";
+import type { LocalSettings } from "@/lib/local/divisions";
+import LocalSettingsSection from "@/components/admin/local/LocalSettingsSection";
 import { 
   approveOrganiserRequest, 
   rejectOrganiserRequest, 
@@ -49,6 +51,8 @@ interface Props {
   initialOrganiserRequests?: OrganiserRequest[];
   /** Whether the tournament type may still change (only before anything is set up). */
   typeLock?: { canChange: boolean; reason: string | null };
+  /** A Local tournament's belt list and group defaults; null for an Official tournament. */
+  localSettings?: LocalSettings | null;
 }
 
 const TYPE_LABEL: Record<TournamentType, { title: string; desc: string }> = {
@@ -62,7 +66,7 @@ const TYPE_LABEL: Record<TournamentType, { title: string; desc: string }> = {
   },
 };
 
-export default function SettingsClient({ tournament, initialOrganiserRequests = [], typeLock }: Props) {
+export default function SettingsClient({ tournament, initialOrganiserRequests = [], typeLock, localSettings }: Props) {
   const router = useRouter();
   const tournamentType: TournamentType = tournament.tournament_type === "LOCAL" ? "LOCAL" : "OFFICIAL";
   const isLocal = tournamentType === "LOCAL";
@@ -318,6 +322,8 @@ export default function SettingsClient({ tournament, initialOrganiserRequests = 
             </div>
             {typeError && <p className="mt-2 text-xs text-error">{typeError}</p>}
           </section>
+
+          {isLocal && localSettings && <LocalSettingsSection tournamentId={tournament.id} settings={localSettings} />}
 
           {/* General Info */}
           <section className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8 shadow-sm">

@@ -8,13 +8,43 @@ import { tournaments as tournamentsTable, athletes as athletesTable, categories 
 import { eq, desc, asc } from "drizzle-orm";
 import { serializeAthlete } from "@/lib/serializers";
 import { loadAthletePools } from "@/lib/draws/poolRosters";
+import { tournamentTypeOf } from "@/lib/auth/localScope";
+import { loadLocalAthletes } from "@/lib/local/setupView";
+import LocalAthletesClient from "@/components/admin/local/LocalAthletesClient";
 
-export default async function AdminAthletes({ params }: { params: Promise<{ id: string }> }) {
+export default async function AdminAthletes({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ category?: string }>;
+}) {
   const { id: tournamentId } = await params;
   try {
     await requireTournamentAdmin(tournamentId);
   } catch {
     redirect("/admin");
+  }
+
+  // A Local tournament's roster: one category per athlete, kumite and kata each on or off.
+  if ((await tournamentTypeOf(tournamentId)) === "LOCAL") {
+    const { category } = await searchParams;
+    const [data, [t]] = await Promise.all([
+      loadLocalAthletes(tournamentId),
+      db.select({ name: tournamentsTable.name }).from(tournamentsTable).where(eq(tournamentsTable.id, tournamentId)).limit(1),
+    ]);
+    return (
+      <>
+        <AdminHeader title="Athletes Roster" eventName={t?.name ?? ""} />
+        <LocalAthletesClient
+          tournamentId={tournamentId}
+          athletes={data.athletes}
+          divisions={data.divisions}
+          beltLevels={data.beltLevels}
+          initialFilter={category === "none" ? "none" : "all"}
+        />
+      </>
+    );
   }
 
   const [tournamentRows, athleteRows, categoryRows] = await Promise.all([

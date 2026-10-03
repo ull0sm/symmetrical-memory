@@ -58,6 +58,19 @@ Full permission matrix: [docs/roles/README.md](docs/roles/README.md).
 6. Balance the tatamis: drag categories onto tatamis and order each queue. Load is measured in bouts.
 7. Issue codes, then approve organisers, stagers, and one moderator per tatami.
 
+**Setup (admin, Local tournament)**
+1. Create the tournament as Local. In settings, set the belt list and the defaults every category
+   starts from: group sizes (kumite 8, kata 4), bronzes (2 = both semi-final losers with no bout, or 1
+   bronze bout), kumite bout length, and whether kumite or kata runs first.
+2. Create categories by age, belt and sex (no weight): generate every combination, or add them one at
+   a time. Each holds a kumite and a kata event, either of which can be switched off.
+3. Import athletes from a sheet or add them by hand. Each is matched to one category by age, belt and
+   sex, and takes part in kumite, kata or both. Athletes who fit no category are listed for the admin.
+4. Build the starting groups: each event splits into as few groups as its group size allows, sizes
+   within one of each other, clubs spread across them. Each group is its own competition.
+5. Put each category on a tatami; its groups join the queue, kumite then kata. Single groups can be
+   moved on the balancing board.
+
 **Event day**
 1. Stagers call each category's athletes and mark it **calling**, then **ready**.
 2. The moderator starts the next category, picks a bout, runs the clock, scores, and confirms the

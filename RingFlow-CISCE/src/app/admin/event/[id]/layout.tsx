@@ -1,10 +1,8 @@
 import React from "react";
 import { redirect } from "next/navigation";
 import { getTournamentStaff } from "@/lib/auth/guards";
-import { eq, sql } from "drizzle-orm";
-import { db } from "@/db";
-import { athletes, categories, rings, tournaments } from "@/db/schema";
 import AdminSidebar from "@/components/layout/AdminSidebar";
+import { tournamentCounts } from "@/lib/tournamentCounts";
 
 /**
  * The sidebar counters are read here, on the server, so they are correct even
@@ -23,26 +21,11 @@ export default async function AdminLayout({
     redirect("/admin");
   }
 
-  const [tournament] = await db
-    .select({ name: tournaments.name })
-    .from(tournaments)
-    .where(eq(tournaments.id, id));
-
-  const [[ringsCount], [categoriesCount], [athletesCount]] = await Promise.all([
-    db.select({ value: sql<number>`count(*)::int` }).from(rings).where(eq(rings.tournamentId, id)),
-    db.select({ value: sql<number>`count(*)::int` }).from(categories).where(eq(categories.tournamentId, id)),
-    db.select({ value: sql<number>`count(*)::int` }).from(athletes).where(eq(athletes.tournamentId, id)),
-  ]);
-
+  const counts = await tournamentCounts(id);
   return (
     <div className="flex min-h-screen bg-background text-on-surface w-full">
       <AdminSidebar
-        initialCounts={{
-          name: tournament?.name ?? "Tournament",
-          ringsCount: ringsCount?.value ?? 0,
-          categoriesCount: categoriesCount?.value ?? 0,
-          athletesCount: athletesCount?.value ?? 0,
-        }}
+        initialCounts={counts ?? { name: "Tournament", ringsCount: 0, categoriesCount: 0, athletesCount: 0 }}
       />
       <div className="flex-1 flex flex-col min-w-0 w-full">
         {children}

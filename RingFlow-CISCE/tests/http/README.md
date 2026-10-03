@@ -13,6 +13,7 @@ authorization, sessions and the flows that need a database.
 | `test-live-feeds.mjs` | Public and staff live feeds, security headers, HSTS, tunnel isolation |
 | `test-attendance.mjs` | Attendance permissions, the desk hint, staff-only visibility |
 | `test-pool-split.mjs` | Splitting a category's pools across tatamis: who may split, which tatami may score which bout, finals waiting for pools, the balancing board leaving pools alone |
+| `test-local-setup.mjs` | Local setup: settings, the category generator, the roster import and its report, chest numbers, starting groups (sizes, club spread, drafts, counts), a category's tatami, moves and participation, what a locked group or a hold protects, the organiser's read-only views, and who is refused (organiser, stager, another admin, Official tournaments, Official tools in a Local one) |
 | `test-local-tournaments.mjs` | Local tournaments: choosing the type at creation, switching it in settings only before anything is set up, who may switch it, and the database check on the type |
 
 ## Database checks (no server needed)

@@ -2,7 +2,7 @@
 
 import { audit } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
-import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { requireTournamentAdmin, requireTournamentStaff, requireOfficialTournament } from "@/lib/auth/guards";
 import type { CategoryDefinitionInput } from "@/lib/constants/categoryPresets";
 import {
   readCategoryDefinitions,
@@ -26,6 +26,7 @@ export async function getTournamentCategoryDefinitions(tournamentId: string) {
 
 export async function saveCategoryDefinitions(tournamentId: string, defs: CategoryDefinitionInput[]) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   const res = await writeCategoryDefinitions(tournamentId, defs);
   await audit({ tournamentId, actor: admin, action: "CATEGORY_DEFINITIONS_SAVED", after: { count: defs.length } });
   revalidateCategories(tournamentId);
@@ -34,6 +35,7 @@ export async function saveCategoryDefinitions(tournamentId: string, defs: Catego
 
 export async function loadPresetCategoryDefinitions(tournamentId: string, presetKey: string) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   const res = await writePresetCategoryDefinitions(tournamentId, presetKey);
   await audit({ tournamentId, actor: admin, action: "CATEGORY_DEFINITIONS_SAVED", after: { preset: presetKey } });
   revalidateCategories(tournamentId);
@@ -42,6 +44,7 @@ export async function loadPresetCategoryDefinitions(tournamentId: string, preset
 
 export async function syncCategoriesFromDefinitions(tournamentId: string) {
   await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   await syncCategoriesFromDefinitionsCore(tournamentId);
   revalidateCategories(tournamentId);
   return { success: true };

@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { categories, rings } from "@/db/schema";
 import { audit } from "@/lib/audit";
-import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { requireTournamentAdmin, requireTournamentStaff, requireOfficialTournament } from "@/lib/auth/guards";
 import { performSetRouting, readRoutingState, type Routing } from "@/lib/draws/partRouting";
 import { describePart } from "@/lib/draws/partFilter";
 import { loadCategoryPools } from "@/lib/draws/poolRosters";
@@ -92,6 +92,7 @@ export async function setCategoryRouting(categoryId: string, wanted: Routing) {
   const cat = await tournamentOfCategory(categoryId);
   if (!cat) return { success: false as const, error: "Category not found" };
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
 
   const ringIds =
     wanted?.kind === "WHOLE"

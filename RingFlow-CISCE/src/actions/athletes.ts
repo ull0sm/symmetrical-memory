@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { athletes, categories, categoryEntries } from "@/db/schema";
 import { eq, and, sql, or, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { getTournamentStaff, requireTournamentAdmin } from "@/lib/auth/guards";
+import { getTournamentStaff, requireTournamentAdmin, requireOfficialTournament } from "@/lib/auth/guards";
 import { isValidUuid } from "@/lib/utils";
 import { inferEventType } from "@/lib/categories/eventType";
 import { athleteInputSchema, masterRosterSchema, parseInput, simpleRosterSchema } from "@/lib/validation";
@@ -26,6 +26,7 @@ export type AthleteInput = {
 
 export async function addAthlete(tournamentId: string, rawInput: AthleteInput) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   const input = parseInput(athleteInputSchema, rawInput, "athlete");
 
   const name = (input.name || "").trim().slice(0, 200);
@@ -101,6 +102,7 @@ export async function addAthlete(tournamentId: string, rawInput: AthleteInput) {
 
 export async function deleteAthlete(athleteId: string, tournamentId: string) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   const [gone] = await db.select({ name: athletes.name, chestNumber: athletes.chestNumber, categoryId: athletes.categoryId }).from(athletes).where(and(eq(athletes.id, athleteId), eq(athletes.tournamentId, tournamentId)));
   if (gone) {
     await audit({ tournamentId, categoryId: gone.categoryId, actor: admin, action: "ATHLETE_DELETED", targetType: "athlete", targetId: athleteId, before: gone });
@@ -123,6 +125,7 @@ export async function updateAthleteCategory(
   tournamentId: string
 ) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
 
   if (categoryId) {
     const [cat] = await db
@@ -189,6 +192,7 @@ export async function bulkAddAthletes(
   rawList: { no: string; name: string }[]
 ) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   // Blank spreadsheet rows are skipped, not an error.
   const rawAthletes = parseInput(simpleRosterSchema, rawList, "athlete list").filter((a) => a.name);
   categoryName = String(categoryName ?? "").trim().slice(0, 200);
@@ -254,6 +258,7 @@ export async function bulkAddMasterAthletes(
   rawList: unknown[]
 ) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   // Blank spreadsheet rows are skipped, not an error.
   const rawAthletes = parseInput(masterRosterSchema, rawList, "athlete list").filter((a) => a.name);
 

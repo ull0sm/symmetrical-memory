@@ -69,6 +69,20 @@ through the stored draw graph (`src/lib/bouts/results.ts`).
 Kannada using bundled Noto Sans fonts (`public/fonts/pdf`), so they work offline. Each pool page prints
 the tatami that runs it.
 
+## Local tournaments: groups
+
+In a Local tournament a category (an age, belt and sex block) holds a kumite and a kata event, and
+each event splits into groups that compete separately: every group has its own gold, silver and
+bronzes, and groups never meet. The starting groups are built from the event's plan
+(`src/lib/local/rules.ts`): as few groups as the group size allows (16 athletes in groups of 8 make
+8 + 8; 7 in groups of 4 make 4 + 3), sizes within one of each other, and the biggest clubs dealt
+across the groups first so club-mates are spread out.
+
+Bronzes are set per tournament and per event. With **2 bronzes** (the default) both semi-final losers
+take bronze with no extra bout (the draw engine's joint-bronze option). With **1 bronze** the two
+semi-final losers fight one bronze bout. Full repechage is not offered for Local groups. Kumite
+groups are knockout brackets; kata groups are ranked groups, where every athlete performs once.
+
 ## Kata
 
 A kata category chooses a **format** and a **scoring mode** (`updateCategoryKataSettings`):

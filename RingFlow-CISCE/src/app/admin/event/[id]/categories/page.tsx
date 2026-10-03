@@ -13,6 +13,9 @@ import {
 import { eq, desc, sql } from "drizzle-orm";
 import { serializeCategory } from "@/lib/serializers";
 import { syncTournamentCategoryCounts, getActiveAthleteCounts } from "@/lib/categories/syncCounts";
+import { tournamentTypeOf } from "@/lib/auth/localScope";
+import { loadLocalSetup } from "@/lib/local/setupView";
+import LocalCategoriesClient from "@/components/admin/local/LocalCategoriesClient";
 
 export default async function AdminCategories({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
@@ -20,6 +23,20 @@ export default async function AdminCategories({ params }: { params: Promise<{ id
     await requireTournamentAdmin(tournamentId);
   } catch {
     redirect("/admin");
+  }
+
+  // A Local tournament's categories are divisions with stager-built groups: a page of their own.
+  if ((await tournamentTypeOf(tournamentId)) === "LOCAL") {
+    const [setup, [t]] = await Promise.all([
+      loadLocalSetup(tournamentId),
+      db.select({ name: tournamentsTable.name }).from(tournamentsTable).where(eq(tournamentsTable.id, tournamentId)).limit(1),
+    ]);
+    return (
+      <>
+        <AdminHeader title="Categories" eventName={t?.name ?? ""} />
+        <LocalCategoriesClient tournamentId={tournamentId} setup={setup} />
+      </>
+    );
   }
 
   // Ensure DB athletes_count and expected_matches are synchronized with active athletes

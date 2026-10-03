@@ -29,6 +29,9 @@ every tatami live.
 | Live dashboard: all tatamis, pause or resume one or all, activity feed, assistance requests | `/admin/event/[id]/dashboard` | `admin.ts`, `rings.ts`, `clock.ts` |
 | Official record: audit log, results export (CSV, PDF) | `/admin/event/[id]/record` | `audit.ts`, `resultsExport.ts` |
 | Judge panel override (approve, remove, rotate QR and PIN) | moderator's kata screen | `judgePanel.ts` |
+| Local tournament: belt list and group defaults | settings page | `divisions.ts` |
+| Local tournament: categories, each event's plan, starting groups, tatami per category | `/admin/event/[id]/categories` | `divisions.ts` |
+| Local tournament: roster import, category per athlete, kumite and kata participation | `/admin/event/[id]/athletes` | `localAthletes.ts` |
 
 ## What an admin cannot do
 
@@ -72,6 +75,37 @@ reorder it, or onto another tatami to move it (the server checks what is live fi
 button), and Pool 1 also carries a second bar for the whole category: all pools plus the finals. The board cannot drop a split
 category off the tatamis; use the split dialog to put it back together. Other screens open on the same cards and
 reload their layout by themselves when a category is split, merged or moved.
+
+## Setting up a Local tournament
+
+A Local tournament's categories are age, belt and sex blocks with no weight classes, and each one's
+athletes split into groups that compete separately, each with its own podium. Official tools
+(category definitions and presets, the official import, generated draws, hand swaps, splitting
+pools) are not offered, and their actions refuse a Local tournament.
+
+1. **Settings.** Set the belt list (lowest first) and the defaults each category's events start from:
+   athletes per group (kumite 8, kata 4), bronzes per group (2 = both semi-final losers with no extra
+   bout, 1 = a bronze bout between them), kumite bout length, and which event runs first on the tatami.
+2. **Categories.** *Generate categories* makes every combination of an age range (one, two or three
+   years per category), the chosen belts (one category per belt, or all together) and the chosen sexes,
+   skipping names that exist. *Add category* makes one. Each category holds a kumite and a kata event;
+   either can be switched off, and each can change the defaults in *Change plan*. Editing a category's
+   ages or belts never moves athletes.
+3. **Athletes.** *Import sheet* reads Name and, optionally, Chest, Club, Age, Belt, Sex, Kumite and Kata
+   columns (Kumite and Kata default to yes). Each athlete goes into the first category they fit; the
+   report lists athletes who fit none (with the reason), fit several, or look like duplicates. A row
+   with a known chest number updates that athlete. The roster moves an athlete to another category and
+   switches their kumite or kata; either takes them out of the old groups.
+4. **Starting groups.** *Build starting groups* (for one category, or all of them with a preview)
+   splits each event into as few groups as its group size allows, with sizes within one of each other,
+   clubs spread across the groups and absent athletes left out. A category can be rebuilt until one of
+   its groups is locked or on a mat, and not while a stager holds it.
+5. **Tatamis.** Pick a tatami on a category's row: its groups join the end of that queue, kumite then
+   kata (or the other way round). Rebuilt groups keep their place. The balancing board moves single
+   groups like any category.
+
+Every step is audited. A category can't be deleted once one of its groups is locked or on a mat; its
+athletes stay in the roster without a category.
 
 ## Correcting a result
 

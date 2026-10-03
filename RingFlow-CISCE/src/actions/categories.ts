@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { categories } from "@/db/schema";
 import { eq, and, type InferSelectModel } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { requireTournamentAdmin } from "@/lib/auth/guards";
+import { requireTournamentAdmin, requireOfficialTournament } from "@/lib/auth/guards";
 import { CategoryInput } from "./tournament";
 import { syncTournamentCategoryCounts } from "@/lib/categories/syncCounts";
 import { inferEventType, isEventType } from "@/lib/categories/eventType";
@@ -15,6 +15,7 @@ type CategoryRow = InferSelectModel<typeof categories>;
 
 export async function addCategory(tournamentId: string, rawInput: CategoryInput) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   const input = parseInput(categoryInputSchema, rawInput, "category");
 
   const name = (input.name || "").trim().slice(0, 200);
@@ -48,6 +49,7 @@ export async function addCategory(tournamentId: string, rawInput: CategoryInput)
 
 export async function bulkAddCategories(tournamentId: string, inputCategories: Record<string, unknown>[]) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   if (!Array.isArray(inputCategories) || inputCategories.length > 2000) {
     throw new Error("Provide at most 2000 categories");
   }
@@ -94,6 +96,7 @@ export async function updateCategory(
   updates: Partial<CategoryInput> & { expected_matches?: number }
 ) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
 
   const patch: Partial<CategoryRow> = {};
   if (updates.name !== undefined) {
@@ -133,6 +136,7 @@ export async function updateCategory(
 
 export async function deleteCategory(categoryId: string, tournamentId: string) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   const [beforeCat] = await db
     .select({ name: categories.name })
     .from(categories)
@@ -160,6 +164,7 @@ export async function updateCategoryKataSettings(
   }
 ) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
 
   const patch: Partial<CategoryRow> = {};
   if (settings.kataFormat !== undefined) {

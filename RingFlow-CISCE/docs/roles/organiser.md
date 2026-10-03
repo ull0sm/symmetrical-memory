@@ -21,6 +21,9 @@ event and must not be able to change anything.
 | Ring balance board | `/organiser/event/[id]/rings/balance` |
 | Official record: audit log and results export (CSV, PDF) | `/organiser/event/[id]/record` |
 
+In a Local tournament the categories and athletes pages show the Local categories (plans, starting
+groups and their members, tatamis) and the roster with each athlete's category and events, read only.
+
 ## What an organiser cannot do
 
 Anything that writes: settings, categories, athletes, draws, assignments, approvals, clocks, pauses

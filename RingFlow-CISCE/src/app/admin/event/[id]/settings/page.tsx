@@ -8,6 +8,7 @@ import { tournaments as tournamentsTable, organiserRequests as organiserRequests
 import { eq, desc } from "drizzle-orm";
 import { serializeTournamentForAdmin, serializeOrganiserRequest } from "@/lib/serializers";
 import { tournamentTypeLock } from "@/lib/local/tournamentType";
+import { readLocalSettings } from "@/lib/local/divisions";
 
 export default async function AdminSettings({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
@@ -33,6 +34,7 @@ export default async function AdminSettings({ params }: { params: Promise<{ id: 
   const tournament = tournamentRows[0];
   if (!tournament) redirect("/admin");
   const typeLock = await tournamentTypeLock(tournamentId);
+  const localSettings = tournament.tournamentType === "LOCAL" ? await readLocalSettings(tournamentId) : null;
 
   return (
     <>
@@ -41,6 +43,7 @@ export default async function AdminSettings({ params }: { params: Promise<{ id: 
         tournament={serializeTournamentForAdmin(tournament)} 
         initialOrganiserRequests={requestRows.map((row) => serializeOrganiserRequest(row))} 
         typeLock={typeLock}
+        localSettings={localSettings}
       />
     </>
   );

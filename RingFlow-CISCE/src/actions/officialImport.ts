@@ -2,7 +2,7 @@
 
 import { audit } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
-import { requireTournamentAdmin } from "@/lib/auth/guards";
+import { requireTournamentAdmin, requireOfficialTournament } from "@/lib/auth/guards";
 import { officialRosterSchema, parseInput } from "@/lib/validation";
 import {
   importOfficialRosterCore,
@@ -16,6 +16,7 @@ export async function importOfficialRoster(
   rawAthletes: RawImportAthlete[]
 ): Promise<ImportResult> {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   const result = await importOfficialRosterCore(tournamentId, parseInput(officialRosterSchema, rawAthletes, "roster"));
   await audit({
     tournamentId,

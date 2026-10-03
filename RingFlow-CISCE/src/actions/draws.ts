@@ -18,7 +18,7 @@ import {
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { tournaments } from "@/db/schema";
-import { requireTournamentAdmin } from "@/lib/auth/guards";
+import { requireTournamentAdmin, requireOfficialTournament } from "@/lib/auth/guards";
 import {
   loadCategoryRoster,
   performCategoryDraw,
@@ -80,6 +80,7 @@ export async function generateCategoryDraw(
   if (!cat) return { success: false, error: "Category not found" };
 
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
   const result = await performCategoryDraw(categoryId, options);
   await audit({
     tournamentId: cat.tournamentId,
@@ -108,6 +109,7 @@ export async function setCategoryDrawOption(
   if (!cat) return { success: false, error: "Category not found" };
 
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
 
   if (bronzeMedals !== null && ![0, 1, 2, 3].includes(bronzeMedals)) {
     return { success: false, error: "Bronze medals must be 0, 1, 2, 3 or null" };
@@ -160,6 +162,7 @@ export async function setCategoryDrawProfile(categoryId: string, profile: "OFFIC
 
   if (!cat) return { success: false, error: "Category not found" };
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
 
   if (profile !== null && asDrawProfile(profile) === null) {
     return { success: false, error: "Profile must be OFFICIAL, LOCAL or null" };
@@ -299,6 +302,7 @@ export async function swapDrawAthletes(categoryId: string, slotIdA: string, slot
     .where(eq(categories.id, categoryId));
   if (!cat) return { success: false, error: "Category not found" };
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
 
   const outcome = await performDrawSwap(categoryId, slotIdA, slotIdB, reason);
   if ("error" in outcome) return { success: false, error: outcome.error };
@@ -341,6 +345,7 @@ export async function setCategorySeeds(
 
   if (!cat) return { success: false, error: "Category not found" };
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
 
   const roster = await loadCategoryRoster(db, categoryId);
   const inRoster = new Set(roster.map((a) => a.athleteId));
@@ -396,6 +401,7 @@ export async function generateAllTournamentDraws(
   options?: { bronzeMedals?: 0 | 1 | 2 | 3; separateByClub?: boolean }
 ) {
   const admin = await requireTournamentAdmin(tournamentId);
+  await requireOfficialTournament(tournamentId);
   const result = await performGenerateAllTournamentDraws(tournamentId, options);
   await audit({ tournamentId, actor: admin, action: "DRAWS_GENERATED", after: { options: options ?? null } });
   return result;
@@ -481,6 +487,7 @@ export async function lockCategoryDraw(categoryId: string) {
 
   if (!cat) return { success: false, error: "Category not found" };
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
 
   await db
     .update(draws)
@@ -511,6 +518,7 @@ export async function unlockCategoryDraw(categoryId: string) {
 
   if (!cat) return { success: false, error: "Category not found" };
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
 
   await db
     .update(draws)
@@ -541,6 +549,7 @@ export async function toggleCategoryDrawLock(categoryId: string) {
 
   if (!cat) return { success: false, error: "Category not found" };
   const admin = await requireTournamentAdmin(cat.tournamentId);
+  await requireOfficialTournament(cat.tournamentId);
 
   const [draw] = await db
     .select()
