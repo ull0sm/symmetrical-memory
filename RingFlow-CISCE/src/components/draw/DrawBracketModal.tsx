@@ -70,7 +70,7 @@ export function DrawBracketModal({
     let mounted = true;
     setLoading(true);
 
-    const request = athleteId ? getAthleteDraw(athleteId) : getCategoryDraw(categoryId, { part: activePart });
+    const request = athleteId ? getAthleteDraw(athleteId, categoryId) : getCategoryDraw(categoryId, { part: activePart });
 
     request
       .then((data) => {

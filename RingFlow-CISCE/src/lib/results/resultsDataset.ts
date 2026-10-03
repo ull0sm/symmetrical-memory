@@ -3,6 +3,9 @@ import { athletes, categories, matchSlots, matches, tournaments } from "@/db/sch
 import { eq, inArray } from "drizzle-orm";
 import type { ResultRow } from "@/lib/pdf/resultsPdfGenerator";
 import { getBoutOfficials } from "@/lib/results/officials";
+import { buildMedalTally, type TallyRow } from "@/lib/results/medalTally";
+import type { GroupPodium } from "@/lib/results/podium";
+
 export interface TournamentResults {
   tournamentId: string;
   tournamentName: string;
@@ -284,7 +287,43 @@ export function rowsToCsv(results: TournamentResults): string {
   return `\uFEFF${lines.join("\r\n")}\r\n`;
 }
 
-/**
- * CSV of every bout plus the per-athlete totals. The BOM is what makes Excel
- * read the file as UTF-8 instead of mangling names.
- */
+/** The club medal tally of the podiums that stand; groups still in progress award nothing. */
+export function tallyFromPodiums(podiums: readonly GroupPodium[]): TallyRow[] {
+  return buildMedalTally(
+    podiums
+      .filter((p) => p.final)
+      .flatMap((p) => p.places.map((x) => ({ athleteId: x.athleteId, name: x.name, club: x.club, medal: x.medal })))
+  );
+}
+
+const MEDAL_NAME = { gold: "Gold", silver: "Silver", bronze: "Bronze" } as const;
+
+/** One line per medal winner; a group still in progress has one line saying so. */
+export function podiumsToCsv(podiums: readonly GroupPodium[]): string {
+  const lines = [["Category", "Event", "Status", "Medal", "Athlete", "Chest", "Club", "Guest"].join(",")];
+  for (const p of podiums) {
+    const event = p.eventType === "kata" ? "Kata" : "Kumite";
+    if (!p.final || p.places.length === 0) {
+      lines.push([p.name, event, "In progress", "", "", "", "", ""].map(csvCell).join(","));
+      continue;
+    }
+    for (const x of p.places) {
+      lines.push(
+        [p.name, event, "Final", MEDAL_NAME[x.medal], x.name, x.chestNumber, x.club ?? "Independent", x.guest ? "Yes" : ""]
+          .map(csvCell)
+          .join(",")
+      );
+    }
+  }
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
+}
+
+export function medalTallyToCsv(rows: readonly TallyRow[]): string {
+  const lines = [["Rank", "Club", "Gold", "Silver", "Bronze", "Total"].join(",")];
+  for (const r of rows) {
+    lines.push(
+      [r.rank, r.independent ? `${r.label} (Independent)` : r.label, r.gold, r.silver, r.bronze, r.total].map(csvCell).join(",")
+    );
+  }
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
+}

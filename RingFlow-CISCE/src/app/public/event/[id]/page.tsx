@@ -15,6 +15,7 @@ import {
   serializeCategory,
   serializeCategoryAssignment,
 } from "@/lib/serializers";
+import { draftGroupIds, redactDraftGroup } from "@/lib/local/publicView";
 
 export default async function PublicEventPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: tournamentId } = await params;
@@ -77,12 +78,18 @@ export default async function PublicEventPage({ params }: { params: Promise<{ id
     );
   }
 
+  // A Local group the stager hasn't locked shows by name only: "Being prepared".
+  const draftGroups = await draftGroupIds(tournamentId);
+
   return (
     <PublicEventClient 
       tournament={serializeTournament(tournament)} 
       initialRings={ringRows.map((row) => serializeRing(row))} 
       initialAssignments={assignments} 
-      categories={catRows.map((row) => serializeCategory(row))}
+      categories={catRows.map((row) => {
+        const serialized = serializeCategory(row);
+        return draftGroups.has(row.id) ? redactDraftGroup(serialized) : serialized;
+      })}
     />
   );
 }

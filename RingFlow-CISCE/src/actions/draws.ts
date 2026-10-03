@@ -35,6 +35,7 @@ import { describePart } from "@/lib/draws/partFilter";
 import { getTournamentStaff } from "@/lib/auth/guards";
 import { tournamentIdForCategory } from "@/lib/auth/scope";
 import { isValidUuid } from "@/lib/utils";
+import { isDraftGroup } from "@/lib/local/publicView";
 import { broadcastLiveEvent } from "@/lib/realtime/bus";
 
 /**
@@ -425,6 +426,17 @@ export async function getCategoryDraw(
   if (!categoryId || !isValidUuid(categoryId)) return null;
 
   const staff = await isStaffViewer(categoryId);
+  // A Local group still being prepared has no public draw, not even through an athlete's link.
+  if (!staff && (await isDraftGroup(categoryId))) {
+    return {
+      locked: true,
+      draw: null,
+      categoryName: null,
+      matches: [] as BracketMatchView[],
+      podium: [],
+      highlightAthleteId: null as string | null,
+    };
+  }
   if (!staff) {
     const allowed = options?.athleteId ? true : await publicDrawsEnabledForCategory(categoryId);
     if (!allowed) {
@@ -463,17 +475,26 @@ export async function getCategoryDraw(
  * when general draw viewing is switched off, because it only reveals a name
  * the searcher already typed.
  */
-export async function getAthleteDraw(athleteId: string) {
-  if (!athleteId) return null;
+export async function getAthleteDraw(athleteId: string, groupId?: string | null) {
+  if (!athleteId || !isValidUuid(athleteId)) return null;
 
   const [athlete] = await db
     .select({ id: athletes.id, name: athletes.name, categoryId: athletes.categoryId })
     .from(athletes)
     .where(eq(athletes.id, athleteId));
 
-  if (!athlete?.categoryId) return null;
+  // A Local athlete has no category of their own: the group asked for must be one they are in.
+  let categoryId = athlete?.categoryId ?? null;
+  if (athlete && !categoryId && groupId && isValidUuid(groupId)) {
+    const [entry] = await db
+      .select({ categoryId: categoryEntries.categoryId })
+      .from(categoryEntries)
+      .where(and(eq(categoryEntries.athleteId, athlete.id), eq(categoryEntries.categoryId, groupId)));
+    categoryId = entry?.categoryId ?? null;
+  }
+  if (!athlete || !categoryId) return null;
 
-  const draw = await getCategoryDraw(athlete.categoryId, { athleteId });
+  const draw = await getCategoryDraw(categoryId, { athleteId });
   if (!draw) return null;
 
   return { ...draw, athleteName: athlete.name, highlightAthleteId: athleteId };

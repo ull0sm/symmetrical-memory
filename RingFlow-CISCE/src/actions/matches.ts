@@ -1,5 +1,6 @@
 "use server";
 
+import { withGuestMarks } from "@/lib/local/guests";
 import { assignmentCoversMatch } from "@/lib/draws/partFilter";
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
@@ -307,10 +308,10 @@ export async function getRingActiveBout(ringId: string, matchId?: string) {
     new Set(allSlots.map((s) => s.athleteId).filter((id): id is string => Boolean(id)))
   );
 
-  const relevantAthletes =
-    relevantAthleteIds.length > 0
-      ? await db.select().from(athletes).where(inArray(athletes.id, relevantAthleteIds))
-      : [];
+  const relevantAthletes = await withGuestMarks(
+    relevantAthleteIds.length > 0 ? await db.select().from(athletes).where(inArray(athletes.id, relevantAthleteIds)) : [],
+    [cat.id]
+  );
 
   const athleteMap = new Map(relevantAthletes.map((a) => [a.id, a]));
 
@@ -689,10 +690,10 @@ export async function getTournamentActiveBouts(tournamentId: string) {
     new Set(slotRows.map((s) => s.athleteId).filter((id): id is string => Boolean(id)))
   );
 
-  const athleteRows =
-    athleteIds.length > 0
-      ? await db.select().from(athletes).where(inArray(athletes.id, athleteIds))
-      : [];
+  const athleteRows = await withGuestMarks(
+    athleteIds.length > 0 ? await db.select().from(athletes).where(inArray(athletes.id, athleteIds)) : [],
+    Array.from(catMap.keys())
+  );
   const athleteMap = new Map(athleteRows.map((a) => [a.id, a]));
 
   // Assemble bout map in memory (0 ms overhead)

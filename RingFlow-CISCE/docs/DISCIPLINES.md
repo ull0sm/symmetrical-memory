@@ -141,6 +141,17 @@ tie again replaces the order. A tie that is level on bronze under the 2-bronze s
 shares bronze and needs no decision. The podium is final once every performance is confirmed and
 every medal tie is decided, and the group can't be finished on the tatami before that.
 
+### Podiums and the club medal tally
+
+`podiumFor` and `tournamentPodiums` (`src/lib/results/podium.ts`) read the medals of every category or
+Local group: a kumite bracket from `resolveDraw`, an Official kata flight from its medal bouts, a
+ranked kata group from `loadRankedStandings` (only once its podium is final). A group whose medals
+don't stand yet reads "In progress", and a Local group still being prepared isn't listed.
+
+The **medal tally** (`src/lib/results/medalTally.ts`) has one row per club (names compared without
+case), sorted by gold, then silver, then bronze; equal medals share a rank. An athlete with no club
+is listed on their own as "Independent", never pooled with others.
+
 ## Kata
 
 A kata category chooses a **format** and a **scoring mode** (`updateCategoryKataSettings`):

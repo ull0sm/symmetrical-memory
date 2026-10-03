@@ -17,6 +17,11 @@ page. No login.
 - Brackets are visible when the admin turns on "show draws publicly"
   (`tournaments.show_public_draws`). An athlete's own bracket, reached by searching their name, is
   always visible with them highlighted.
+- Finished podiums are listed (names, clubs and medals, no ids) when public draws are on
+  (`getPublicPodiums`). The club medal tally is staff only.
+- A Local group the stager hasn't locked shows by name only, "Being prepared": no members, count or
+  draw, and its athletes show no group in search. Search lists a Local athlete's locked groups through
+  their entries, and an athlete's link opens only a group they are in. A guest is marked "(guest)".
 - Component: `PublicEventClient`. Data: `getPublicFloorData` in `src/actions/public.ts`,
   `getTournamentActiveBouts` and `getRingActiveBout` in `matches.ts`, `getCategoryDraw` and
   `getAthleteDraw` in `draws.ts`.
@@ -40,7 +45,8 @@ page. No login.
   IP addresses, admin email, the event log or request lists.
 - The public toggles are enforced in the data actions, not only in layouts.
 - The public live feed (`/api/live`) carries only ids and status for public tables. Screens refetch
-  through their own actions.
+  through their own actions. `division_holds`, `group_drafts`, `category_entries` and
+  `kata_tie_decisions` are on the staff feed only.
 - Never public: draw-sheet PDFs, the audit log, the activity log, staff names, category PDFs, and
   other tournaments' data.
 - The public side is read only. It has no write actions.

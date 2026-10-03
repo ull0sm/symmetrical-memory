@@ -31,4 +31,5 @@ or scoring. They also cannot download draw-sheet PDFs. There are no organiser wr
 code, and adding one would be a design error.
 
 The guards behind these views are `requireTournamentStaff(tournamentId, ["admin", "organiser"])` in
-`src/actions/admin.ts`, `audit.ts` and `resultsExport.ts`.
+`src/actions/admin.ts`, `audit.ts` and `resultsExport.ts`. The organiser can download the results
+(bouts, podiums and medal tally) from the record page; the club medal tally is for staff only.

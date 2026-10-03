@@ -2,7 +2,12 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { getAuditLog, type AuditFilters, type AuditRow } from "@/actions/audit";
-import { exportTournamentResultsCsv, exportTournamentResultsPdf } from "@/actions/resultsExport";
+import {
+  exportTournamentMedalTallyCsv,
+  exportTournamentPodiumsCsv,
+  exportTournamentResultsCsv,
+  exportTournamentResultsPdf,
+} from "@/actions/resultsExport";
 
 type Options = {
   rings: { id: string; name: string }[];
@@ -69,7 +74,7 @@ export default function OfficialRecordClient({ tournamentId, options, initialRow
   const [filters, setFilters] = useState<AuditFilters>({});
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<"csv" | "pdf" | null>(null);
+  const [exporting, setExporting] = useState<"csv" | "pdf" | "podiums" | "tally" | null>(null);
 
   const load = useCallback(
     async (next: AuditFilters, append: boolean) => {
@@ -98,16 +103,23 @@ export default function OfficialRecordClient({ tournamentId, options, initialRow
     setFilters((f) => ({ ...f, [key]: value || null, before: null }));
   };
 
-  const handleExport = async (format: "csv" | "pdf") => {
+  const handleExport = async (format: "csv" | "pdf" | "podiums" | "tally") => {
     setExporting(format);
     try {
-      const res = format === "csv" ? await exportTournamentResultsCsv(tournamentId) : await exportTournamentResultsPdf(tournamentId);
+      const res =
+        format === "csv"
+          ? await exportTournamentResultsCsv(tournamentId)
+          : format === "podiums"
+            ? await exportTournamentPodiumsCsv(tournamentId)
+            : format === "tally"
+              ? await exportTournamentMedalTallyCsv(tournamentId)
+              : await exportTournamentResultsPdf(tournamentId);
       if (!res.success || !res.base64) {
         alert(("error" in res && res.error) || "Could not build the results record.");
         return;
       }
       const bytes = Uint8Array.from(atob(res.base64), (c) => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/pdf" });
+      const blob = new Blob([bytes], { type: format === "pdf" ? "application/pdf" : "text/csv;charset=utf-8" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = res.filename;
@@ -149,6 +161,22 @@ export default function OfficialRecordClient({ tournamentId, options, initialRow
             className="px-4 py-2 rounded-xl bg-[#FAF9F5] border border-[#E1DDCF] text-[#1B1815] text-xs font-bold disabled:opacity-50 cursor-pointer"
           >
             {exporting === "csv" ? "Building CSV…" : "Download CSV"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport("podiums")}
+            disabled={exporting !== null}
+            className="px-4 py-2 rounded-xl bg-[#FAF9F5] border border-[#E1DDCF] text-[#1B1815] text-xs font-bold disabled:opacity-50 cursor-pointer"
+          >
+            {exporting === "podiums" ? "Building…" : "Podiums CSV"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport("tally")}
+            disabled={exporting !== null}
+            className="px-4 py-2 rounded-xl bg-[#FAF9F5] border border-[#E1DDCF] text-[#1B1815] text-xs font-bold disabled:opacity-50 cursor-pointer"
+          >
+            {exporting === "tally" ? "Building…" : "Medal tally CSV"}
           </button>
         </div>
       </section>

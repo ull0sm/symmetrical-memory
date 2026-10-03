@@ -2,6 +2,8 @@ import { PDFDocument, PDFPage, rgb } from "pdf-lib";
 import { cleanText, drawText, loadFontSet, truncateToWidth, type RunFont } from "@/lib/pdf/pdfText";
 import type { BracketMatchView } from "@/lib/draws/assembleDraw";
 import type { BoutOfficial } from "@/lib/results/officials";
+import type { TallyRow } from "@/lib/results/medalTally";
+import type { GroupPodium } from "@/lib/results/podium";
 
 /**
  * The results document: not a results table, but the state of every draw as it
@@ -24,6 +26,9 @@ export interface DrawStatePdfData {
   venue?: string | null;
   city?: string | null;
   categories: CategoryDrawState[];
+  /** Podiums of every category or group, and the club medal tally; both optional. */
+  podiums?: GroupPodium[];
+  tally?: TallyRow[];
   generatedAt: Date;
 }
 
@@ -335,6 +340,70 @@ export async function generateDrawStatePdfBytes(data: DrawStatePdfData): Promise
       y -= 4;
     }
     y -= 8;
+  }
+
+  // ── Podiums and the club medal tally ───────────────────────────────────────
+  if (data.podiums && data.podiums.length > 0) {
+    ensure(60);
+    y -= 6;
+    page.drawRectangle({ x: MARGIN, y: y - 26, width: CONTENT_W, height: 26, color: INK });
+    drawText(page, "PODIUMS", { x: MARGIN + 10, y: y - 18, size: 12, font: bold, color: rgb(1, 1, 1) });
+    y -= 36;
+    for (const p of data.podiums) {
+      ensure(18 + Math.max(1, p.places.length) * 13);
+      drawText(page, ellipsize(cleanText(p.name), bold, 9, CONTENT_W), { x: MARGIN, y, size: 9, font: bold, color: EMERALD });
+      y -= 13;
+      if (!p.final || p.places.length === 0) {
+        drawText(page, "In progress", { x: MARGIN + 10, y, size: 8, font: regular, color: MUTED });
+        y -= 13;
+      }
+      for (const x of p.places) {
+        const medal = x.medal === "gold" ? "Gold" : x.medal === "silver" ? "Silver" : "Bronze";
+        const label = `${medal}  ${x.name}${x.chestNumber ? ` (${x.chestNumber})` : ""}${x.guest ? " · guest" : ""}`;
+        drawText(page, ellipsize(cleanText(label), regular, 9, CONTENT_W - 150), { x: MARGIN + 10, y, size: 9, font: regular, color: INK });
+        drawText(page, ellipsize(cleanText(x.club ?? "Independent"), regular, 8, 140), {
+          x: MARGIN + CONTENT_W - 140,
+          y,
+          size: 8,
+          font: regular,
+          color: MUTED,
+        });
+        y -= 13;
+      }
+      y -= 6;
+    }
+  }
+
+  if (data.tally) {
+    newPage();
+    drawText(page, "MEDAL TALLY", { x: MARGIN, y: y - 12, size: 14, font: bold, color: INK });
+    y -= 34;
+    if (data.tally.length === 0) {
+      drawText(page, "No medals have been decided yet.", { x: MARGIN, y, size: 9, font: regular, color: MUTED });
+    } else {
+      const cols = { rank: MARGIN, club: MARGIN + 34, gold: MARGIN + 300, silver: MARGIN + 350, bronze: MARGIN + 405, total: MARGIN + 465 };
+      for (const [k, t] of [["rank", "#"], ["club", "Club"], ["gold", "Gold"], ["silver", "Silver"], ["bronze", "Bronze"], ["total", "Total"]] as const) {
+        drawText(page, t, { x: cols[k], y, size: 8, font: bold, color: MUTED });
+      }
+      page.drawLine({ start: { x: MARGIN, y: y - 4 }, end: { x: PAGE_W - MARGIN, y: y - 4 }, thickness: 0.5, color: LINE });
+      y -= 18;
+      for (const r of data.tally) {
+        ensure(16);
+        drawText(page, String(r.rank), { x: cols.rank, y, size: 9, font: regular, color: INK });
+        drawText(page, ellipsize(cleanText(r.independent ? `${r.label} (Independent)` : r.label), regular, 9, 250), {
+          x: cols.club,
+          y,
+          size: 9,
+          font: regular,
+          color: INK,
+        });
+        drawText(page, String(r.gold), { x: cols.gold, y, size: 9, font: regular, color: INK });
+        drawText(page, String(r.silver), { x: cols.silver, y, size: 9, font: regular, color: INK });
+        drawText(page, String(r.bronze), { x: cols.bronze, y, size: 9, font: regular, color: INK });
+        drawText(page, String(r.total), { x: cols.total, y, size: 9, font: bold, color: INK });
+        y -= 16;
+      }
+    }
   }
 
   // ── Footer on every page ───────────────────────────────────────────────────

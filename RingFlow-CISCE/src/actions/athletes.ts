@@ -2,7 +2,7 @@
 
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
-import { athletes, categories, categoryEntries } from "@/db/schema";
+import { athletes, categories, categoryEntries, draws } from "@/db/schema";
 import { eq, and, sql, or, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getTournamentStaff, requireTournamentAdmin, requireOfficialTournament } from "@/lib/auth/guards";
@@ -398,7 +398,31 @@ export async function searchTournamentAthletes(
     .where(and(...whereConditions))
     .limit(30);
 
-  return results.map((r) => ({
+  // A Local athlete has no category of their own: list the groups they are in, through
+  // their entries. Only locked groups show; a group being prepared never names its members.
+  const localIds = results.filter((r) => !r.categoryId).map((r) => r.id);
+  const groupRows = localIds.length
+    ? await db
+        .select({
+          athleteId: categoryEntries.athleteId,
+          groupId: categories.id,
+          groupName: categories.name,
+          groupNo: categories.groupNo,
+        })
+        .from(categoryEntries)
+        .innerJoin(categories, eq(categories.id, categoryEntries.categoryId))
+        .innerJoin(draws, and(eq(draws.categoryId, categories.id), eq(draws.state, "LOCKED")))
+        .where(and(inArray(categoryEntries.athleteId, localIds), eq(categories.tournamentId, tournamentId)))
+        .orderBy(categories.name)
+    : [];
+  const groupsOf = new Map<string, typeof groupRows>();
+  for (const g of groupRows) groupsOf.set(g.athleteId, [...(groupsOf.get(g.athleteId) ?? []), g]);
+
+  return results.flatMap((r) => {
+    const groups = groupsOf.get(r.id);
+    if (r.categoryId || !groups?.length) return [r];
+    return groups.map((g) => ({ ...r, categoryId: g.groupId, categoryName: g.groupName, categoryDocUrl: null }));
+  }).map((r) => ({
     id: r.id,
     name: r.name,
     chest_number: r.chestNumber,

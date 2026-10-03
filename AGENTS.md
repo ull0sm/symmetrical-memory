@@ -50,10 +50,10 @@ For anyone changing the code. For what the product does, read
 | Match clock | `src/actions/clock.ts`, `src/lib/matchClock.ts`, `src/lib/ringClockStore.ts`, `src/hooks/useMatchClock.ts` |
 | Live updates | `src/lib/realtime/` (`bus.ts`, `liveStream.ts`), `src/app/api/live/`, `src/hooks/useLiveEvents.ts` |
 | Roster import and category definitions | `src/lib/roster/`, `src/lib/constants/categoryPresets.ts` |
-| PDFs and exports | `src/lib/pdf/`, `src/lib/results/`, `src/actions/resultsExport.ts` |
+| PDFs and exports, podiums and the club medal tally | `src/lib/pdf/`, `src/lib/results/` (`podium.ts`, `medalTally.ts`, `resultsDataset.ts`), `src/actions/resultsExport.ts` |
 | Environment and deployment mode | `src/lib/env.ts`, `src/lib/offline.ts`, `src/lib/http/` |
 | Screens | `src/app/<role>/...` (admin, organiser, stager, moderator, judge, public, scoreboard) and `src/components/<role or feature>/` |
-| Local tournaments (divisions, groups, stager holds, changes after lock, walk-ins) | `src/lib/local/` (`lateChanges.ts`, `walkIns.ts` for the admin's side), `src/lib/auth/localScope.ts`, `src/actions/divisions.ts` (setup), `src/actions/localAthletes.ts` (roster, walk-in review), `src/actions/staging.ts` (stager desk, unlock, changes after lock), screens in `src/components/stager/local/` and `src/components/admin/local/` |
+| Local tournaments (divisions, groups, stager holds, changes after lock, walk-ins) | `src/lib/local/` (`lateChanges.ts`, `walkIns.ts` for the admin's side), `src/lib/auth/localScope.ts`, `src/actions/divisions.ts` (setup), `src/actions/localAthletes.ts` (roster, walk-in review), `src/actions/staging.ts` (stager desk, unlock, changes after lock), screens in `src/components/stager/local/` and `src/components/admin/local/`; what the public sees (`publicView.ts`) and guest marks (`guests.ts`) |
 
 ## Anatomy of an action (illustrative)
 

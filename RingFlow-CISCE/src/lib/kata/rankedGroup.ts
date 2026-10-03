@@ -4,6 +4,7 @@
  * winner); and the desk's decisions on ties that decide a medal.
  * No authorization here: the kata and moderator actions check the caller.
  */
+import { withGuestMarks } from "@/lib/local/guests";
 import { and, asc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { db } from "@/db";
 import { athletes, categories, kataScores, kataTieDecisions, matches, matchSlots, rings } from "@/db/schema";
@@ -57,12 +58,15 @@ export async function loadRankedStandings(categoryId: string): Promise<RankedSta
     db.select().from(kataTieDecisions).where(eq(kataTieDecisions.categoryId, categoryId)),
   ]);
   const athleteIds = [...new Set(slots.map((s) => s.athleteId).filter((id): id is string => Boolean(id)))];
-  const people = athleteIds.length
-    ? await db
-        .select({ id: athletes.id, name: athletes.name, school: athletes.school, dojo: athletes.dojo, chestNumber: athletes.chestNumber })
-        .from(athletes)
-        .where(inArray(athletes.id, athleteIds))
-    : [];
+  const people = await withGuestMarks(
+    athleteIds.length
+      ? await db
+          .select({ id: athletes.id, name: athletes.name, school: athletes.school, dojo: athletes.dojo, chestNumber: athletes.chestNumber })
+          .from(athletes)
+          .where(inArray(athletes.id, athleteIds))
+      : [],
+    [categoryId]
+  );
   const person = new Map(people.map((p) => [p.id, p]));
 
   const performers: RankedPerformer[] = [];

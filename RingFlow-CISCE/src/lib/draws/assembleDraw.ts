@@ -1,10 +1,10 @@
 import { db } from "@/db";
-import { athletes, categories, draws, drawVersions, matches, matchSlots } from "@/db/schema";
+import { athletes, categories, categoryEntries, draws, drawVersions, matches, matchSlots } from "@/db/schema";
 import { resolveDraw, type Podium } from "@/engine/draw-engine/resolution";
 import { computeDrawParts, poolNumber, rosterByPart, type DrawPart } from "@/engine/draw-engine/parts";
 import type { DrawGraph } from "@/engine/draw-engine/types";
 import { describePart } from "@/lib/draws/partFilter";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 /**
  * One category's draw, assembled for display: every bout with its slots, the
@@ -40,6 +40,8 @@ export interface BracketMatchView {
     chestNumber?: string | null;
     isBye?: boolean;
     isPending?: boolean;
+    /** A Local admin's late placement from another category: marked "(guest)" in the display name. */
+    guest?: boolean;
     sourceMatchNo?: number | null;
     /** For a place filled by another pool's winner: "Pool 2 winner". */
     sourceLabel?: string | null;
@@ -52,6 +54,7 @@ export interface BracketMatchView {
     chestNumber?: string | null;
     isBye?: boolean;
     isPending?: boolean;
+    guest?: boolean;
     sourceMatchNo?: number | null;
     sourceLabel?: string | null;
   };
@@ -205,6 +208,17 @@ export async function assembleCategoryDraw(
     options?.athletes ??
     (category ? await db.select().from(athletes).where(eq(athletes.tournamentId, category.tournamentId)) : []);
   const athleteMap = new Map(athleteList.map((a) => [a.id, a]));
+  // Guests (Local) are marked wherever the draw is shown: bracket, moderator, public page and PDFs.
+  const guestIds = new Set(
+    (
+      await db
+        .select({ athleteId: categoryEntries.athleteId })
+        .from(categoryEntries)
+        .where(and(eq(categoryEntries.categoryId, categoryId), eq(categoryEntries.guest, true)))
+    ).map((g) => g.athleteId)
+  );
+  const shown = (a: { id: string; name: string } | null | undefined, fallback: string) =>
+    a ? (guestIds.has(a.id) ? `${a.name} (guest)` : a.name) : fallback;
 
   // Map outcomes if matches were completed
   const outcomes = new Map<string, { kind: 'WINNER'; side: 'AKA' | 'AO' }>();
@@ -266,14 +280,16 @@ export async function assembleCategoryDraw(
         aka: {
           id: akaAthlete?.id,
           name: akaAthlete?.name ?? "TBD",
-          displayName: akaAthlete?.name ?? "TBD",
+          displayName: shown(akaAthlete, "TBD"),
+          guest: akaAthlete ? guestIds.has(akaAthlete.id) : false,
           school: akaAthlete?.school || akaAthlete?.dojo || undefined,
           chestNumber: akaAthlete?.chestNumber ?? null,
         },
         ao: {
           id: aoAthlete?.id,
           name: aoAthlete?.name ?? "TBD",
-          displayName: aoAthlete?.name ?? "TBD",
+          displayName: shown(aoAthlete, "TBD"),
+          guest: aoAthlete ? guestIds.has(aoAthlete.id) : false,
           school: aoAthlete?.school || aoAthlete?.dojo || undefined,
           chestNumber: aoAthlete?.chestNumber ?? null,
         },
@@ -350,7 +366,8 @@ export async function assembleCategoryDraw(
         aka: {
           id: akaAthlete?.id,
           name: akaAthlete?.name ?? (isAkaBye ? "BYE" : "TBD"),
-          displayName: akaAthlete?.name ?? (isAkaBye ? "BYE" : "TBD"),
+          displayName: shown(akaAthlete, isAkaBye ? "BYE" : "TBD"),
+          guest: akaAthlete ? guestIds.has(akaAthlete.id) : false,
           school: akaAthlete?.school || akaAthlete?.dojo || undefined,
           chestNumber: akaAthlete?.chestNumber ?? null,
           isBye: isAkaBye,
@@ -361,7 +378,8 @@ export async function assembleCategoryDraw(
         ao: {
           id: aoAthlete?.id,
           name: aoAthlete?.name ?? (isAoBye ? "BYE" : "TBD"),
-          displayName: aoAthlete?.name ?? (isAoBye ? "BYE" : "TBD"),
+          displayName: shown(aoAthlete, isAoBye ? "BYE" : "TBD"),
+          guest: aoAthlete ? guestIds.has(aoAthlete.id) : false,
           school: aoAthlete?.school || aoAthlete?.dojo || undefined,
           chestNumber: aoAthlete?.chestNumber ?? null,
           isBye: isAoBye,

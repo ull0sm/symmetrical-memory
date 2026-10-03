@@ -6,7 +6,7 @@ import { formatDisplayDateWithWeekday } from "@/lib/utils";
 import { matchesCategorySearch } from "@/lib/searchUtils";
 import { getTournamentActiveBouts } from "@/actions/matches";
 import { searchTournamentAthletes } from "@/actions/athletes";
-import { getPublicFloorData } from "@/actions/public";
+import { getPublicFloorData, getPublicPodiums } from "@/actions/public";
 import { DrawBracketModal } from "@/components/draw/DrawBracketModal";
 import { useLiveEvents } from "@/hooks/useLiveEvents";
 import "./public-spectator.css";
@@ -106,6 +106,8 @@ export default function PublicEventClient({
     athleteName: string;
     categoryName: string;
   } | null>(null);
+  const [podiums, setPodiums] = useState<Awaited<ReturnType<typeof getPublicPodiums>>>([]);
+  const beingPrepared = useMemo(() => categories.filter((c) => c?.being_prepared === true), [categories]);
   const isPublicDrawsEnabled = tournament.show_public_draws === true;
   const isPublicScoreboardEnabled = tournament.show_public_scoreboard === true;
 
@@ -253,9 +255,14 @@ export default function PublicEventClient({
       }
       const bouts = await getTournamentActiveBouts(tournament.id);
       if (bouts) setActiveBouts(bouts);
+      setPodiums(await getPublicPodiums(tournament.id));
     } catch (err) {
       console.error("[public] syncFloorData error:", err);
     }
+  }, [tournament.id]);
+
+  useEffect(() => {
+    getPublicPodiums(tournament.id).then(setPodiums).catch((err) => console.error("[public] podiums error:", err));
   }, [tournament.id]);
 
   // Realtime Subscriptions via SSE
@@ -589,7 +596,7 @@ export default function PublicEventClient({
 
                 return (
                   <div
-                    key={a.id}
+                    key={`${a.id}:${a.category_id ?? ""}`}
                     className={`spectator-result-row ${activeIndex === i ? "active" : ""}`}
                     role="option"
                     aria-selected={activeIndex === i}
@@ -962,6 +969,33 @@ export default function PublicEventClient({
             );
           })}
         </div>
+
+        {/* ---------- Podiums and groups still being prepared ---------- */}
+        {(podiums.length > 0 || beingPrepared.length > 0) && (
+          <div className="spectator-section-head" style={{ marginTop: 24 }}>
+            <span className="spectator-section-title">Results</span>
+          </div>
+        )}
+        {podiums.map((p) => (
+          <div key={p.name} className="spectator-result-row" style={{ cursor: "default" }}>
+            <div className="spectator-result-name" style={{ fontWeight: 700 }}>{p.name}</div>
+            {p.places.map((x, i) => (
+              <div key={`${x.medal}-${i}`} className="spectator-result-bottom">
+                <span>
+                  {x.medal === "gold" ? "Gold" : x.medal === "silver" ? "Silver" : "Bronze"} · {x.name}
+                  {x.guest ? " (guest)" : ""}
+                </span>
+                <span>{x.club ?? ""}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+        {beingPrepared.map((c) => (
+          <div key={c.id} className="spectator-result-row" style={{ cursor: "default" }}>
+            <div className="spectator-result-name">{c.name}</div>
+            <div className="spectator-result-bottom"><span>Being prepared</span></div>
+          </div>
+        ))}
 
         {/* ---------- Empty State ---------- */}
         <div

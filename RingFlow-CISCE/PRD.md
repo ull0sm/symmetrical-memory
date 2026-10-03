@@ -79,7 +79,9 @@ Full permission matrix: [docs/roles/README.md](docs/roles/README.md).
    reason: unlocking it before its first bout, adding, taking out or moving an athlete (a late kumite
    athlete takes an open bye once bouts have been fought; a late kata athlete performs last), or
    entering a guest from another category. The admin also reviews the stagers' walk-ins and merges a
-   duplicate into the registered athlete.
+   duplicate into the registered athlete. Each group ends with a podium (kumite brackets, ranked kata
+   groups), and the results export adds podiums and a club medal tally. The public page shows finished
+   podiums, and a group still being prepared only by name.
 2. The moderator starts the next category, picks a bout, runs the clock, scores, and confirms the
    result. The draw advances automatically, and kata pool finalists move into medal bouts.
 3. Kata judges vote from their phones (or the moderator enters marks manually).

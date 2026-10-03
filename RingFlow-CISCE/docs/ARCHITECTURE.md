@@ -189,6 +189,9 @@ policy, a permissions policy, and HSTS on HTTPS only so plain-HTTP LAN installs 
 - **Judge panel** shows five seats (the server handles seven) and has been exercised in a browser at
   phone size but not yet on real phones over a venue LAN or tunnel.
 - **Team events** have no floor operations (see [DISCIPLINES.md](DISCIPLINES.md)).
+- **Guest marks** come from `category_entries.guest` where a name is built for a bout (draw view,
+  moderator and scoreboard bout, judge phone, ranking). A new screen that shows athlete names must
+  use `withGuestMarks` (`src/lib/local/guests.ts`) or the draw view.
 - **Stager undo** lives in the open page: a reload, or another device, starts with an empty history.
   Drag and drop works with a mouse; on touch screens the stager taps.
 - **Styling debt.** Many components use inline hex colours instead of the theme tokens, and a few

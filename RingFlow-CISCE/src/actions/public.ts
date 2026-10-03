@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { categories, categoryAssignments, rings, tournaments } from "@/db/schema";
 import { serializeCategoryAssignment, serializeRing } from "@/lib/serializers";
 import { isValidUuid } from "@/lib/utils";
+import { tournamentPodiums } from "@/lib/results/podium";
 
 /**
  * Floor state for the public spectator page: which category is on each tatami
@@ -50,4 +51,28 @@ export async function getPublicFloorData(tournamentId: string) {
       return serializeCategoryAssignment(rest, catMap.get(a.categoryId));
     }),
   };
+}
+
+/**
+ * Finished podiums for the public page, when the admin shows public results (the same switch as public
+ * draws). A group still being prepared or in progress is not listed; no ids, only names, clubs and medals.
+ * The club medal tally is not public.
+ */
+export async function getPublicPodiums(tournamentId: string) {
+  if (!isValidUuid(tournamentId)) return [];
+
+  const [tournament] = await db
+    .select({ status: tournaments.status, show: tournaments.showPublicDraws })
+    .from(tournaments)
+    .where(eq(tournaments.id, tournamentId))
+    .limit(1);
+  if (!tournament || tournament.status === "draft" || tournament.show === false) return [];
+
+  const podiums = await tournamentPodiums(tournamentId);
+  return podiums
+    .filter((p) => p.final && p.places.length > 0)
+    .map((p) => ({
+      name: p.name,
+      places: p.places.map((x) => ({ medal: x.medal, name: x.name, club: x.club, guest: x.guest })),
+    }));
 }

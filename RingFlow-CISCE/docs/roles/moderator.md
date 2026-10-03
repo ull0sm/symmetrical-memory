@@ -43,6 +43,9 @@ athletes are level on a medal after the tie-breaks, the moderator records the de
 Ranking tab once everyone has performed (the order, re-performance or flag vote, and a note), and the
 group can't be finished until it is recorded (see [../DISCIPLINES.md](../DISCIPLINES.md#ranked-kata-groups)).
 
+A guest (an athlete the admin entered from another category) is marked "(guest)" beside their name on
+the moderator's bout, the ranking, the judge phones, the scoreboard feed and the printed draw.
+
 ## What a moderator can do (own tatami only)
 
 - **Queue** (`moderator.ts`): `startCategory`, `finishCategory`, `returnCategoryToQueue`,

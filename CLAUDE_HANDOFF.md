@@ -38,7 +38,7 @@ It is not in the repo (AGENTS.md forbids plan files).
 | 5 | Stager desk and category workspace UI, admin Staging overview, undo | done | `231f77b` |
 | 6 | Ranked kata scoring, tie-breaks, desk tie decision (migration 19), moderator queue labels | done | `e4ec971` |
 | 7 | Admin unlock, changes after lock (add, remove, move, fill a bye, append, guest), walk-in review and merge | done | `52d2f42` |
-| 8 | Results and visibility | **not started** | - |
+| 8 | Results and visibility | done | see git log |
 | 9 | Seed a Local demo, QUICKSTART/README, mock event | **not started** | - |
 
 **Nothing is in progress.**

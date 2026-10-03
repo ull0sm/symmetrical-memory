@@ -27,7 +27,7 @@ every tatami live.
 | Ring balancing: assign categories to tatamis and order each queue | `/admin/event/[id]/rings/balance` | `balancing.ts` |
 | Where a category runs: one tatami, or pools on different tatamis (split, move, put back together) | split icon on a queued category card | `categoryRouting.ts` |
 | Live dashboard: all tatamis, pause or resume one or all, activity feed, assistance requests | `/admin/event/[id]/dashboard` | `admin.ts`, `rings.ts`, `clock.ts` |
-| Official record: audit log, results export (CSV, PDF) | `/admin/event/[id]/record` | `audit.ts`, `resultsExport.ts` |
+| Official record: audit log, results export (bouts CSV, PDF with podiums and medal tally, podiums CSV, medal-tally CSV) | `/admin/event/[id]/record` | `audit.ts`, `resultsExport.ts` |
 | Judge panel override (approve, remove, rotate QR and PIN) | moderator's kata screen | `judgePanel.ts` |
 | Local tournament: belt list and group defaults | settings page | `divisions.ts` |
 | Local tournament: categories, each event's plan, starting groups, tatami per category | `/admin/event/[id]/categories` | `divisions.ts` |

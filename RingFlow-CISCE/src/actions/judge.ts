@@ -1,5 +1,6 @@
 "use server";
 
+import { withGuestMarks } from "@/lib/local/guests";
 import { timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { and, asc, count, desc, eq, inArray, isNull } from "drizzle-orm";
@@ -250,12 +251,15 @@ export async function getJudgeBout(ringId: string) {
     .where(eq(matchSlots.matchId, match.id))
     .orderBy(asc(matchSlots.position));
   const ids = slots.map((s) => s.athleteId).filter((id): id is string => Boolean(id));
-  const people = ids.length
-    ? await db
-        .select({ id: athletes.id, name: athletes.name, school: athletes.school, dojo: athletes.dojo })
-        .from(athletes)
-        .where(inArray(athletes.id, ids))
-    : [];
+  const people = await withGuestMarks(
+    ids.length
+      ? await db
+          .select({ id: athletes.id, name: athletes.name, school: athletes.school, dojo: athletes.dojo })
+          .from(athletes)
+          .where(inArray(athletes.id, ids))
+      : [],
+    [assignment.categoryId]
+  );
   const person = (position: number) => {
     const id = slots.find((s) => s.position === position)?.athleteId;
     const a = people.find((p) => p.id === id);
