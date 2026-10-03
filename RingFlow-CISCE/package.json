@@ -19,6 +19,7 @@
     "db:migrate": "npx tsx scripts/apply-migrations.ts",
     "db:bootstrap": "npx tsx scripts/bootstrap-db.ts",
     "db:seed": "npx tsx scripts/seed-realistic-tournament.ts",
+    "db:mock-local": "npx tsx scripts/mock-local-event.ts",
     "db:reset": "npx tsx scripts/reset-and-seed-clean.ts",
     "db:create-admin": "npx tsx scripts/create-admin.ts"
   },

@@ -76,7 +76,8 @@ npm test              # unit tests
 npm run db:push       # create or update tables from the schema
 npm run db:migrate    # apply SQL migrations (safe to repeat)
 npm run db:bootstrap  # apply base schema SQL and migrations without drizzle-kit
-npm run db:seed       # demo tournament (development only)
+npm run db:seed       # demo tournament, plus a small Local demo (development only)
+npm run db:mock-local # a full-day Local event: 3 tatamis, 15 categories, 105 children (development only)
 npm run db:reset      # wipe and reseed (development only)
 npm run db:create-admin -- --email=director@example.org --password='...' --name="Tournament Director"
 ```

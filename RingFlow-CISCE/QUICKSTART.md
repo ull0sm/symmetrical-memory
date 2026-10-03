@@ -43,6 +43,7 @@ Then open <http://localhost:3000>.
 | Tatamis | Tatami 1 to 4, access codes `RING01` to `RING04` |
 | Categories and athletes | Under-14 boys and girls, kata and kumite entries, chest numbers 101 and up |
 | Draws | Generated for every category |
+| Local demo | "Local Demo Tournament": 2 tatamis, 8 categories (ages 8 and 9, White and Yellow belt, boys and girls), 40 children, groups built and a tatami per category, nothing locked yet. Stager codes `LDSTG1` and `LDSTG2`, organiser code `LDORG1`, tatami codes `LDRNG1` and `LDRNG2`. Its ID is printed at the end of the seed; open `/admin/event/<id>/staging` |
 | Moderator session | One approved session for Tatami 1 (a browser still has to hold its token, so sign in through `/login/mod` as below) |
 
 These credentials exist for development only. Never run the seed against a real event database.
@@ -85,7 +86,10 @@ browser profile can hold several roles at once.
 
 - Organiser: `/login/organiser`, code `ORG001`. Approve the request as admin. The organiser sees the
   dashboard, roster, categories, ring balance and the official record, all read only.
-- Stager: the seed creates no stager codes. As admin, generate them on the Rings page, then sign in at
+- Stager (Local demo): sign in at `/login/stager` with `LDSTG1`, approve as admin, then take a category
+  on the stager desk, mark who is here, adjust the groups and lock them. `npm run db:mock-local` builds
+  a bigger Local event for a hands-on run (codes `MKSTG1`, `MKSTG2`; the stager desk works at phone width).
+- Stager (CISCE event): the seed creates no stager codes. As admin, generate them on the Rings page, then sign in at
   `/login/stager`, approve, and mark categories calling or ready.
 
 ### 5. Public view

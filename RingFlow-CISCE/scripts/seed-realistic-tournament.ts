@@ -26,6 +26,7 @@ import { asc, eq } from "drizzle-orm";
 import { isKataCategory } from "../src/lib/categories/eventType";
 import { hashPassword } from "../src/lib/auth/password";
 import { hashToken } from "../src/lib/auth/tokens";
+import { createLocalDemo } from "./localDemo";
 
 async function runSeed() {
   console.log("🥋 Starting comprehensive RingFlow database seed...");
@@ -204,6 +205,20 @@ async function runSeed() {
   if (pdfPackage.success) {
     console.log(`✅ Bulk PDF package generated successfully! Includes ${pdfPackage.includedCount} category draw PDFs.`);
   }
+
+  // 11. A small Local tournament next to the CISCE one: groups built, nothing locked yet.
+  const local = await createLocalDemo({
+    adminId,
+    name: "Local Demo Tournament",
+    codePrefix: "LD",
+    ringCount: 2,
+    ages: [8, 9],
+    belts: ["White", "Yellow"],
+    sexes: ["M", "F"],
+    perCategory: 5,
+  });
+  console.log(`✅ Local demo: ${local.categories} categories, ${local.athletes} children, 2 tatamis (stager codes LDSTG1, LDSTG2).`);
+  console.log(`📍 Local demo ID: ${local.tournament.id}  (admin: /admin/event/${local.tournament.id}/staging)`);
 
   console.log("\n🎉 DATABASE SEED COMPLETED SUCCESSFULLY!");
   console.log(`📍 Tournament ID: ${tournament.id}`);

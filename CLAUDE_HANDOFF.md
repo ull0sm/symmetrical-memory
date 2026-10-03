@@ -39,7 +39,7 @@ It is not in the repo (AGENTS.md forbids plan files).
 | 6 | Ranked kata scoring, tie-breaks, desk tie decision (migration 19), moderator queue labels | done | `e4ec971` |
 | 7 | Admin unlock, changes after lock (add, remove, move, fill a bye, append, guest), walk-in review and merge | done | `52d2f42` |
 | 8 | Results and visibility | done | see git log |
-| 9 | Seed a Local demo, QUICKSTART/README, mock event | **not started** | - |
+| 9 | Seed a Local demo, QUICKSTART/README, mock event | done | see git log |
 
 **Nothing is in progress.**
 - The worktree is clean apart from the untracked repo-root `.claude/`, which must never be committed.
