@@ -29,6 +29,10 @@ any other pool of the category even if it asks. The finals card cannot
 be started until every pool has been finished on its tatami, and a pool cannot be reopened once the
 finals have started.
 
+In a Local tournament each card is a group ("Blue · 9 · M · Kumite · Group 1"). A group can be started
+only once its stager has locked it; until then `startCategory` refuses it. Starting a kumite group sets
+the tatami clock to its event's bout length when one is set, unless a bout is on the clock.
+
 ## What a moderator can do (own tatami only)
 
 - **Queue** (`moderator.ts`): `startCategory`, `finishCategory`, `returnCategoryToQueue`,

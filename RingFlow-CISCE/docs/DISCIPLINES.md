@@ -83,6 +83,14 @@ take bronze with no extra bout (the draw engine's joint-bronze option). With **1
 semi-final losers fight one bronze bout. Full repechage is not offered for Local groups. Kumite
 groups are knockout brackets; kata groups are ranked groups, where every athlete performs once.
 
+A group's draw is built from its draft (`src/engine/draw-engine/groupDraw.ts`,
+`rankedKataDraw.ts`): athletes the stager pinned keep their places; byes go where the standard bracket
+puts them (moving on when a pin takes the place), and no bout ever has two byes; everyone else is
+shuffled from the group's stored seed, keeping club-mates apart in the first round. A ranked kata
+group is a performance order called in pairs, with a solo for an odd last athlete. Locking a group
+stores exactly the draw the stager was shown (same members, pins and seed, same checksum) as a locked
+draw, and only then can it start.
+
 ## Kata
 
 A kata category chooses a **format** and a **scoring mode** (`updateCategoryKataSettings`):

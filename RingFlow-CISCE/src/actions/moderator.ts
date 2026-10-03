@@ -1,6 +1,8 @@
 "use server";
 
 import { poolsFinalsWaitFor } from "@/lib/draws/partRouting";
+import { localGroupStartCheck } from "@/lib/local/startGate";
+import { persistRingClock, readRingClockRow } from "@/lib/ringClockStore";
 import { audit } from "@/lib/audit";
 import { db } from "@/db";
 import {
@@ -388,6 +390,9 @@ export async function startCategory(assignmentId: string, ringId: string) {
     throw new Error("This category is already completed. Return it to the queue first.");
   }
 
+  // A Local group runs only once its stager has locked it, and takes its event's bout length.
+  const localGroup = await localGroupStartCheck(assignment.categoryId);
+
   // A split category's finals wait for every pool: the bouts they feed from are on other tatamis.
   if (assignment.part === "FINALS") {
     const waiting = await poolsFinalsWaitFor(assignment.categoryId);
@@ -416,6 +421,14 @@ export async function startCategory(assignmentId: string, ringId: string) {
     .update(categoryAssignments)
     .set({ status: "running", startedAt: assignment.startedAt ?? new Date() })
     .where(eq(categoryAssignments.id, assignmentId));
+
+  // Set the tatami clock to the group's bout length, unless a bout is on the clock right now.
+  if (localGroup?.boutDurationMs) {
+    const clock = await readRingClockRow(ringId);
+    if (clock && clock.timerStatus !== "running" && clock.timerStatus !== "paused") {
+      await persistRingClock(ringId, { status: "idle", durationMs: localGroup.boutDurationMs, accumulatedMs: 0, startedAt: null });
+    }
+  }
 
   await logAndBroadcast({
     ringId,

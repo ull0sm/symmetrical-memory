@@ -149,6 +149,91 @@ export async function loadCategoryRoster(executor: DbExecutor, categoryId: strin
 }
 
 /**
+ * Writes a category's draw from an engine graph, replacing any previous bouts:
+ * the draw row (next version), the version history, the bouts and their slots,
+ * and the category's expected bout count. Generated Official draws and locked
+ * Local groups share it. Call it inside a transaction that has already checked
+ * nothing has been fought; it does no checks of its own.
+ */
+export async function writeDrawGraph(
+  tx: DbExecutor,
+  categoryId: string,
+  graph: DrawGraph,
+  options: { format: string; state: "DRAFT" | "LOCKED"; bronzeMedals: number; reason: string }
+) {
+  // Delete existing matches, slots, scores, and events cleanly in reverse FK dependency order
+  const catMatches = await tx.select({ id: matches.id }).from(matches).where(eq(matches.categoryId, categoryId));
+  const matchIds = catMatches.map((m) => m.id);
+  if (matchIds.length > 0) {
+    await tx.delete(kataScores).where(inArray(kataScores.matchId, matchIds));
+    await tx.delete(matchEvents).where(inArray(matchEvents.matchId, matchIds));
+    await tx.delete(matchSlots).where(inArray(matchSlots.matchId, matchIds));
+    await tx.delete(matches).where(eq(matches.categoryId, categoryId));
+  }
+
+  // Upsert draw record. A version number is never reused, even if the row has fallen behind its history.
+  const [existingDraw] = await tx.select().from(draws).where(eq(draws.categoryId, categoryId));
+  const [latest] = existingDraw
+    ? await tx
+        .select({ v: sql<number>`max(${drawVersions.version})` })
+        .from(drawVersions)
+        .where(eq(drawVersions.drawId, existingDraw.id))
+    : [];
+  const version = existingDraw ? Math.max(existingDraw.version, Number(latest?.v ?? 0)) + 1 : 1;
+  const drawId = existingDraw?.id ?? crypto.randomUUID();
+  const row = {
+    version,
+    format: options.format,
+    rulesetId: graph.rulesetId,
+    tournamentSize: graph.tournamentSize,
+    byeCount: graph.byeCount,
+    checksum: graph.checksum,
+    state: options.state,
+    bronzeMedals: options.bronzeMedals,
+    ...(options.state === "LOCKED" ? { lockedAt: new Date() } : {}),
+  };
+  if (existingDraw) await tx.update(draws).set(row).where(eq(draws.id, drawId));
+  else await tx.insert(draws).values({ id: drawId, categoryId, ...row });
+
+  // Version history: the whole graph, so the draw can be re-read and verified later.
+  await tx.insert(drawVersions).values({ drawId, version, graph, checksum: graph.checksum, reason: options.reason });
+
+  // The bouts and their slots, from the graph, for kumite brackets and kata pools alike.
+  if (graph.matches.length > 0) {
+    await tx.insert(matches).values(
+      graph.matches.map((m) => ({
+        id: m.id,
+        categoryId,
+        matchNo: m.matchNo,
+        roundNo: m.roundNo,
+        roundName: m.roundName,
+        bracketType: m.bracketType,
+        status: m.startStatus ?? "SCHEDULED",
+        poolGroup: m.poolGroup ?? null,
+        kataScoringMode: m.kataScoringMode ?? null,
+      }))
+    );
+  }
+  if (graph.slots.length > 0) {
+    await tx.insert(matchSlots).values(
+      graph.slots.map((s) => ({
+        id: s.id,
+        matchId: s.matchId,
+        position: s.position,
+        slotType: s.slotType,
+        athleteId: s.registrationId ?? null,
+        sourceMatchId: s.sourceMatchId ?? null,
+      }))
+    );
+  }
+
+  // Walkovers and empty bye matches are never fought; a kata flight or ranked group has none.
+  const foughtBouts = foughtBoutCount(graph);
+  await tx.update(categories).set({ expectedMatches: foughtBouts }).where(eq(categories.id, categoryId));
+  return { drawId, version, foughtBouts };
+}
+
+/**
  * The core of draw generation: pure database work with no request context, so
  * the admin actions can guard it and scripts (seeding, verification) can call
  * it directly. Never expose these to the client.
@@ -285,105 +370,14 @@ export async function performCategoryDraw(
       // Roster size is recorded with the draw, so a refused or failed draw leaves the counts alone.
       await tx.update(categories).set({ athletesCount: participantList.length }).where(eq(categories.id, categoryId));
 
-      // Delete existing matches, slots, scores, and events cleanly in reverse FK dependency order
-      const catMatches = await tx
-        .select({ id: matches.id })
-        .from(matches)
-        .where(eq(matches.categoryId, categoryId));
-      const matchIds = catMatches.map((m) => m.id);
-
-      if (matchIds.length > 0) {
-        await tx.delete(kataScores).where(inArray(kataScores.matchId, matchIds));
-        await tx.delete(matchEvents).where(inArray(matchEvents.matchId, matchIds));
-        await tx.delete(matchSlots).where(inArray(matchSlots.matchId, matchIds));
-        await tx.delete(matches).where(eq(matches.categoryId, categoryId));
-      }
-
-      // Upsert draw record
-      const [existingDraw] = await tx
-        .select()
-        .from(draws)
-        .where(eq(draws.categoryId, categoryId));
-
-      const version = existingDraw ? existingDraw.version + 1 : 1;
-      const drawId = existingDraw?.id ?? crypto.randomUUID();
-
-      const drawFormat = isKataPools ? "KATA_GROUP_POOLS" : graph.format;
-
-      if (existingDraw) {
-        await tx
-          .update(draws)
-          .set({
-            version,
-            format: drawFormat,
-            rulesetId: graph.rulesetId,
-            tournamentSize: graph.tournamentSize,
-            byeCount: graph.byeCount,
-            checksum: graph.checksum,
-            state: "DRAFT",
-            bronzeMedals,
-          })
-          .where(eq(draws.id, drawId));
-      } else {
-        await tx.insert(draws).values({
-          id: drawId,
-          categoryId,
-          version,
-          format: drawFormat,
-          rulesetId: graph.rulesetId,
-          tournamentSize: graph.tournamentSize,
-          byeCount: graph.byeCount,
-          checksum: graph.checksum,
-          state: "DRAFT",
-          bronzeMedals,
-        });
-      }
-
-      // Version history: the whole graph, so the draw can be re-read and verified later.
-      await tx.insert(drawVersions).values({
-        drawId,
-        version,
-        graph,
-        checksum: graph.checksum,
+      const { drawId, version, foughtBouts } = await writeDrawGraph(tx, categoryId, graph, {
+        format: isKataPools ? "KATA_GROUP_POOLS" : graph.format,
+        state: "DRAFT",
+        bronzeMedals,
         reason: `Generated by admin (seed ${randomSeed}, ${rules.profile.toLowerCase()} profile, ${
           isKataPools ? "kata pools" : `${seeds.length} seeded`
         }, club separation ${separate ? "on" : "off"})`,
       });
-
-      // The bouts and their slots, from the graph, for kumite brackets and kata pools alike.
-      if (graph.matches.length > 0) {
-        await tx.insert(matches).values(
-          graph.matches.map((m) => ({
-            id: m.id,
-            categoryId,
-            matchNo: m.matchNo,
-            roundNo: m.roundNo,
-            roundName: m.roundName,
-            bracketType: m.bracketType,
-            status: m.startStatus ?? "SCHEDULED",
-            poolGroup: m.poolGroup ?? null,
-            kataScoringMode: m.kataScoringMode ?? null,
-          }))
-        );
-      }
-
-      if (graph.slots.length > 0) {
-        await tx.insert(matchSlots).values(
-          graph.slots.map((s) => ({
-            id: s.id,
-            matchId: s.matchId,
-            position: s.position,
-            slotType: s.slotType,
-            athleteId: s.registrationId ?? null,
-            sourceMatchId: s.sourceMatchId ?? null,
-          }))
-        );
-      }
-
-      // Walkovers and empty bye matches are never fought; a kata flight has none.
-      const foughtBouts = isKataPools ? graph.matches.length : foughtBoutCount(graph);
-
-      await tx.update(categories).set({ expectedMatches: foughtBouts }).where(eq(categories.id, categoryId));
 
       // A category whose pools run on different tatamis keeps that routing across a redraw when the
       // new draw has the same number of pools; otherwise it goes back to one card.

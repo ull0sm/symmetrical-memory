@@ -15,6 +15,7 @@ import { SESSION_COOKIES, LEGACY_COOKIES, clearCookies, setSessionCookie } from 
 import { claimCookieName, holdsClaim, issueClaim } from "@/lib/auth/claims";
 import { hashToken, newSessionToken } from "@/lib/auth/tokens";
 import { requireTournamentAdmin, requireTournamentStaff } from "@/lib/auth/guards";
+import { releaseHoldsOfCode } from "@/lib/local/holds";
 import { getStagerPrincipal } from "@/lib/auth/principal";
 import { SESSION_TTL_SECONDS } from "@/lib/constants";
 
@@ -323,6 +324,9 @@ export async function removeStagerCode(tournamentId: string, code: string) {
       .set({ status: "revoked", sessionToken: null, sessionTokenHash: null })
       .where(inArray(stagerRequests.id, holderIds));
   }
+
+  // A Local category held under this code is free again; its drafts stay.
+  await releaseHoldsOfCode(code);
 
   await audit({ tournamentId, actor: admin, action: "STAGER_CODE_REMOVED", after: { revokedSessions: holderIds.length } });
   revalidatePath(`/admin/event/${tournamentId}/rings`);

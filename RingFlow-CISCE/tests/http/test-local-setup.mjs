@@ -113,6 +113,26 @@ const rebuild = await call(A, "buildDivisionStartingGroups", [D9M.id], admin, CA
 const queueAfter = await sql`select count(*)::int as n from category_assignments where ring_id=${R1}`;
 check("rebuilt groups keep their tatami", rebuild.value?.success === true && queueAfter[0].n === 6);
 
+// ── Only a locked group can start ──
+const modCode = String(100000 + Math.floor(Math.random() * 899999));
+await sql`update rings set access_code=${modCode} where id=${R1}`;
+const mod = new Jar();
+const mreq = await call(A, "requestModeratorAccess", [modCode, "Desk", {}, "offline-bypass"], mod);
+await call(A, "approveModeratorRequest", [mreq.value.requestId, R1, L], admin, `/admin/event/${L}/rings`);
+await call(A, "checkModeratorStatus", [mreq.value.requestId], mod);
+await sql`update division_events set bout_duration_ms=90000 where id=${kumite9M.id}`;
+const [firstCard] = await sql`select a.id, a.category_id from category_assignments a where a.ring_id=${R1} order by a.queue_order limit 1`;
+const QUEUE = `/moderator/ring/${R1}/queue`;
+check("a group the stager hasn't sent can't start", denied(await call(A, "startCategory", [firstCard.id, R1], mod, QUEUE)));
+const [{ status: stillPending }] = await sql`select status from category_assignments where id=${firstCard.id}`;
+check("and stays in the queue", stillPending === "pending");
+await sql`insert into draws (category_id, tournament_size, checksum, state) values (${firstCard.category_id}, 8, 'x', 'LOCKED')`;
+const started = await call(A, "startCategory", [firstCard.id, R1], mod, QUEUE);
+const [clock] = await sql`select timer_duration_ms from rings where id=${R1}`;
+check("a locked group starts, and the tatami clock takes its bout length", started.value?.success === true && clock.timer_duration_ms === 90000);
+await sql`update category_assignments set status='pending' where id=${firstCard.id}`;
+await sql`delete from draws where category_id=${firstCard.category_id}`;
+
 // ── Moving athletes and participation ──
 const [boy2] = await sql`select id from athletes where tournament_id=${L} and name='Blue Boy 2'`;
 const move = await call(A, "assignAthleteDivision", [L, boy2.id, D8F.id], admin, ATH);

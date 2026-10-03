@@ -37,7 +37,7 @@ For anyone changing the code. For what the product does, read
 
 | I want to change | Look in |
 |---|---|
-| Any server behavior | `src/actions/<area>.ts` (one file per area: `admin`, `athletes`, `attendance`, `audit`, `auth`, `balancing`, `categories`, `categoryDefinitions`, `categoryRouting`, `categoryDocs`, `clock`, `divisions`, `drawPdfs`, `draws`, `judge`, `judgePanel`, `kata`, `localAthletes`, `matches`, `moderator`, `officialImport`, `organiser`, `public`, `resultsExport`, `rings`, `settings`, `stager`, `tournament`, `turnstile`) |
+| Any server behavior | `src/actions/<area>.ts` (one file per area: `admin`, `athletes`, `attendance`, `audit`, `auth`, `balancing`, `categories`, `categoryDefinitions`, `categoryRouting`, `categoryDocs`, `clock`, `divisions`, `drawPdfs`, `draws`, `judge`, `judgePanel`, `kata`, `localAthletes`, `matches`, `moderator`, `officialImport`, `organiser`, `public`, `resultsExport`, `rings`, `settings`, `stager`, `staging`, `tournament`, `turnstile`) |
 | Who can call what | `src/lib/auth/` ([roles/README.md](RingFlow-CISCE/docs/roles/README.md)) |
 | Database tables | `src/db/schema/index.ts`, plus `db/migrations/` for triggers and constraints |
 | Allowed status values | `src/lib/statuses.ts` (then the schema check and a migration) |
@@ -53,7 +53,7 @@ For anyone changing the code. For what the product does, read
 | PDFs and exports | `src/lib/pdf/`, `src/lib/results/`, `src/actions/resultsExport.ts` |
 | Environment and deployment mode | `src/lib/env.ts`, `src/lib/offline.ts`, `src/lib/http/` |
 | Screens | `src/app/<role>/...` (admin, organiser, stager, moderator, judge, public, scoreboard) and `src/components/<role or feature>/` |
-| Local tournaments (divisions, groups, stager holds) | `src/lib/local/`, `src/lib/auth/localScope.ts`, `src/actions/divisions.ts` (setup), `src/actions/localAthletes.ts` (roster) |
+| Local tournaments (divisions, groups, stager holds) | `src/lib/local/`, `src/lib/auth/localScope.ts`, `src/actions/divisions.ts` (setup), `src/actions/localAthletes.ts` (roster), `src/actions/staging.ts` (stager desk) |
 
 ## Anatomy of an action (illustrative)
 

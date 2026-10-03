@@ -17,7 +17,8 @@ authorization, sessions and the flows that need a database.
 | `test-local-tournaments.mjs` | Local tournaments: choosing the type at creation, switching it in settings only before anything is set up, who may switch it, and the database check on the type |
 
 ## Database checks (no server needed)
-`npm run test:db` runs the draw guard, setup, manual-swap and kata-flow checks straight against the database.
+`npm run test:db` runs the draw guard, setup, manual-swap, kata-flow, pool-routing and Local staging checks
+(holds, every draft change, locking a group, the start gate) straight against the database.
 They write a throwaway tournament and refuse to run unless `DATABASE_URL` points at the isolated test database on port 55432:
 ```bash
 DATABASE_URL=postgres://event_suite:event_suite@127.0.0.1:55432/ringflow npm run test:db

@@ -11,8 +11,8 @@ import type { DrawGraph } from "@/engine/draw-engine/types";
  * and the backfill path can never drift.
  */
 export function foughtBoutCount(graph: DrawGraph): number {
-  // A kata pool flight is not an elimination tree and has no walkovers: every bout is run.
-  if (graph.flightDraw) return graph.matches.length;
+  // A kata pool flight or a ranked kata group is not an elimination tree and has no walkovers: every bout is run.
+  if (graph.flightDraw || graph.format === "KATA_RANKED") return graph.matches.length;
   const neverRun = neverRunMatchIds(graph);
   return graph.matches.filter((m) => !neverRun.has(m.id)).length;
 }
